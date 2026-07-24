@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test/coverage output
+coverage/
+
+# blastproof runtime artifacts
+.blastproof/reports/
+.blastproof/sessions/
+
+# Env / secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

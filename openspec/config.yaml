@@ -1,0 +1,36 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating artifacts.
+context: |
+  Project: blastproof — open-source AI testing agent for pull requests (MIT).
+  It is the OSS alternative to DevAssure: reads a PR diff, maps the blast
+  radius, generates plain-English YAML E2E tests, executes them agentically
+  on Playwright (ariaSnapshot + LLM structured output, no static selectors),
+  and reports a priority-weighted score that can gate merges.
+
+  Pipeline: git diff → impact mapping → test generation → agentic execution → report + score
+
+  Tech stack: TypeScript (strict, ESM NodeNext), Node >= 20.19, Playwright
+  (Chromium), Vercel AI SDK (generateObject + Zod) with Anthropic/OpenAI/
+  Ollama providers, commander, yaml, simple-git, tsup, vitest.
+
+  Conventions:
+  - Conventional Commits, one-line subject.
+  - User tests live in .blastproof/tests/*.yaml (summary, steps, priority, tags).
+  - Config in .blastproof/config.yaml (base_url, llm, browser, routes hints).
+  - No static selectors anywhere; elements resolve live via accessibility tree.
+  - Mask {{env.*}} secret values in all logs and reports.
+  - Local-first BYOK: never introduce a SaaS backend or telemetry.
+
+  Milestones: M1 YAML runner (init/run) → M2 diff+impact+planner (test/plan)
+  → M3 reports+score → M4 GitHub Action + npm publish.
+
+# Per-artifact rules
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always include a "Non-goals" section
+    - Justify any new npm dependency
+  tasks:
+    - Break tasks into small verifiable chunks
+    - Every task list ends with build+typecheck+test verification
