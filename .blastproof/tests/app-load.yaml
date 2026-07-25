@@ -1,0 +1,5 @@
+summary: App loads and shows the home page
+priority: P1
+tags: [smoke]
+steps:
+  - verify the home page loads and shows a heading

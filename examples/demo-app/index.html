@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blastproof Demo Shop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <nav aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="login.html">Login</a>
+      <a href="cart.html">Cart</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Blastproof Demo Shop</h1>
+    <p>A tiny static shop used to E2E-validate the blastproof runner.</p>
+
+    <section aria-label="Products">
+      <h2>Products</h2>
+      <ul class="products">
+        <li>
+          <article>
+            <h3>Mechanical Keyboard</h3>
+            <p class="price" data-price="120">$120.00</p>
+            <button type="button" data-add-to-cart data-name="Mechanical Keyboard" data-price="120">
+              Add to cart
+            </button>
+          </article>
+        </li>
+        <li>
+          <article>
+            <h3>Wireless Mouse</h3>
+            <p class="price" data-price="60">$60.00</p>
+            <button type="button" data-add-to-cart data-name="Wireless Mouse" data-price="60">
+              Add to cart
+            </button>
+          </article>
+        </li>
+      </ul>
+    </section>
+
+    <p id="cart-feedback" role="status" aria-live="polite"></p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

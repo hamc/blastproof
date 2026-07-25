@@ -1,0 +1,11 @@
+summary: Login with valid credentials succeeds
+priority: P0
+tags: [smoke, auth]
+steps:
+  - navigate to /login
+  - fill the email field with demo@blastproof.dev
+  - fill the password field with demo123
+  - submit the login form
+  - verify a welcome message is shown
+# Secrets tip: use {{env.VAR_NAME}} placeholders in steps (e.g. {{env.TEST_PASSWORD}})
+# and export the variable before running. Values are masked as *** in all output.

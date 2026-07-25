@@ -1,0 +1,10 @@
+summary: Promo code SAVE20 applies a 20% discount in the cart
+priority: P0
+tags: [cart, discount]
+steps:
+  - add the Mechanical Keyboard to the cart
+  - navigate to the cart page
+  - verify the subtotal is $120.00
+  - apply promo code SAVE20
+  - verify a 20% discount of $24.00 is shown
+  - verify the total is $96.00

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cart — Blastproof Demo Shop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <nav aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="login.html">Login</a>
+      <a href="cart.html">Cart</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Your cart</h1>
+
+    <section aria-label="Cart items">
+      <ul id="cart-items" class="cart-items"></ul>
+      <p id="cart-empty" hidden>Your cart is empty.</p>
+    </section>
+
+    <section aria-label="Promo code">
+      <form id="promo-form" method="dialog">
+        <div class="field">
+          <label for="promo-code">Promo code</label>
+          <input id="promo-code" name="promo" type="text" placeholder="SAVE20" />
+        </div>
+        <button type="submit">Apply promo code</button>
+      </form>
+      <p id="promo-feedback" role="status" aria-live="polite"></p>
+    </section>
+
+    <section aria-label="Totals">
+      <dl class="totals">
+        <div><dt>Subtotal</dt><dd id="subtotal">$0.00</dd></div>
+        <div id="discount-row" hidden><dt>Discount (SAVE20)</dt><dd id="discount">-$0.00</dd></div>
+        <div><dt>Total</dt><dd id="total">$0.00</dd></div>
+      </dl>
+    </section>
+
+    <a href="checkout.html" id="checkout-link" role="button">Checkout</a>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -3,10 +3,10 @@ schema: spec-driven
 # Project context — shown to AI when creating artifacts.
 context: |
   Project: blastproof — open-source AI testing agent for pull requests (MIT).
-  It is the OSS alternative to DevAssure: reads a PR diff, maps the blast
-  radius, generates plain-English YAML E2E tests, executes them agentically
-  on Playwright (ariaSnapshot + LLM structured output, no static selectors),
-  and reports a priority-weighted score that can gate merges.
+  Given a PR diff, it maps the blast radius, generates plain-English YAML
+  E2E tests, executes them agentically on Playwright (ariaSnapshot + LLM
+  structured output, no static selectors), and reports a priority-weighted
+  score that can gate merges. 100% local, BYOK (bring your own LLM key).
 
   Pipeline: git diff → impact mapping → test generation → agentic execution → report + score
 

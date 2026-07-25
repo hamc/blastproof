@@ -4,13 +4,13 @@
 
 ## Mission
 
-**blastproof** is the open-source alternative to [DevAssure](https://www.devassure.io/): an AI testing agent for pull requests. Given a code diff, it maps the blast radius, generates plain-English E2E tests, executes them on a real browser through an agentic self-healing loop, and reports a score that can gate merges. 100% local, BYOK (bring your own LLM key). MIT licensed.
+**blastproof** is an open-source AI testing agent for pull requests. Given a code diff, it maps the blast radius, generates plain-English E2E tests, executes them on a real browser through an agentic self-healing loop, and reports a score that can gate merges. 100% local, BYOK (bring your own LLM key). MIT licensed.
 
 Pipeline: `git diff → impact mapping → test generation → agentic execution → report + score`
 
-## What we replicate from DevAssure (and what we don't)
+## Capabilities and scope
 
-| DevAssure capability | blastproof MVP |
+| Capability | blastproof MVP |
 | --- | --- |
 | PR diff analysis | ✅ `blastproof test --base main` |
 | Blast radius mapping | ✅ heuristics (config `routes:` globs) + LLM fallback |
@@ -24,7 +24,7 @@ Pipeline: `git diff → impact mapping → test generation → agentic execution
 
 ## Tech stack
 
-- **Runtime**: Node.js ≥ 20.19 (managed via asdf, see `.tool-versions`), TypeScript strict, ESM (`"type": "module"`, NodeNext resolution)
+- **Runtime**: Node.js ≥ 20.19 (see `engines` in `package.json`; use any version manager you like), TypeScript strict, ESM (`"type": "module"`, NodeNext resolution)
 - **Browser**: Playwright (Chromium only in MVP) — snapshots via `page.locator('body').ariaSnapshot()`
 - **LLM**: Vercel AI SDK (`generateObject` + Zod schemas) — providers: Anthropic, OpenAI, Ollama (OpenAI-compatible)
 - **CLI**: commander · **Config/tests**: `yaml` · **Git**: simple-git · **Build**: tsup · **Tests**: vitest
@@ -77,10 +77,20 @@ Rules:
 - Update `tasks.md` checkboxes as you complete work
 - If implementation diverges from design, update the change artifacts first
 
+## Multi-agent workflow (optional, opencode)
+
+Subagents in `.opencode/agents/` mirror a small delivery team with strict separation of duties (file permissions enforce it):
+
+- `dev` — implements tasks from an approved OpenSpec change (code + unit tests). Never touches `openspec/` artifacts, never commits.
+- `qa` — verifies: build/typecheck/test + E2E against `examples/demo-app/`; owns `DEFECTS.md` and is the only role that closes defects. Never edits product code.
+- `sentinel` — read-only reviewer: secret leaks/masking, static selectors, unjustified dependencies, spec and convention drift. Never edits anything.
+
+Delegate via the Task tool. The primary agent (or the human) orchestrates: dispatches tasks, triages defects, and checks off `tasks.md` boxes only after `qa` verifies.
+
 ## Build, test, verify
 
 ```bash
-asdf install          # Node version from .tool-versions
+# requires Node.js >= 20.19 (see engines in package.json)
 npm install
 npm run build         # tsup → dist/
 npm test              # vitest
@@ -93,7 +103,7 @@ Before considering any task done: `build`, `test` and `typecheck` must pass. E2E
 
 | # | Scope | Status |
 | --- | --- | --- |
-| M1 | `init` + `run`: YAML runner with agentic LLM executor + demo app | proposed (`openspec/changes/m1-yaml-runner`) |
+| M1 | `init` + `run`: YAML runner with agentic LLM executor + demo app | implemented (`openspec/changes/m1-yaml-runner`) |
 | M2 | `test`/`plan`: diff analysis, impact mapping, test generation | pending |
 | M3 | Reports (JUnit/HTML), scoring, exit codes | pending |
 | M4 | GitHub Action, npm publish | pending |

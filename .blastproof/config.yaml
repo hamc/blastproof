@@ -1,0 +1,29 @@
+# blastproof configuration
+# Docs: https://github.com/blastproof/blastproof
+
+# Base URL of the app under test. Relative navigate paths resolve against it.
+base_url: http://localhost:4173
+
+llm:
+  # anthropic | openai | ollama
+  provider: anthropic
+  # Optional. Defaults: anthropic=claude-haiku-4-5, openai=gpt-4o-mini, ollama=qwen2.5
+  # model: claude-haiku-4-5
+  # Env var holding your API key (not needed for ollama).
+  api_key_env: ANTHROPIC_API_KEY
+  # Ollama only: OpenAI-compatible endpoint (http://localhost:11434/v1);
+  # with provider "openai" it enables compatible gateways, e.g. OpenRouter:
+  # base_url: https://openrouter.ai/api/v1   (model e.g. anthropic/claude-haiku-4.5)
+  # base_url: http://localhost:11434/v1
+
+browser:
+  headless: true
+  timeout_ms: 30000
+
+# Budget of self-healing retries per step (element re-resolution via accessibility tree).
+# max_retries_per_step: 3
+
+# Impact hints mapping file globs to routes (used by `blastproof test`, M2).
+routes:
+  "src/auth/**": ["/login"]
+  "src/cart/**": ["/cart", "/checkout"]
