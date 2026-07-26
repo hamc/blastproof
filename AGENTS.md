@@ -87,6 +87,8 @@ Subagents in `.opencode/agents/` mirror a small delivery team with strict separa
 
 Delegate via the Task tool. The primary agent (or the human) orchestrates: dispatches tasks, triages defects, and checks off `tasks.md` boxes only after `qa` verifies.
 
+The same three agents are also ported to **Claude Code** (`.claude/agents/`), with cost-tiered models: orchestrator/main agent runs Opus (`.claude/settings.json`), `dev` and `qa` run Sonnet, `sentinel` runs Haiku.
+
 ## Build, test, verify
 
 ```bash
