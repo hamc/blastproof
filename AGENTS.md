@@ -104,7 +104,7 @@ Before considering any task done: `build`, `test` and `typecheck` must pass. E2E
 | # | Scope | Status |
 | --- | --- | --- |
 | M1 | `init` + `run`: YAML runner with agentic LLM executor + demo app | implemented (`openspec/changes/m1-yaml-runner`) |
-| M2 | `test`/`plan`: diff analysis, impact mapping, test generation | pending |
+| M2 | `test`/`plan`: diff analysis, impact mapping, test generation | m2a (`run --impacted`) implemented (`openspec/changes/m2a-impacted-runs`); m2b (planner) pending |
 | M3 | Reports (JUnit/HTML), scoring, exit codes | pending |
 | M4 | GitHub Action, npm publish | pending |
 

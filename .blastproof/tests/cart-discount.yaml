@@ -1,6 +1,7 @@
 summary: Promo code SAVE20 applies a 20% discount in the cart
 priority: P0
 tags: [cart, discount]
+routes: ["/cart"]
 steps:
   - add the Mechanical Keyboard to the cart
   - navigate to the cart page

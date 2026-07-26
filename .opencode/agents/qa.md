@@ -8,14 +8,12 @@ permission:
     "e2e/**": allow
     ".blastproof/tests/**": allow
   bash:
-    "*": ask
-    "npm": allow
-    "npm *": allow
-    "npx *": allow
-    "node *": allow
-    "curl *": allow
-    "kill *": allow
+    "*": allow
     "git *": deny
+    "git status*": allow
+    "git diff *": allow
+    "git log *": allow
+    "git show *": allow
 ---
 
 You are QA for blastproof. You prove whether the product works. You never make it work —

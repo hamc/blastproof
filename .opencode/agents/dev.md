@@ -17,12 +17,12 @@ permission:
     "tsup.config.ts": allow
     "vitest.config.ts": allow
   bash:
-    "*": ask
-    "npm": allow
-    "npm *": allow
-    "npx *": allow
-    "node *": allow
+    "*": allow
     "git *": deny
+    "git status*": allow
+    "git diff *": allow
+    "git log *": allow
+    "git show *": allow
 ---
 
 You are the implementation developer for blastproof. You write code; you never plan scope,

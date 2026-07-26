@@ -1,17 +1,24 @@
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
+import { DiffError, getChangedFiles } from '../diff.js';
+import { mapImpact, type ImpactResult } from '../impact.js';
 import { createBrain } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
 import type { PageLike } from '../runner/actions.js';
 import { MissingEnvError, SecretsMask, substituteEnv } from '../runner/env.js';
 import { executeTest, type ExecutorEvent, type TestResult } from '../runner/executor.js';
 import {
+  matchesFilters,
+  selectImpactedTests,
+  type ImpactedSelection,
+  type TestFilters,
+} from '../runner/selection.js';
+import {
   discoverTestFiles,
   parseTestFile,
   TESTS_RELATIVE_DIR,
   TestFileError,
-  type Priority,
   type TestFile,
 } from '../runner/testfile.js';
 
@@ -19,28 +26,39 @@ export const EXIT_OK = 0;
 export const EXIT_FAILED = 1;
 export const EXIT_USAGE = 2;
 
-export interface RunOptions {
+export interface RunOptions extends TestFilters {
   cwd: string;
-  tags: string[];
-  priority?: Priority;
-  query?: string;
+  /** Run only tests impacted by the diff vs `base` (uses routes: mappings). */
+  impacted?: boolean;
+  /** Base git ref for --impacted (default "main"). */
+  base?: string;
+  /** Overrides config base_url for this run only; the config file is never mutated. */
+  url?: string;
+  /** Print the selection plan and exit without launching a browser or calling the LLM. */
+  dryRun?: boolean;
 }
 
 function sessionId(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
-function matchesFilters(test: TestFile, options: RunOptions): boolean {
-  if (options.tags.length > 0 && !options.tags.some((tag) => test.tags.includes(tag))) {
-    return false;
+/**
+ * Returns a copy of `config` with `base_url` overridden by the --url flag
+ * (CLI flag > config file, design D6). Throws ConfigError on an invalid URL.
+ */
+export function applyUrlOverride(
+  config: BlastproofConfig,
+  url: string | undefined,
+): BlastproofConfig {
+  if (url === undefined) return config;
+  try {
+    new URL(url);
+  } catch {
+    throw new ConfigError(
+      `Invalid --url '${url}': expected an absolute URL like http://localhost:4173.`,
+    );
   }
-  if (options.priority && test.priority !== options.priority) {
-    return false;
-  }
-  if (options.query && !test.summary.toLowerCase().includes(options.query.toLowerCase())) {
-    return false;
-  }
-  return true;
+  return { ...config, base_url: url };
 }
 
 /** Substitutes env placeholders across setup+steps, registering every secret for masking. */
@@ -156,20 +174,77 @@ async function runOne(
   }
 }
 
+/** Prints the --impacted report sections (affected/unmapped/unrouted-skipped/uncovered). */
+function printImpactReport(
+  impact: ImpactResult,
+  selection: ImpactedSelection,
+  cwd: string,
+): void {
+  console.log('\n--- Impact -----------------------------------------------------');
+  console.log(
+    impact.affectedRoutes.length > 0 ? 'Affected routes:' : 'Affected routes: none',
+  );
+  for (const route of impact.affectedRoutes) console.log(`  ${route}`);
+  if (impact.unmappedFiles.length > 0) {
+    console.log('Unmapped files (matched by no routes: glob):');
+    for (const file of impact.unmappedFiles) console.log(`  ${file}`);
+  }
+  if (selection.unroutedSkipped.length > 0) {
+    console.log('Unrouted tests (skipped):');
+    for (const test of selection.unroutedSkipped) {
+      console.log(`  ${test.summary} (${path.relative(cwd, test.path)})`);
+    }
+  }
+  if (selection.uncoveredRoutes.length > 0) {
+    console.log('Affected but uncovered routes:');
+    for (const route of selection.uncoveredRoutes) console.log(`  ${route}`);
+  }
+  console.log('---------------------------------------------------------------');
+}
+
+/** Prints the --dry-run selection plan; no browser is launched and no LLM is called. */
+function printDryRun(selected: TestFile[], baseUrl: string, cwd: string): void {
+  console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${baseUrl}`);
+  for (const test of selected) {
+    console.log(`  ${test.summary} [${test.priority}] (${path.relative(cwd, test.path)})`);
+  }
+  console.log('Dry run: no browser launched, no LLM calls made.');
+}
+
 /**
  * `blastproof run`: discovery → filters → sequential agentic execution → summary.
+ * With --impacted, the diff vs `base` selects only tests covering affected routes.
  * Returns the process exit code: 0 all pass, 1 any failure, 2 usage/config error.
  */
 export async function runCommand(options: RunOptions): Promise<number> {
   let config: BlastproofConfig;
   try {
-    config = await loadConfig(options.cwd);
+    config = applyUrlOverride(await loadConfig(options.cwd), options.url);
   } catch (error) {
     if (error instanceof ConfigError) {
       console.error(`error: ${error.message}`);
       return EXIT_USAGE;
     }
     throw error;
+  }
+
+  const impacted = options.impacted ?? false;
+  const base = options.base ?? 'main';
+
+  // Impact analysis fails fast (usage error) before any browser launch.
+  let impact: ImpactResult | undefined;
+  if (impacted) {
+    let changedFiles: string[];
+    try {
+      changedFiles = await getChangedFiles(base, options.cwd);
+    } catch (error) {
+      if (error instanceof DiffError) {
+        console.error(`error: ${error.message}`);
+        return EXIT_USAGE;
+      }
+      throw error;
+    }
+    impact = mapImpact(changedFiles, config.routes ?? {});
   }
 
   const testsDir = path.join(options.cwd, TESTS_RELATIVE_DIR);
@@ -182,11 +257,10 @@ export async function runCommand(options: RunOptions): Promise<number> {
   }
 
   const results: TestResult[] = [];
-  const selected: TestFile[] = [];
+  const parsed: TestFile[] = [];
   for (const file of files) {
     try {
-      const test = await parseTestFile(file);
-      if (matchesFilters(test, options)) selected.push(test);
+      parsed.push(await parseTestFile(file));
     } catch (error) {
       if (error instanceof TestFileError) {
         // A broken test file is a failure, not a crash: report it and keep going.
@@ -206,9 +280,33 @@ export async function runCommand(options: RunOptions): Promise<number> {
     }
   }
 
+  // Impacted selection first, tag/priority/query filters applied within it (D3/D4).
+  const selection: ImpactedSelection = impact
+    ? selectImpactedTests(parsed, impact.affectedRoutes, options)
+    : {
+        selected: parsed.filter((test) => matchesFilters(test, options)),
+        unroutedSkipped: [],
+        uncoveredRoutes: [],
+      };
+  const selected = selection.selected;
+
+  if (impact) {
+    printImpactReport(impact, selection, options.cwd);
+  }
+
+  if (options.dryRun) {
+    printDryRun(selected, config.base_url, options.cwd);
+    return EXIT_OK;
+  }
+
+  // Empty selection short-circuits before the LLM key check and browser launch (D5).
   if (selected.length === 0) {
-    console.log('No tests matched the given filters.');
+    console.log(
+      impact ? 'No impacted tests to run.' : 'No tests matched the given filters.',
+    );
     if (results.length === 0) return EXIT_OK;
+    printSummary(results);
+    return EXIT_FAILED;
   }
 
   // Fail fast on a missing API key before launching any browser (spec: llm-providers).

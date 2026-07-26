@@ -14,6 +14,7 @@ const testFileSchema = z.object({
   priority: prioritySchema.default('P1'),
   tags: z.array(z.string()).default([]),
   setup: z.array(z.string().min(1)).optional(),
+  routes: z.array(z.string()).default([]),
 });
 
 export interface TestFile {
@@ -24,6 +25,8 @@ export interface TestFile {
   priority: Priority;
   tags: string[];
   setup?: string[];
+  /** Routes/URLs this test covers, used by `run --impacted` for impact matching. */
+  routes: string[];
 }
 
 export class TestFileError extends Error {

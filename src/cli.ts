@@ -41,18 +41,36 @@ program
   .option('--tag <tag>', 'only run tests with this tag (repeatable)', collect, [])
   .option('--priority <priority>', 'only run tests with this priority (P0|P1|P2)', parsePriority)
   .option('--query <text>', 'only run tests whose summary contains <text> (case-insensitive)')
-  .action(async (options: { tag: string[]; priority?: Priority; query?: string }) => {
-    try {
-      process.exitCode = await runCommand({
-        cwd: process.cwd(),
-        tags: options.tag,
-        priority: options.priority,
-        query: options.query,
-      });
-    } catch (error) {
-      console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
-      process.exitCode = EXIT_USAGE;
-    }
-  });
+  .option('--impacted', 'run only tests impacted by the diff vs --base (uses routes: mappings)')
+  .option('--base <ref>', 'base git ref for --impacted', 'main')
+  .option('--url <url>', 'override config base_url for this run only (config file untouched)')
+  .option('--dry-run', 'print the selection plan and exit without launching a browser or calling the LLM')
+  .action(
+    async (options: {
+      tag: string[];
+      priority?: Priority;
+      query?: string;
+      impacted?: boolean;
+      base: string;
+      url?: string;
+      dryRun?: boolean;
+    }) => {
+      try {
+        process.exitCode = await runCommand({
+          cwd: process.cwd(),
+          tags: options.tag,
+          priority: options.priority,
+          query: options.query,
+          impacted: options.impacted,
+          base: options.base,
+          url: options.url,
+          dryRun: options.dryRun,
+        });
+      } catch (error) {
+        console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = EXIT_USAGE;
+      }
+    },
+  );
 
 await program.parseAsync(process.argv);

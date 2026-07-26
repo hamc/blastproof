@@ -30,6 +30,7 @@ describe('parseTestFile', () => {
     expect(test.priority).toBe('P1');
     expect(test.tags).toEqual([]);
     expect(test.setup).toBeUndefined();
+    expect(test.routes).toEqual([]);
   });
 
   it('parses a full test', async () => {
@@ -74,6 +75,20 @@ describe('parseTestFile', () => {
   it('rejects an invalid priority', async () => {
     const file = await writeTest('broken.yaml', 'summary: X\npriority: P9\nsteps:\n  - a\n');
     await expect(parseTestFile(file)).rejects.toThrow(/priority/);
+  });
+
+  it('parses a routes list', async () => {
+    const file = await writeTest(
+      't.yaml',
+      'summary: Checkout\nsteps:\n  - pay\nroutes:\n  - /cart\n  - /checkout\n',
+    );
+    const test = await parseTestFile(file);
+    expect(test.routes).toEqual(['/cart', '/checkout']);
+  });
+
+  it('rejects non-string routes entries', async () => {
+    const file = await writeTest('broken.yaml', 'summary: X\nsteps:\n  - a\nroutes: [/cart, 42]\n');
+    await expect(parseTestFile(file)).rejects.toThrow(/routes/);
   });
 });
 

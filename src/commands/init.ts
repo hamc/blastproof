@@ -26,7 +26,7 @@ browser:
 # Budget of self-healing retries per step (element re-resolution via accessibility tree).
 # max_retries_per_step: 3
 
-# Impact hints mapping file globs to routes (used by \`blastproof test\`, M2).
+# Impact hints mapping file globs to routes (used by \`blastproof run --impacted\`).
 routes:
   "src/auth/**": ["/login"]
   "src/cart/**": ["/cart", "/checkout"]
@@ -35,6 +35,8 @@ routes:
 const SAMPLE_TEST = `summary: App loads and shows the home page
 priority: P1
 tags: [smoke]
+# Routes this test covers; run --impacted selects tests by these routes.
+routes: ["/"]
 steps:
   - verify the home page loads and shows a heading
 `;
@@ -42,6 +44,7 @@ steps:
 const SAMPLE_LOGIN_TEST = `summary: Login with valid credentials succeeds
 priority: P0
 tags: [smoke, auth]
+routes: ["/login"]
 steps:
   - navigate to /login
   - fill the email field with demo@blastproof.dev

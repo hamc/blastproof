@@ -46,6 +46,7 @@ Tests live in `.blastproof/tests/` as plain-English YAML — no selectors, no fr
 summary: Checkout with discount
 priority: P0
 tags: [checkout, discount]
+routes: ["/cart", "/checkout"]
 steps:
   - add item to cart
   - apply promo code SAVE20
@@ -53,12 +54,17 @@ steps:
   - complete checkout
 ```
 
+`priority` is P0–P2 (default P1); `tags` and `setup` steps are optional. `routes` (optional) declares the URLs a test covers: `blastproof run --impacted` runs only tests whose `routes:` intersect the routes affected by your PR diff (mapped from changed files via the `routes:` globs in `.blastproof/config.yaml`). Route strings compare by exact equality (`/cart` ≠ `/cart/` — write them consistently). Tests without `routes:` are skipped and reported under `--impacted`.
+
 ## CLI
 
 | Command | Description |
 | --- | --- |
 | `blastproof init` | Scaffold `.blastproof/` config and sample tests (idempotent) |
 | `blastproof run [--tag smoke] [--priority P0] [--query checkout]` | Run tests only — exit 0 pass, 1 fail, 2 usage/config error |
+| `blastproof run --impacted [--base <ref>]` | Run only tests impacted by the diff vs the base ref (default `main`). Unrouted tests are skipped and reported; affected-but-uncovered routes are reported without failing the run |
+| `blastproof run --dry-run` | Print the selection plan (affected routes, unmapped files, selected/skipped tests) and exit 0 — no browser launched, no LLM key needed |
+| `blastproof run --url <url>` | Override `base_url` for this run only (e.g. a PR preview environment); the config file is never mutated |
 
 Coming next (roadmap): `blastproof test --base main` (full PR pipeline), `blastproof plan`, `blastproof report`.
 
