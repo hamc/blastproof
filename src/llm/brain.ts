@@ -5,13 +5,18 @@ import {
   agentUserPrompt,
   assertSystemPrompt,
   assertUserPrompt,
+  plannerSystemPrompt,
+  plannerUserPrompt,
   type AgentIterationInput,
+  type PlannerInput,
 } from './prompts.js';
 import {
   agentActionSchema,
   assertJudgmentSchema,
+  generatedTestSchema,
   type AgentAction,
   type AssertJudgment,
+  type GeneratedTest,
 } from './schemas.js';
 
 /**
@@ -71,6 +76,37 @@ export function createBrain(
       if (!parsed.success) {
         throw new MalformedModelOutputError(
           `Model returned an invalid assert judgment: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
+        );
+      }
+      return parsed.data;
+    },
+  };
+}
+
+/**
+ * The LLM test writer used by the planner (design D5). Mocked in unit tests.
+ */
+export interface PlannerBrain {
+  /** Generates one test draft for a route. Throws on malformed model output. */
+  planTest(input: PlannerInput): Promise<GeneratedTest>;
+}
+
+export function createPlanner(
+  model: LanguageModel,
+  generate: GenerateObjectFn = generateObject as unknown as GenerateObjectFn,
+): PlannerBrain {
+  return {
+    async planTest(input) {
+      const result = await generate({
+        model,
+        schema: generatedTestSchema,
+        system: plannerSystemPrompt(),
+        prompt: plannerUserPrompt(input),
+      });
+      const parsed = generatedTestSchema.safeParse(result.object);
+      if (!parsed.success) {
+        throw new MalformedModelOutputError(
+          `Model returned an invalid test draft: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
         );
       }
       return parsed.data;

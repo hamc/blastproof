@@ -1,5 +1,6 @@
 import { Command, InvalidArgumentError } from 'commander';
 import { formatInitGuidance, initProject } from './commands/init.js';
+import { planCommand } from './commands/plan.js';
 import { EXIT_OK, EXIT_USAGE, runCommand } from './commands/run.js';
 import type { Priority } from './runner/testfile.js';
 
@@ -72,5 +73,27 @@ program
       }
     },
   );
+
+program
+  .command('plan')
+  .description('Generate plain-English YAML tests for affected routes no test covers yet')
+  .option('--base <ref>', 'base git ref for the diff', 'main')
+  .option('--url <url>', 'override config base_url for this run only (config file untouched)')
+  .option('--route <route>', 'generate for this route, bypassing the diff (repeatable)', collect, [])
+  .option('--write', 'persist drafts under .blastproof/tests/ instead of previewing them')
+  .action(async (options: { base: string; url?: string; route: string[]; write?: boolean }) => {
+    try {
+      process.exitCode = await planCommand({
+        cwd: process.cwd(),
+        base: options.base,
+        url: options.url,
+        routes: options.route,
+        write: options.write,
+      });
+    } catch (error) {
+      console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = EXIT_USAGE;
+    }
+  });
 
 await program.parseAsync(process.argv);

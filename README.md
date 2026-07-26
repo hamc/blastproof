@@ -36,7 +36,7 @@ export ANTHROPIC_API_KEY=...
 blastproof run
 ```
 
-> **Status:** early MVP — `init` and `run` work today; the diff pipeline (`test`, `plan`) and reports are on the roadmap below.
+> **Status:** early MVP — `init`, `run` (including `--impacted`) and `plan` work today; the one-shot `test` pipeline and reports are on the roadmap below.
 
 ## Test format
 
@@ -65,8 +65,27 @@ steps:
 | `blastproof run --impacted [--base <ref>]` | Run only tests impacted by the diff vs the base ref (default `main`). Unrouted tests are skipped and reported; affected-but-uncovered routes are reported without failing the run |
 | `blastproof run --dry-run` | Print the selection plan (affected routes, unmapped files, selected/skipped tests) and exit 0 — no browser launched, no LLM key needed |
 | `blastproof run --url <url>` | Override `base_url` for this run only (e.g. a PR preview environment); the config file is never mutated |
+| `blastproof plan [--base <ref>]` | Generate plain-English tests for affected routes no test covers yet. Prints drafts; nothing is written without `--write` |
+| `blastproof plan --route <route>` | Generate for a route explicitly, skipping the diff (repeatable) — how you bootstrap coverage on an app with no suite yet |
+| `blastproof plan --write` | Persist drafts to `.blastproof/tests/<route-slug>.yaml`. Never overwrites: a colliding filename fails that route |
 
-Coming next (roadmap): `blastproof test --base main` (full PR pipeline), `blastproof plan`, `blastproof report`.
+Coming next (roadmap): `blastproof test --base main` (full PR pipeline), `blastproof report`.
+
+### Generating tests with `plan`
+
+`plan` closes the gap `run --impacted` reports. It takes the affected routes no test covers, loads each one in the browser, and asks the model to write a test from the page's real accessibility tree plus the changed files that made the route impacted — so the generated steps name controls that actually exist:
+
+```bash
+blastproof plan --base main            # preview drafts for uncovered routes
+blastproof plan --base main --write    # persist them, then review and commit
+blastproof plan --route /checkout      # bootstrap a route without a diff
+```
+
+Drafts are **previews by default** — nothing touches disk until `--write`, and `--write` never overwrites an existing file, so a regeneration can't silently replace a test you edited by hand. Each written file carries a header recording its route, base ref and generation date. Review before committing: the steps are model-written and meant to be edited.
+
+Exit codes: 0 when every route generated (or nothing needed coverage), 1 when a route failed, 2 on usage/config/diff errors. A route that fails to load never aborts the others.
+
+**Known limitation:** a route behind authentication snapshots as the login wall, so its draft describes logging in rather than the feature. The `auth` config recipe is not applied by the planner yet — generate those routes after an auth session lands, or write them by hand.
 
 ## LLM providers (BYOK)
 
@@ -80,7 +99,7 @@ Bring your own key — runs 100% locally:
 
 - [x] Repository & spec-driven development setup
 - [x] **M1** — `init` + `run`: YAML test runner with agentic LLM executor
-- [ ] **M2** — `test`: diff analysis, impact mapping, test generation
+- [x] **M2** — diff analysis, impact mapping (`run --impacted`) and test generation (`plan`)
 - [ ] **M3** — Reports (JUnit/HTML), scoring, exit codes
 - [ ] **M4** — GitHub Action, npm publish
 - [ ] Post-MVP — VS Code extension, session replay, worker parallelism

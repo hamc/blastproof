@@ -48,3 +48,28 @@ export const assertJudgmentSchema = z.object({
 });
 
 export type AssertJudgment = z.infer<typeof assertJudgmentSchema>;
+
+/**
+ * A test draft returned by the planner (design D5). `routes` is deliberately absent:
+ * it is set by code to the route the draft was generated for, never by the model (D6).
+ */
+export const generatedTestSchema = z.object({
+  summary: z
+    .string()
+    .min(1)
+    .describe('One line naming the user journey this test covers, e.g. "Applying a discount updates the cart total".'),
+  steps: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe(
+      'Plain-English steps a QA engineer would follow, each naming controls exactly as they appear in the snapshot.',
+    ),
+  priority: z
+    .enum(['P0', 'P1', 'P2'])
+    .describe('P0 for revenue- or auth-critical journeys, P1 for main flows, P2 for edge cases.'),
+  tags: z
+    .array(z.string())
+    .describe('Short lowercase tags grouping this test, e.g. ["cart", "checkout"].'),
+});
+
+export type GeneratedTest = z.infer<typeof generatedTestSchema>;

@@ -65,3 +65,42 @@ export function assertUserPrompt(expectation: string, snapshot: string): string 
     'Does the snapshot satisfy the expectation?',
   ].join('\n');
 }
+
+export function plannerSystemPrompt(): string {
+  return `You are a QA engineer writing one end-to-end test for a web page, in plain English.
+
+You receive a YAML accessibility snapshot of the page (roles and accessible names, exactly what a user perceives) and the list of source files a pull request changed in the area this page covers.
+
+Rules:
+- Write steps a human tester could follow without looking at the code. One action or check per step.
+- Refer to controls by the accessible name shown in the snapshot, spelled exactly. Never invent buttons, fields or links that are not in the snapshot.
+- Never write CSS selectors, XPath, IDs or any code — the runner resolves elements live from the accessibility tree.
+- Prefer the journey the changed files touch over a generic tour of the page. The changed files tell you which part of the page matters.
+- End with at least one step that verifies an observable outcome (visible text, a count, a state change).
+- If a step needs a credential or any secret, write it as a placeholder like {{env.TEST_PASSWORD}}. Never write a real or invented password, token or key.
+- Keep the whole test to a handful of steps: one journey, not an exhaustive suite.`;
+}
+
+export interface PlannerInput {
+  /** Route the test is being generated for, e.g. `/cart`. */
+  route: string;
+  /** Accessibility snapshot captured after loading the route. */
+  snapshot: string;
+  /** Repo-relative paths of the changed files that mapped to this route (design D3). */
+  changedFiles: string[];
+}
+
+export function plannerUserPrompt(input: PlannerInput): string {
+  const parts = [`Route under test: ${input.route}`, '', 'Page accessibility snapshot:', input.snapshot];
+  if (input.changedFiles.length > 0) {
+    parts.push(
+      '',
+      'Files this pull request changed in the area covering this route:',
+      ...input.changedFiles.map((file) => `- ${file}`),
+    );
+  } else {
+    parts.push('', 'No specific changed files for this route: cover its main user journey.');
+  }
+  parts.push('', 'Write the test for this route.');
+  return parts.join('\n');
+}

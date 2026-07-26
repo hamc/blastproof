@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { LanguageModel } from 'ai';
-import { createBrain, MalformedModelOutputError, type GenerateObjectFn } from '../src/llm/brain.js';
-import { agentSystemPrompt, agentUserPrompt, assertUserPrompt } from '../src/llm/prompts.js';
+import {
+  createBrain,
+  createPlanner,
+  MalformedModelOutputError,
+  type GenerateObjectFn,
+} from '../src/llm/brain.js';
+import {
+  agentSystemPrompt,
+  agentUserPrompt,
+  assertUserPrompt,
+  plannerSystemPrompt,
+  plannerUserPrompt,
+} from '../src/llm/prompts.js';
 
 const fakeModel = { provider: 'test', modelId: 'test-model' } as unknown as LanguageModel;
 
@@ -71,5 +82,68 @@ describe('createBrain', () => {
     const judgment = await brain.judge('discount applied', '- main: cart');
     expect(judgment.pass).toBe(false);
     expect(judgment.reason).toContain('no discount');
+  });
+});
+
+describe('planner prompts', () => {
+  it('system prompt forbids selectors and invented controls, and requires placeholders', () => {
+    const prompt = plannerSystemPrompt();
+    expect(prompt).toContain('Never invent buttons');
+    expect(prompt).toContain('Never write CSS selectors');
+    expect(prompt).toContain('{{env.TEST_PASSWORD}}');
+  });
+
+  it('user prompt carries route, snapshot and changed files', () => {
+    const prompt = plannerUserPrompt({
+      route: '/cart',
+      snapshot: '- button "Apply discount"',
+      changedFiles: ['src/cart/discount.ts', 'src/cart/total.ts'],
+    });
+    expect(prompt).toContain('/cart');
+    expect(prompt).toContain('- button "Apply discount"');
+    expect(prompt).toContain('src/cart/discount.ts');
+    expect(prompt).toContain('src/cart/total.ts');
+  });
+
+  it('user prompt handles an empty changed-file set', () => {
+    const prompt = plannerUserPrompt({ route: '/login', snapshot: '- form', changedFiles: [] });
+    expect(prompt).toContain('main user journey');
+  });
+});
+
+describe('createPlanner', () => {
+  it('planTest returns the validated draft and uses the planner prompts', async () => {
+    const captured: { options?: { system?: string; prompt?: string } } = {};
+    const planner = createPlanner(
+      fakeModel,
+      stubGenerate(
+        {
+          summary: 'Applying a discount updates the total',
+          steps: ['open the cart', 'apply the discount code', 'check the total drops'],
+          priority: 'P0',
+          tags: ['cart'],
+        },
+        captured,
+      ),
+    );
+
+    const draft = await planner.planTest({
+      route: '/cart',
+      snapshot: '- button "Apply discount"',
+      changedFiles: ['src/cart/discount.ts'],
+    });
+
+    expect(draft.summary).toContain('discount');
+    expect(draft.steps).toHaveLength(3);
+    expect(draft.priority).toBe('P0');
+    expect(captured.options?.system).toContain('QA engineer');
+    expect(captured.options?.prompt).toContain('src/cart/discount.ts');
+  });
+
+  it('planTest throws MalformedModelOutputError on schema-invalid output', async () => {
+    const planner = createPlanner(fakeModel, stubGenerate({ summary: 'no steps', steps: [] }));
+    await expect(
+      planner.planTest({ route: '/cart', snapshot: '', changedFiles: [] }),
+    ).rejects.toThrow(MalformedModelOutputError);
   });
 });
