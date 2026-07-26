@@ -68,6 +68,8 @@ steps:
 | `blastproof plan [--base <ref>]` | Generate plain-English tests for affected routes no test covers yet. Prints drafts; nothing is written without `--write` |
 | `blastproof plan --route <route>` | Generate for a route explicitly, skipping the diff (repeatable) — how you bootstrap coverage on an app with no suite yet |
 | `blastproof plan --write` | Persist drafts to `.blastproof/tests/<route-slug>.yaml`. Never overwrites: a colliding filename fails that route |
+| `blastproof run --min-score <n>` | Require a weighted score of at least `n` (0–100). **Replaces** the all-must-pass rule — see below |
+| `blastproof run --junit [path]` | Write a JUnit XML report; without a path it lands in `.blastproof/reports/<session>/junit.xml` |
 
 Coming next (roadmap): `blastproof test --base main` (full PR pipeline), `blastproof report`.
 
@@ -87,6 +89,26 @@ Exit codes: 0 when every route generated (or nothing needed coverage), 1 when a 
 
 **Known limitation:** a route behind authentication snapshots as the login wall, so its draft describes logging in rather than the feature. The `auth` config recipe is not applied by the planner yet — generate those routes after an auth session lands, or write them by hand.
 
+### Score and merge gating
+
+Every run ends with a score: the percentage of executed test **weight** that passed, where a test weighs 3 at P0, 2 at P1 and 1 at P2. Weighting is the point — a failing checkout costs three times a failing tooltip, so a pile of trivial passes can't hide a broken critical journey.
+
+```bash
+blastproof run                      # any failure exits 1 (strict, the default)
+blastproof run --min-score 80       # passes at 80+, so one failing P2 is tolerated
+blastproof run --min-score 100      # identical to the default strict behaviour
+```
+
+`--min-score` **replaces** the all-must-pass rule rather than adding to it. Without it, any failure exits 1. With it, the score alone decides — which is what lets you say "a P2 may break, a P0 may not" in one number. Only executed tests count: tests removed by `--tag`/`--priority`/`--query`, and tests skipped as unrouted under `--impacted`, are neither numerator nor denominator. A run that executed nothing scores 100 (the output says so explicitly), so a docs-only PR is never blocked.
+
+For CI:
+
+```bash
+blastproof run --impacted --base "$BASE_REF" --min-score 80 --junit junit.xml
+```
+
+Exit 0 merge-able, 1 blocked, 2 usage/config error. The JUnit report carries the score as a `<property name="score">` so a parser can read it without scraping stdout, and tests skipped for having no `routes:` appear as `<skipped/>` cases — the coverage gap shows up in CI instead of vanishing.
+
 ## LLM providers (BYOK)
 
 Bring your own key — runs 100% locally:
@@ -100,7 +122,7 @@ Bring your own key — runs 100% locally:
 - [x] Repository & spec-driven development setup
 - [x] **M1** — `init` + `run`: YAML test runner with agentic LLM executor
 - [x] **M2** — diff analysis, impact mapping (`run --impacted`) and test generation (`plan`)
-- [ ] **M3** — Reports (JUnit/HTML), scoring, exit codes
+- [ ] **M3** — Reports and scoring: score + `--min-score` gate + JUnit done; HTML report and `blastproof test` pending
 - [ ] **M4** — GitHub Action, npm publish
 - [ ] Post-MVP — VS Code extension, session replay, worker parallelism
 

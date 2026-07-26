@@ -47,10 +47,9 @@ src/
     provider.ts     # AI SDK provider factory (anthropic|openai|ollama)
     prompts.ts      # system/user prompts for plan + execute + assert
   report/
-    console.ts      # terminal table
+    score.ts        # priority-weighted score + --min-score gate
     junit.ts        # JUnit XML (CI-compatible)
-    html.ts         # HTML report with failure screenshots
-    score.ts        # priority-weighted score
+    html.ts         # HTML report with failure screenshots (m3b, pending)
 ```
 
 ### Conventions
@@ -107,7 +106,7 @@ Before considering any task done: `build`, `test` and `typecheck` must pass. E2E
 | --- | --- | --- |
 | M1 | `init` + `run`: YAML runner with agentic LLM executor + demo app | implemented (`openspec/changes/m1-yaml-runner`) |
 | M2 | `plan`: diff analysis, impact mapping, test generation | done — m2a (`run --impacted`) + m2b (`plan`); the one-shot `test` pipeline is deferred to M3 |
-| M3 | Reports (JUnit/HTML), scoring, exit codes | pending |
+| M3 | Reports (JUnit/HTML), scoring, exit codes | m3a (score + `--min-score` + JUnit) implemented (`openspec/changes/m3a-score-and-junit`); m3b (HTML + `test`) pending |
 | M4 | GitHub Action, npm publish | pending |
 
 Post-MVP (do not build unless asked): VS Code extension, session replay, worker parallelism, Flutter, GitHub PR comments.

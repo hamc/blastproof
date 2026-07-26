@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,7 +16,7 @@ vi.mock('../src/diff.js', async (importOriginal) => {
   return { ...original, getChangedFiles: getChangedFilesMock };
 });
 
-import { EXIT_OK, EXIT_USAGE, runCommand } from '../src/commands/run.js';
+import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, runCommand } from '../src/commands/run.js';
 
 const CART_TEST = `summary: Cart discount
 priority: P0
@@ -209,5 +209,114 @@ describe('runCommand --url', () => {
     expect(errOut()).toContain("Invalid --url 'not-a-url'");
     expect(launchMock).not.toHaveBeenCalled();
     expect(getChangedFilesMock).not.toHaveBeenCalled();
+  });
+});
+
+// A test file that cannot be parsed becomes a failed P1 result without any browser
+// or LLM, which is the cheapest way to drive the score through runCommand.
+const BROKEN_TEST = `summary: missing its steps
+`;
+
+describe('runCommand score and --min-score', () => {
+  it('prints the score line on every run', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], query: 'nothing matches this' });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('Score: 100 (no tests executed)');
+  });
+
+  it('fails a run with a broken test file when no threshold is set', async () => {
+    await writeProject({ 'broken.yaml': BROKEN_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(out()).toContain('Score: 0');
+  });
+
+  it('lets the threshold replace the all-must-pass rule', async () => {
+    await writeProject({ 'broken.yaml': BROKEN_TEST });
+
+    // Same run as above (score 0), but a threshold of 0 tolerates it: proof the
+    // gate takes over the decision rather than adding to it (design D4).
+    const code = await runCommand({ cwd: dir, tags: [], minScore: 0 });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('min-score 0: pass');
+  });
+
+  it('exits 1 when the score is below the threshold', async () => {
+    await writeProject({ 'broken.yaml': BROKEN_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], minScore: 80 });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(out()).toContain('min-score 80: FAIL');
+  });
+
+  it('passes the gate when nothing executed', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['docs/guide.md']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, minScore: 100 });
+
+    expect(code).toBe(EXIT_OK);
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('runCommand --junit', () => {
+  it('writes nothing when the flag is absent', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    await runCommand({ cwd: dir, tags: [], query: 'no match' });
+
+    await expect(readdir(path.join(dir, '.blastproof', 'reports'))).rejects.toThrow();
+  });
+
+  it('writes to the session directory by default', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], query: 'no match', junit: true });
+
+    expect(code).toBe(EXIT_OK);
+    const sessions = await readdir(path.join(dir, '.blastproof', 'reports'));
+    expect(sessions).toHaveLength(1);
+    const xml = await readFile(
+      path.join(dir, '.blastproof', 'reports', sessions[0]!, 'junit.xml'),
+      'utf8',
+    );
+    expect(xml).toContain('<testsuite name="blastproof"');
+    expect(xml).toContain('<property name="score" value="100"/>');
+    expect(out()).toContain('JUnit report:');
+  });
+
+  it('writes to an explicit path, creating parent directories', async () => {
+    await writeProject({ 'broken.yaml': BROKEN_TEST });
+
+    const code = await runCommand({
+      cwd: dir,
+      tags: [],
+      junit: path.join('build', 'reports', 'e2e.xml'),
+    });
+
+    expect(code).toBe(EXIT_FAILED);
+    const xml = await readFile(path.join(dir, 'build', 'reports', 'e2e.xml'), 'utf8');
+    expect(xml).toContain('failures="1"');
+    expect(xml).toContain('<property name="score" value="0"/>');
+  });
+
+  it('emits unrouted tests as skipped cases under --impacted', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST, 'legacy.yaml': UNROUTED_TEST });
+    getChangedFilesMock.mockResolvedValue(['docs/guide.md']);
+
+    await runCommand({ cwd: dir, tags: [], impacted: true, junit: 'junit.xml' });
+
+    const xml = await readFile(path.join(dir, 'junit.xml'), 'utf8');
+    expect(xml).toContain('skipped="1"');
+    expect(xml).toContain('name="Legacy test"');
+    expect(xml).toContain('<skipped message="no routes: declared, skipped by --impacted"/>');
   });
 });

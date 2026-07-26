@@ -15,6 +15,14 @@ function parsePriority(value: string): Priority {
   return value;
 }
 
+function parseMinScore(value: string): number {
+  const score = Number(value);
+  if (!Number.isInteger(score) || score < 0 || score > 100) {
+    throw new InvalidArgumentError('min-score must be an integer between 0 and 100');
+  }
+  return score;
+}
+
 const program = new Command();
 
 program
@@ -46,6 +54,12 @@ program
   .option('--base <ref>', 'base git ref for --impacted', 'main')
   .option('--url <url>', 'override config base_url for this run only (config file untouched)')
   .option('--dry-run', 'print the selection plan and exit without launching a browser or calling the LLM')
+  .option(
+    '--min-score <n>',
+    'require a weighted score of at least n (0-100); replaces the all-must-pass rule',
+    parseMinScore,
+  )
+  .option('--junit [path]', 'write a JUnit XML report (default: .blastproof/reports/<session>/junit.xml)')
   .action(
     async (options: {
       tag: string[];
@@ -55,6 +69,8 @@ program
       base: string;
       url?: string;
       dryRun?: boolean;
+      minScore?: number;
+      junit?: string | boolean;
     }) => {
       try {
         process.exitCode = await runCommand({
@@ -66,6 +82,8 @@ program
           base: options.base,
           url: options.url,
           dryRun: options.dryRun,
+          minScore: options.minScore,
+          junit: options.junit,
         });
       } catch (error) {
         console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
@@ -96,4 +114,15 @@ program
     }
   });
 
-await program.parseAsync(process.argv);
+// Commander exits 1 on a bad flag by default; usage errors are exit 2 here (spec:
+// cli-run-command). It writes the message itself, so we only map the outcome.
+// exitOverride is per-Command and is not inherited, so subcommands need it too.
+program.exitOverride();
+for (const command of program.commands) command.exitOverride();
+
+try {
+  await program.parseAsync(process.argv);
+} catch (error) {
+  const exitCode = (error as { exitCode?: number }).exitCode ?? EXIT_USAGE;
+  process.exitCode = exitCode === 0 ? EXIT_OK : EXIT_USAGE;
+}

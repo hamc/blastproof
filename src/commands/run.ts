@@ -5,6 +5,8 @@ import { DiffError, getChangedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
 import { createBrain } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
+import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
+import { computeScore, formatScoreLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
 import { MissingEnvError, SecretsMask, substituteEnv } from '../runner/env.js';
 import { executeTest, type ExecutorEvent, type TestResult } from '../runner/executor.js';
@@ -36,6 +38,14 @@ export interface RunOptions extends TestFilters {
   url?: string;
   /** Print the selection plan and exit without launching a browser or calling the LLM. */
   dryRun?: boolean;
+  /**
+   * Minimum weighted score (0–100). When set it replaces the all-must-pass rule:
+   * the run succeeds when the score reaches it, tolerating lower-priority failures
+   * within the margin (design D4).
+   */
+  minScore?: number;
+  /** Write a JUnit report: `true` for the session-directory default, or an explicit path. */
+  junit?: string | boolean;
 }
 
 function sessionId(): string {
@@ -202,6 +212,39 @@ function printImpactReport(
   console.log('---------------------------------------------------------------');
 }
 
+/**
+ * Prints the summary tail shared by every terminating path: score line, optional
+ * JUnit report, and the exit code. With `--min-score` the threshold decides the
+ * outcome instead of the all-must-pass rule (design D4).
+ */
+async function finalize(
+  results: TestResult[],
+  skipped: SkippedCase[],
+  options: RunOptions,
+  sessionDir: string,
+  durationMs: number,
+): Promise<number> {
+  if (results.length > 0) printSummary(results);
+
+  const score = computeScore(results);
+  console.log(formatScoreLine(score, results, options.minScore));
+
+  if (options.junit) {
+    const target =
+      typeof options.junit === 'string'
+        ? path.resolve(options.cwd, options.junit)
+        : path.join(sessionDir, 'junit.xml');
+    const xml = renderJUnit(results, skipped, { score, durationMs, cwd: options.cwd });
+    await writeJUnit(target, xml);
+    console.log(`JUnit report: ${path.relative(options.cwd, target)}`);
+  }
+
+  if (options.minScore !== undefined) {
+    return score >= options.minScore ? EXIT_OK : EXIT_FAILED;
+  }
+  return results.some((result) => result.status === 'failed') ? EXIT_FAILED : EXIT_OK;
+}
+
 /** Prints the --dry-run selection plan; no browser is launched and no LLM is called. */
 function printDryRun(selected: TestFile[], baseUrl: string, cwd: string): void {
   console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${baseUrl}`);
@@ -299,14 +342,15 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return EXIT_OK;
   }
 
+  const sessionDir = path.join(options.cwd, '.blastproof', 'reports', sessionId());
+  const startedAt = Date.now();
+
   // Empty selection short-circuits before the LLM key check and browser launch (D5).
   if (selected.length === 0) {
     console.log(
       impact ? 'No impacted tests to run.' : 'No tests matched the given filters.',
     );
-    if (results.length === 0) return EXIT_OK;
-    printSummary(results);
-    return EXIT_FAILED;
+    return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt);
   }
 
   // Fail fast on a missing API key before launching any browser (spec: llm-providers).
@@ -320,7 +364,6 @@ export async function runCommand(options: RunOptions): Promise<number> {
     throw error;
   }
 
-  const sessionDir = path.join(options.cwd, '.blastproof', 'reports', sessionId());
   const { provider, modelId } = createModel(config.llm);
   console.log(
     `blastproof run: ${selected.length} test(s), provider=${provider} model=${modelId}, base_url=${config.base_url}`,
@@ -336,6 +379,5 @@ export async function runCommand(options: RunOptions): Promise<number> {
     await browser.close();
   }
 
-  printSummary(results);
-  return results.some((r) => r.status === 'failed') ? EXIT_FAILED : EXIT_OK;
+  return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt);
 }
