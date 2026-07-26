@@ -1,0 +1,134 @@
+name: E2E (dogfood)
+
+# Runs blastproof against the bundled demo app — the project testing itself.
+# On a pull request it uses `run --impacted`, so only journeys the diff can break
+# are executed; on main and on demand it runs the whole suite.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dogfood:
+    name: blastproof vs demo-app
+    runs-on: ubuntu-latest
+    env:
+      # Fork pull requests never receive secrets: this resolves to an empty string
+      # there, and the guard step below skips the run instead of failing it red.
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      BASE_URL: http://localhost:4173
+      MIN_SCORE: 80
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `run --impacted` diffs base...HEAD, which needs the merge-base.
+          # A shallow clone has no merge-base and the run fails with exit 2.
+          fetch-depth: 0
+
+      - name: Check for an LLM key
+        id: guard
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "No OPENROUTER_API_KEY available (fork PR or secret unset) — skipping the agentic run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v7
+        if: steps.guard.outputs.skip == 'false'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies and build
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Chromium
+        if: steps.guard.outputs.skip == 'false'
+        run: npx playwright install --with-deps chromium
+
+      - name: Point the run at OpenRouter
+        if: steps.guard.outputs.skip == 'false'
+        # Patches the checkout only — the committed config keeps its anthropic default.
+        run: |
+          node --input-type=module -e "
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { parse, stringify } from 'yaml';
+          const file = '.blastproof/config.yaml';
+          const config = parse(await readFile(file, 'utf8'));
+          config.llm = {
+            provider: 'openai',
+            model: 'anthropic/claude-haiku-4.5',
+            api_key_env: 'OPENROUTER_API_KEY',
+            base_url: 'https://openrouter.ai/api/v1',
+          };
+          await writeFile(file, stringify(config));
+          "
+
+      - name: Start the demo app
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          node examples/demo-app/serve.mjs 4173 &
+          for _ in $(seq 1 30); do
+            if curl -sf -o /dev/null "$BASE_URL/"; then
+              echo "demo app is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "demo app did not come up in 30s" >&2
+          exit 1
+
+      - name: Show the impacted selection
+        if: steps.guard.outputs.skip == 'false' && github.event_name == 'pull_request'
+        # Free and keyless: makes the glob mapping visible in the log before spending tokens.
+        run: |
+          node dist/cli.js run \
+            --impacted \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --dry-run
+
+      - name: Run impacted tests (pull request)
+        if: steps.guard.outputs.skip == 'false' && github.event_name == 'pull_request'
+        run: |
+          node dist/cli.js run \
+            --impacted \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --min-score "$MIN_SCORE" \
+            --junit junit.xml
+
+      - name: Run the full suite (main / manual)
+        if: steps.guard.outputs.skip == 'false' && github.event_name != 'pull_request'
+        run: |
+          node dist/cli.js run \
+            --min-score "$MIN_SCORE" \
+            --junit junit.xml
+
+      - name: Upload the JUnit report
+        # `always()` so a blocked merge still leaves the evidence behind.
+        if: always() && steps.guard.outputs.skip == 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-report
+          path: junit.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload failure screenshots
+        if: failure() && steps.guard.outputs.skip == 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: failure-screenshots
+          path: .blastproof/reports/
+          if-no-files-found: ignore
+          retention-days: 7
