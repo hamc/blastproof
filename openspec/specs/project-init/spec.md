@@ -23,3 +23,10 @@ The CLI SHALL print next-step guidance after scaffolding (set API key env var, e
 #### Scenario: Guidance printed
 - **WHEN** `blastproof init` completes successfully
 - **THEN** the output includes the required env var name for the default provider and the command to run tests
+
+### Requirement: Scaffolded documentation link
+The generated configuration SHALL reference the project's canonical repository URL.
+
+#### Scenario: Link resolves
+- **WHEN** `blastproof init` scaffolds `.blastproof/config.yaml`
+- **THEN** the documentation URL in its header points at the project's real repository
