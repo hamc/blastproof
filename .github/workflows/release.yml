@@ -42,6 +42,17 @@ jobs:
 
       - run: npm run build
 
+      - name: Built CLI must report the manifest version
+        # 0.1.0 shipped reporting 0.0.1 because the source held a literal. The
+        # manifest check above cannot see that; only the built binary can.
+        run: |
+          manifest="$(node -p "require('./package.json').version")"
+          reported="$(node dist/cli.js --version)"
+          if [ "$manifest" != "$reported" ]; then
+            echo "::error::built CLI reports $reported but the manifest says $manifest"
+            exit 1
+          fi
+
       - run: npm run typecheck
 
       - run: npm test

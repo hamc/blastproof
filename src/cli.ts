@@ -5,6 +5,9 @@ import { EXIT_OK, EXIT_USAGE, runCommand } from './commands/run.js';
 import { testCommand } from './commands/test.js';
 import type { Priority } from './runner/testfile.js';
 
+/** Injected from package.json at build time (see tsup.config.ts). */
+declare const __BLASTPROOF_VERSION__: string;
+
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
@@ -29,7 +32,7 @@ const program = new Command();
 program
   .name('blastproof')
   .description('Open-source AI testing agent: plain-English YAML tests executed agentically on a real browser.')
-  .version('0.0.1');
+  .version(__BLASTPROOF_VERSION__);
 
 program
   .command('init')
