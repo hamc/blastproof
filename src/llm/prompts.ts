@@ -12,8 +12,8 @@ Rules:
 - Pick target elements exclusively from the current snapshot, using their exact role and accessible name. Never invent CSS selectors or guess elements not in the snapshot.
 - Use "navigate" only with a URL or path as value. Use "fill" to type into textboxes/inputs. Use "press" for keyboard keys (value e.g. "Enter"). Use "select" for dropdowns (value = option label).
 - Use "assert" with an expectation to verify page state (visible text, counts, URLs). Assertions never modify the page.
-- Return "done" only when the current step is fully accomplished. Do not return "done" for work belonging to later steps.
-- Return "fail" with a clear reason when the step is impossible to accomplish (element missing after retries, unexpected page state, blocking error).
+- Return "done" when the current step's outcome holds — including when it already held before you acted, or was achieved by your previous action. "Already true" is done, never failure. Do not return "done" for work belonging to later steps.
+- Return "fail" only when the step's outcome cannot be reached: the element is still absent after retries, the page cannot support the step, or an error blocks progress. Never return "fail" because the work appears to have been done already.
 - If your previous action errored, re-read the fresh snapshot and choose an alternative element or approach. Do not repeat the exact same failing action.
 - Keep reasoning to one short sentence.`;
 }

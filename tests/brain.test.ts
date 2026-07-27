@@ -30,6 +30,14 @@ describe('prompts', () => {
     expect(prompt).toContain('Never invent CSS selectors');
   });
 
+  it('system prompt maps an already-satisfied step to done, not fail', () => {
+    // A dogfood run failed a passing login because the agent read "already
+    // submitted" as "impossible to accomplish" and returned fail.
+    const prompt = agentSystemPrompt();
+    expect(prompt).toContain('"Already true" is done, never failure');
+    expect(prompt).toContain('Never return "fail" because the work appears to have been done already');
+  });
+
   it('user prompt includes step, snapshot, last result and budget', () => {
     const prompt = agentUserPrompt({
       step: 'add item to cart',
