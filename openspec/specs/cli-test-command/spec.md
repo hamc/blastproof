@@ -60,3 +60,10 @@ The `test` command SHALL exit 2 on usage, config or diff errors; 1 when the run 
 #### Scenario: Clean pipeline
 - **WHEN** all executed tests pass, any threshold is met and every draft is generated
 - **THEN** the command exits 0
+
+### Requirement: Fail on unclassified files
+The `test` command SHALL support `--fail-on-unmapped`, with the same meaning it carries on `run`.
+
+#### Scenario: Pipeline blocked by an unclassified file
+- **WHEN** the user runs `blastproof test --fail-on-unmapped` and the diff changes a file matching no glob
+- **THEN** the process exits with code 1 and names the file
