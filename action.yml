@@ -1,0 +1,161 @@
+name: blastproof
+description: Map the blast radius of a pull request, run the tests that cover it, and gate the merge on a score.
+author: Heitor Cardozo
+
+branding:
+  icon: shield
+  color: orange
+
+inputs:
+  api-key:
+    description: >
+      Your LLM provider key, e.g. ${{ secrets.ANTHROPIC_API_KEY }}. Never hardcode it.
+      Not needed when the provider is ollama.
+    required: false
+  provider:
+    description: 'anthropic | openai | ollama. Overrides .blastproof/config.yaml.'
+    required: false
+  model:
+    description: Model name. Overrides .blastproof/config.yaml.
+    required: false
+  llm-base-url:
+    description: >
+      Provider endpoint, for OpenAI-compatible gateways or a local Ollama.
+      This is the provider's URL, not your application's.
+    required: false
+
+  command:
+    description: 'test | run | plan — which blastproof command to run.'
+    required: false
+    default: test
+  base:
+    description: Base git ref for the diff. Requires a full checkout.
+    required: false
+    default: main
+  url:
+    description: Base URL of the application under test. Overrides the config.
+    required: false
+  min-score:
+    description: >
+      Require a weighted score of at least this (0-100). Replaces the
+      all-must-pass rule: it tolerates lower-priority failures within the margin.
+    required: false
+  fail-on-unmapped:
+    description: 'Fail when a changed file matches no routes: or ignore: glob.'
+    required: false
+    default: 'false'
+  write:
+    description: Persist generated test drafts instead of only previewing them.
+    required: false
+    default: 'false'
+  junit:
+    description: Path for the JUnit report. One is always produced; this names where it lands.
+    required: false
+  html:
+    description: Path for the self-contained HTML report. Omit to skip it.
+    required: false
+
+  version:
+    description: >
+      Which blastproof release to install. Pin this alongside the action tag for a
+      reproducible pipeline — worth doing when the result gates merges.
+    required: false
+    default: latest
+  install-browser:
+    description: Install Chromium and its system libraries. Set false if the workflow already did.
+    required: false
+    default: 'true'
+  working-directory:
+    description: Directory containing .blastproof/.
+    required: false
+    default: '.'
+
+outputs:
+  score:
+    description: >
+      Priority-weighted score for the run, 0-100. Empty when no report was
+      produced, so "no score" stays distinguishable from "scored zero".
+    value: ${{ steps.score.outputs.score }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the checkout depth
+      # actions/checkout is shallow by default and a diff needs a merge-base.
+      # Failing here, before installing anything, beats a git error 30s later.
+      if: inputs.command == 'test' || inputs.command == 'plan'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          echo "::error::blastproof ${{ inputs.command }} diffs against '${{ inputs.base }}', which needs the merge-base. Set fetch-depth: 0 on actions/checkout."
+          exit 1
+        fi
+
+    - name: Install blastproof
+      shell: bash
+      run: npm install -g "blastproof@${{ inputs.version }}"
+
+    - name: Install Chromium
+      if: inputs.install-browser == 'true'
+      shell: bash
+      run: npx --yes playwright install --with-deps chromium
+
+    - name: Run blastproof
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # The CLI never reads a key from a blastproof-prefixed variable; its config
+        # names which variable holds it. So the input lands in one fixed variable
+        # and we point the indirection at that name.
+        BLASTPROOF_ACTION_API_KEY: ${{ inputs.api-key }}
+        BLASTPROOF_LLM_API_KEY_ENV: BLASTPROOF_ACTION_API_KEY
+        BLASTPROOF_LLM_PROVIDER: ${{ inputs.provider }}
+        BLASTPROOF_LLM_MODEL: ${{ inputs.model }}
+        BLASTPROOF_LLM_BASE_URL: ${{ inputs.llm-base-url }}
+        BLASTPROOF_BASE_URL: ${{ inputs.url }}
+      run: |
+        junit="${{ inputs.junit }}"
+        if [ -z "$junit" ]; then
+          junit="$RUNNER_TEMP/blastproof-junit.xml"
+        fi
+        echo "junit=$junit" >> "$GITHUB_OUTPUT"
+
+        args=()
+        case "${{ inputs.command }}" in
+          test|plan) args+=(--base "${{ inputs.base }}") ;;
+        esac
+        [ -n "${{ inputs.min-score }}" ] && args+=(--min-score "${{ inputs.min-score }}")
+        [ "${{ inputs.fail-on-unmapped }}" = "true" ] && args+=(--fail-on-unmapped)
+        [ "${{ inputs.write }}" = "true" ] && args+=(--write)
+        [ -n "${{ inputs.html }}" ] && args+=(--html "${{ inputs.html }}")
+        args+=(--junit "$junit")
+
+        # `plan` takes neither --junit nor --min-score; it only drafts.
+        if [ "${{ inputs.command }}" = "plan" ]; then
+          args=(--base "${{ inputs.base }}")
+          [ "${{ inputs.write }}" = "true" ] && args+=(--write)
+        fi
+
+        echo "running: blastproof ${{ inputs.command }} ${args[*]}"
+        blastproof "${{ inputs.command }}" "${args[@]}"
+
+    - name: Read the score
+      id: score
+      # `always()`: a blocked merge is exactly when the score is worth reading.
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        junit="${{ steps.run.outputs.junit }}"
+        score=""
+        if [ -n "$junit" ] && [ -f "$junit" ]; then
+          score="$(grep -oE '<property name="score" value="[0-9]+"' "$junit" | grep -oE '[0-9]+' || true)"
+        fi
+        echo "score=$score" >> "$GITHUB_OUTPUT"
+        if [ -n "$score" ]; then
+          echo "score: $score"
+        else
+          echo "no report produced, score unavailable"
+        fi
