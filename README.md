@@ -142,6 +142,30 @@ Bring your own key — runs 100% locally:
 - **OpenAI** (`OPENAI_API_KEY`)
 - **Ollama** (local, no key needed)
 
+### Configuring from the environment
+
+You never have to commit a provider choice just to configure a pipeline. These variables override `.blastproof/config.yaml`, and precedence is **CLI flag > environment > file**:
+
+| variable | overrides |
+| --- | --- |
+| `BLASTPROOF_BASE_URL` | `base_url` — the app under test |
+| `BLASTPROOF_LLM_PROVIDER` | `anthropic` \| `openai` \| `ollama` |
+| `BLASTPROOF_LLM_MODEL` | the model name |
+| `BLASTPROOF_LLM_BASE_URL` | the provider endpoint — *not* the app |
+| `BLASTPROOF_LLM_API_KEY_ENV` | the **name** of the variable holding your key |
+
+Running the committed config against an OpenAI-compatible gateway, without editing a file:
+
+```bash
+export BLASTPROOF_LLM_PROVIDER=openai
+export BLASTPROOF_LLM_MODEL=anthropic/claude-haiku-4.5
+export BLASTPROOF_LLM_BASE_URL=https://openrouter.ai/api/v1
+export BLASTPROOF_LLM_API_KEY_ENV=OPENROUTER_API_KEY
+blastproof run --impacted --min-score 80
+```
+
+Note the last one names *which variable* holds your key — the key itself is never read from a `BLASTPROOF_*` variable, so error messages can keep naming the variable you chose. An empty value counts as unset, so `FOO=` in a CI matrix will not blank a configured setting.
+
 ## Roadmap
 
 - [x] Repository & spec-driven development setup

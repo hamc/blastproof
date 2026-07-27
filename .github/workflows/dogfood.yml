@@ -27,6 +27,12 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       BASE_URL: http://localhost:4173
       MIN_SCORE: 80
+      # Point the run at OpenRouter without touching the committed config, whose
+      # default stays anthropic. Precedence is CLI flag > environment > file.
+      BLASTPROOF_LLM_PROVIDER: openai
+      BLASTPROOF_LLM_MODEL: anthropic/claude-haiku-4.5
+      BLASTPROOF_LLM_BASE_URL: https://openrouter.ai/api/v1
+      BLASTPROOF_LLM_API_KEY_ENV: OPENROUTER_API_KEY
 
     steps:
       - uses: actions/checkout@v7
@@ -53,25 +59,6 @@ jobs:
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
-
-      - name: Point the run at OpenRouter
-        # Patches the checkout only — the committed config keeps its anthropic default.
-        # TODO(M4): the published Action needs env/`--config` overrides so consumers
-        # do not have to commit their provider just to configure CI.
-        run: |
-          node --input-type=module -e "
-          import { readFile, writeFile } from 'node:fs/promises';
-          import { parse, stringify } from 'yaml';
-          const file = '.blastproof/config.yaml';
-          const config = parse(await readFile(file, 'utf8'));
-          config.llm = {
-            provider: 'openai',
-            model: 'anthropic/claude-haiku-4.5',
-            api_key_env: 'OPENROUTER_API_KEY',
-            base_url: 'https://openrouter.ai/api/v1',
-          };
-          await writeFile(file, stringify(config));
-          "
 
       - name: Start the demo app
         run: |

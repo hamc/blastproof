@@ -320,3 +320,67 @@ describe('runCommand --junit', () => {
     expect(xml).toContain('<skipped message="no routes: declared, skipped by --impacted"/>');
   });
 });
+
+describe('config precedence: flag > env > file', () => {
+  const withEnv = async <T>(vars: Record<string, string>, fn: () => Promise<T>): Promise<T> => {
+    const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, vars);
+    try {
+      return await fn();
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  };
+
+  it('uses the file when nothing else is set', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('base_url=http://localhost:4173');
+  });
+
+  it('lets the environment beat the file', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    const code = await withEnv({ BLASTPROOF_BASE_URL: 'https://from-env.example.com' }, () =>
+      runCommand({ cwd: dir, tags: [], dryRun: true }),
+    );
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('base_url=https://from-env.example.com');
+  });
+
+  it('lets the flag beat the environment', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    const code = await withEnv({ BLASTPROOF_BASE_URL: 'https://from-env.example.com' }, () =>
+      runCommand({
+        cwd: dir,
+        tags: [],
+        dryRun: true,
+        url: 'https://from-flag.example.com',
+      }),
+    );
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('base_url=https://from-flag.example.com');
+    expect(out()).not.toContain('from-env');
+  });
+
+  it('surfaces an invalid override as a usage error naming the variable', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    const code = await withEnv({ BLASTPROOF_LLM_PROVIDER: 'gemini' }, () =>
+      runCommand({ cwd: dir, tags: [] }),
+    );
+
+    expect(code).toBe(EXIT_USAGE);
+    expect(errOut()).toContain('BLASTPROOF_LLM_PROVIDER');
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+});

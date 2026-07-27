@@ -30,6 +30,15 @@ browser:
 routes:
   "src/auth/**": ["/login"]
   "src/cart/**": ["/cart", "/checkout"]
+
+# CI tip: these settings can be overridden from the environment, so you never have
+# to commit a provider choice just to configure a pipeline. Precedence is
+# CLI flag > environment > this file.
+#   BLASTPROOF_BASE_URL          the app under test
+#   BLASTPROOF_LLM_PROVIDER      anthropic | openai | ollama
+#   BLASTPROOF_LLM_MODEL
+#   BLASTPROOF_LLM_BASE_URL      the provider endpoint (not the app)
+#   BLASTPROOF_LLM_API_KEY_ENV   name of the variable holding your key, never the key
 `;
 
 const SAMPLE_TEST = `summary: App loads and shows the home page
