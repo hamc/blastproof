@@ -1,0 +1,41 @@
+name: Impact
+
+# The free, deterministic half of blastproof: diff → affected routes → which tests
+# cover them. No LLM key, no browser, no cost — so it runs on every pull request,
+# including those from forks, and its result is trustworthy enough to gate on.
+on:
+  pull_request:
+
+concurrency:
+  group: impact-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  blast-radius:
+    name: blast radius of this PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `--impacted` diffs base...HEAD, which needs the merge-base. The default
+          # shallow clone has none and the run fails with exit 2.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Report the blast radius
+        # --dry-run stops before the browser and the LLM, so no key is required.
+        # Surfaces the affected routes, unmapped files and the tests that cover
+        # them straight into the PR checks.
+        run: |
+          node dist/cli.js run \
+            --impacted \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --dry-run

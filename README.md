@@ -1,5 +1,9 @@
 # blastproof
 
+[![CI](https://github.com/hamc/blastproof/actions/workflows/ci.yml/badge.svg)](https://github.com/hamc/blastproof/actions/workflows/ci.yml)
+[![Dogfood](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml/badge.svg)](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 **Open-source AI testing agent for pull requests.** Diff in, confidence out — no test scripts to write or maintain.
 
 `blastproof` is an open-source AI QA agent for pull requests: it reads your PR diff, maps the blast radius, generates end-to-end tests in plain English, executes them on a real browser with self-healing, and scores the result before merge. 100% local, MIT licensed, bring your own LLM key.
@@ -108,6 +112,27 @@ blastproof run --impacted --base "$BASE_REF" --min-score 80 --junit junit.xml
 ```
 
 Exit 0 merge-able, 1 blocked, 2 usage/config error. The JUnit report carries the score as a `<property name="score">` so a parser can read it without scraping stdout, and tests skipped for having no `routes:` appear as `<skipped/>` cases — the coverage gap shows up in CI instead of vanishing.
+
+## blastproof tests itself
+
+The **Dogfood** badge above is blastproof running against the demo app in this repo: real Chromium, real LLM, plain-English tests, scored and gated. The run logs are public — the agent's reasoning, step by step, is there to read.
+
+It catches real regressions rather than diffing strings. Changing the demo app's discount from 20% to 5%, while leaving the on-screen message still claiming *"Promo code SAVE20 applied: 20% off"*, produces:
+
+```
+FAIL  P0  Promo code SAVE20 applies a 20% discount in the cart
+  failing step: verify a 20% discount of $24.00 is shown
+  reason: the discount is currently -$6.00, but a 20% discount on
+          $120.00 should be -$24.00
+Score: 50 — min-score 80: FAIL (below threshold)
+```
+
+No selector was updated and no assertion was rewritten to catch that. The agent read the rendered value, did the arithmetic, and disagreed with the page.
+
+Two workflows, split by what they cost:
+
+- **Impact** — runs on every pull request, including forks. Deterministic and keyless: it reports the blast radius of the diff and which tests cover it, before anyone spends a token.
+- **Dogfood** — runs daily and on demand. The agentic run needs an API key, so it stays out of the merge path: a non-deterministic model answer should never block a merge.
 
 ## LLM providers (BYOK)
 

@@ -1,0 +1,112 @@
+name: Dogfood
+
+# blastproof testing itself: the agent runs the plain-English suite against the
+# bundled demo app in a real browser, scores the result and gates on it.
+#
+# Deliberately NOT on pull_request. The agentic run costs tokens and is driven by
+# an LLM, so it does not belong in the merge path — a flaky model answer must never
+# block a merge. It runs on a schedule instead, which keeps the public evidence
+# fresh without making anyone wait on it. The free, deterministic impact analysis
+# is what runs per PR (see impact.yml).
+on:
+  schedule:
+    # 06:00 UTC daily. GitHub disables scheduled workflows after 60 days without
+    # repository activity; a manual dispatch re-arms them.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: dogfood
+  cancel-in-progress: false
+
+jobs:
+  demo-app:
+    name: blastproof vs demo-app
+    runs-on: ubuntu-latest
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      BASE_URL: http://localhost:4173
+      MIN_SCORE: 80
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require an LLM key
+        # This workflow never runs on a fork pull request, so a missing key is a
+        # misconfiguration, not an expected condition. Failing loudly keeps the
+        # badge honest: green here means the agent actually ran.
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY is not set. Add it with: gh secret set OPENROUTER_API_KEY --repo ${{ github.repository }}"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Point the run at OpenRouter
+        # Patches the checkout only — the committed config keeps its anthropic default.
+        # TODO(M4): the published Action needs env/`--config` overrides so consumers
+        # do not have to commit their provider just to configure CI.
+        run: |
+          node --input-type=module -e "
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { parse, stringify } from 'yaml';
+          const file = '.blastproof/config.yaml';
+          const config = parse(await readFile(file, 'utf8'));
+          config.llm = {
+            provider: 'openai',
+            model: 'anthropic/claude-haiku-4.5',
+            api_key_env: 'OPENROUTER_API_KEY',
+            base_url: 'https://openrouter.ai/api/v1',
+          };
+          await writeFile(file, stringify(config));
+          "
+
+      - name: Start the demo app
+        run: |
+          node examples/demo-app/serve.mjs 4173 &
+          for _ in $(seq 1 30); do
+            if curl -sf -o /dev/null "$BASE_URL/"; then
+              echo "demo app is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "demo app did not come up in 30s" >&2
+          exit 1
+
+      - name: Run the suite and gate on the score
+        run: |
+          node dist/cli.js run \
+            --min-score "$MIN_SCORE" \
+            --junit junit.xml
+
+      - name: Upload the JUnit report
+        # `always()` so a blocked run still leaves its evidence behind.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-report
+          path: junit.xml
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failure-screenshots
+          path: .blastproof/reports/
+          if-no-files-found: ignore
+          retention-days: 30
