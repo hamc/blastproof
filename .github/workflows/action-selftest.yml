@@ -1,0 +1,74 @@
+name: Action self-test
+
+# Exercises the action in this repository exactly as a consumer would, using the
+# checked-out copy (`uses: ./`) rather than a published tag — so a change to
+# action.yml can be verified before it is tagged and anyone depends on it.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['action.yml', '.github/workflows/action-selftest.yml']
+    branches: [main]
+
+concurrency:
+  group: action-selftest
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: shallow checkout is rejected
+    runs-on: ubuntu-latest
+    steps:
+      # Default depth: shallow. The guard must fail before installing anything.
+      - uses: actions/checkout@v7
+
+      - id: shallow
+        continue-on-error: true
+        uses: ./
+        with:
+          command: test
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - name: The guard must have failed
+        run: |
+          if [ "${{ steps.shallow.outcome }}" != "failure" ]; then
+            echo "::error::a shallow checkout should have been rejected, but the action succeeded"
+            exit 1
+          fi
+          echo "guard rejected the shallow checkout, as intended"
+
+  run:
+    name: full run against the demo app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Start the demo app
+        run: |
+          node examples/demo-app/serve.mjs 4173 &
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:4173/ && exit 0
+            sleep 1
+          done
+          echo "demo app did not come up" >&2
+          exit 1
+
+      - id: blastproof
+        uses: ./
+        with:
+          command: run
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          provider: openai
+          model: anthropic/claude-haiku-4.5
+          llm-base-url: https://openrouter.ai/api/v1
+          min-score: '80'
+
+      - name: The score output must be readable
+        run: |
+          score="${{ steps.blastproof.outputs.score }}"
+          if [ -z "$score" ]; then
+            echo "::error::the action produced no score output"
+            exit 1
+          fi
+          echo "score output: $score"
