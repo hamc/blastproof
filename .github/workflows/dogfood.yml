@@ -10,9 +10,11 @@ name: Dogfood
 # is what runs per PR (see impact.yml).
 on:
   schedule:
-    # 06:00 UTC daily. GitHub disables scheduled workflows after 60 days without
-    # repository activity; a manual dispatch re-arms them.
-    - cron: '0 6 * * *'
+    # Mondays at 06:00 UTC. Weekly rather than daily: the evidence only needs to be
+    # current, not fresh by the hour, and each run spends real tokens. GitHub
+    # disables scheduled workflows after 60 days without repository activity; a
+    # manual dispatch re-arms them.
+    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 concurrency:
