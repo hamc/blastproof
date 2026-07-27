@@ -58,6 +58,17 @@ Agentic runs cost tokens and need a real provider. Everything else — unit test
 
 `AGENTS.md` carries the architecture, the milestone plan and the full conventions. Read it before your first change.
 
+## Releases
+
+Publishing runs from a tag, never from a merge — a released version can never be edited and the package name is claimed permanently, so it takes a deliberate act:
+
+```bash
+# bump the version in package.json first, then
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The release workflow refuses to publish if the tag and the manifest version disagree, rebuilds and re-runs the full verification, and publishes with npm provenance. It needs an `NPM_TOKEN` secret on the repository.
+
 ## Reporting bugs
 
 Include the command you ran, the provider and model, what you expected, and what happened. A `--dry-run` output or a JUnit/HTML report is worth more than a description. Redact your keys — and note that a failure screenshot may contain application data you would rather not publish.

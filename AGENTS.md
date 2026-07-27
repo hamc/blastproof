@@ -108,7 +108,7 @@ Before considering any task done: `build`, `test` and `typecheck` must pass. E2E
 | M1 | `init` + `run`: YAML runner with agentic LLM executor + demo app | implemented (`openspec/changes/m1-yaml-runner`) |
 | M2 | `plan`: diff analysis, impact mapping, test generation | done — m2a (`run --impacted`) + m2b (`plan`); the one-shot `test` pipeline is deferred to M3 |
 | M3 | Reports (JUnit/HTML), scoring, exit codes | done — m3a (score + `--min-score` + JUnit) + m3b (HTML + `test`) |
-| M4 | GitHub Action, npm publish | pending |
+| M4 | GitHub Action, npm publish | m4a (npm packaging + release workflow) implemented (`openspec/changes/m4a-npm-release`); m4b (consumable Action) pending |
 
 Post-MVP (do not build unless asked): VS Code extension, session replay, worker parallelism, Flutter, GitHub PR comments.
 

@@ -23,13 +23,15 @@ git diff → impact mapping → test generation → agentic execution → report
 ## Quick start
 
 ```bash
-npm install -g blastproof
-npx playwright install chromium   # one-time browser download
+npm install -g blastproof                    # requires Node.js >= 20.19
+npx playwright install --with-deps chromium  # one-time browser download
 cd your-project
 blastproof init
-export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY, or use a local Ollama model
-blastproof run                    # discovers .blastproof/tests/**/*.yaml and runs them agentically
+export ANTHROPIC_API_KEY=...                 # or OPENAI_API_KEY, or a local Ollama model
+blastproof run                               # runs .blastproof/tests/**/*.yaml agentically
 ```
+
+Published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements), so the tarball is verifiably built from this repository.
 
 Try it locally without your own app — this repo ships a demo shop:
 
@@ -40,7 +42,7 @@ export ANTHROPIC_API_KEY=...
 blastproof run
 ```
 
-> **Status:** the full pipeline works today — `init`, `run` (including `--impacted`), `plan` and `test`, with JUnit and HTML reports. Packaging and the GitHub Action are next (M4).
+> **Status:** the full pipeline works today — `init`, `run` (including `--impacted`), `plan` and `test`, with JUnit and HTML reports. The consumable GitHub Action is next.
 
 ## Test format
 

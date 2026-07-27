@@ -3,7 +3,7 @@ import path from 'node:path';
 import { access } from 'node:fs/promises';
 
 const DEFAULT_CONFIG = `# blastproof configuration
-# Docs: https://github.com/blastproof/blastproof
+# Docs: https://github.com/hamc/blastproof
 
 # Base URL of the app under test. Relative navigate paths resolve against it.
 base_url: http://localhost:4173

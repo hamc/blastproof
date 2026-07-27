@@ -1,0 +1,54 @@
+name: Release
+
+# Publishing is irreversible: the package name is claimed permanently and a
+# released version can never be edited. So it runs on a deliberate `v*` tag, not
+# on a merge — an accidental push to main must not be able to claim a version.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  # Required for npm provenance: records a verifiable link between the published
+  # tarball and the commit and workflow that produced it.
+  id-token: write
+
+jobs:
+  publish:
+    name: verify and publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Tag must match the manifest version
+        # A mistyped tag would otherwise publish a number nobody intended, and
+        # that number can never be reused.
+        run: |
+          manifest="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $manifest"
+            exit 1
+          fi
+          echo "publishing $manifest"
+
+      - run: npm run build
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: Publish
+        # prepublishOnly re-runs the verification above; the cost is seconds and
+        # it removes the one mistake that cannot be corrected — shipping a stale build.
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
