@@ -31,6 +31,15 @@ routes:
   "src/auth/**": ["/login"]
   "src/cart/**": ["/cart", "/checkout"]
 
+# Files knowingly irrelevant to any route. Nothing is ignored by default: a file
+# nobody has classified is exactly the risk \`--fail-on-unmapped\` exists to surface,
+# so the list is yours to state rather than ours to guess.
+# ignore:
+#   - "**/*.md"
+#   - "docs/**"
+#   - ".github/**"
+#   - "LICENSE"
+
 # Optional: authenticate once per run so tests and \`plan\` reach pages behind a login.
 # Pick exactly ONE strategy. Credentials come from the environment via {{env.VAR}} —
 # never write them here. A test can opt out with \`auth: false\` (a login test must).

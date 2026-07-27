@@ -62,6 +62,7 @@ program
   )
   .option('--junit [path]', 'write a JUnit XML report (default: .blastproof/reports/<session>/junit.xml)')
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
+  .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
   .action(
     async (options: {
       tag: string[];
@@ -74,6 +75,7 @@ program
       minScore?: number;
       junit?: string | boolean;
       html?: string | boolean;
+      failOnUnmapped?: boolean;
     }) => {
       try {
         process.exitCode = await runCommand({
@@ -88,6 +90,7 @@ program
           minScore: options.minScore,
           junit: options.junit,
           html: options.html,
+          failOnUnmapped: options.failOnUnmapped,
         });
       } catch (error) {
         console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
@@ -131,6 +134,7 @@ program
   .option('--junit [path]', 'write a JUnit XML report (default: .blastproof/reports/<session>/junit.xml)')
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .option('--write', 'persist generated drafts under .blastproof/tests/ instead of previewing them')
+  .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
   .action(
     async (options: {
       base: string;
@@ -139,6 +143,7 @@ program
       junit?: string | boolean;
       html?: string | boolean;
       write?: boolean;
+      failOnUnmapped?: boolean;
     }) => {
       try {
         process.exitCode = await testCommand({
@@ -149,6 +154,7 @@ program
           junit: options.junit,
           html: options.html,
           write: options.write,
+          failOnUnmapped: options.failOnUnmapped,
         });
       } catch (error) {
         console.error(`error: ${error instanceof Error ? error.message : String(error)}`);

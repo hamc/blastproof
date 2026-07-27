@@ -13,6 +13,8 @@ export interface TestOptions {
   html?: string | boolean;
   /** Persist generated drafts instead of previewing them. */
   write?: boolean;
+  /** Fail when the diff contains a file matching neither routes: nor ignore:. */
+  failOnUnmapped?: boolean;
 }
 
 function section(title: string): void {
@@ -42,6 +44,7 @@ export async function testCommand(options: TestOptions): Promise<number> {
     minScore: options.minScore,
     junit: options.junit,
     html: options.html,
+    failOnUnmapped: options.failOnUnmapped,
   });
   if (runCode === EXIT_USAGE) return EXIT_USAGE;
 

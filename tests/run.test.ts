@@ -95,7 +95,7 @@ describe('runCommand --impacted', () => {
     expect(launchMock).not.toHaveBeenCalled();
     expect(getChangedFilesMock).toHaveBeenCalledWith('main', dir);
     expect(out()).toContain('Affected routes: none');
-    expect(out()).toContain('Unmapped files');
+    expect(out()).toContain('Unclassified files');
     expect(out()).toContain('docs/guide.md');
     expect(out()).toContain('Unrouted tests (skipped)');
     expect(out()).toContain('Legacy test');
@@ -153,7 +153,7 @@ describe('runCommand --dry-run', () => {
     expect(launchMock).not.toHaveBeenCalled();
     expect(out()).toContain('Affected routes:');
     expect(out()).toContain('/cart');
-    expect(out()).toContain('Unmapped files');
+    expect(out()).toContain('Unclassified files');
     expect(out()).toContain('docs/guide.md');
     expect(out()).toContain('Unrouted tests (skipped)');
     expect(out()).toContain('Legacy test');
@@ -424,5 +424,71 @@ describe('runCommand --html', () => {
     await expect(
       readFile(path.join(dir, 'build', 'report.html'), 'utf8'),
     ).resolves.toContain('<b>0</b>');
+  });
+});
+
+describe('runCommand --fail-on-unmapped', () => {
+  async function writeProjectWithIgnore(): Promise<void> {
+    const config = [
+      'base_url: http://localhost:4173',
+      'llm:',
+      '  provider: anthropic',
+      '  api_key_env: BLASTPROOF_TEST_MISSING_KEY',
+      'routes:',
+      '  "src/cart/**": ["/cart"]',
+      'ignore:',
+      '  - "**/*.md"',
+      '',
+    ].join('\n');
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), config);
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'cart.yaml'), CART_TEST);
+  }
+
+  it('blocks an unclassified file and names both resolutions', async () => {
+    await writeProjectWithIgnore();
+    getChangedFilesMock.mockResolvedValue(['src/lib/money.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, failOnUnmapped: true });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(errOut()).toContain('src/lib/money.ts');
+    expect(errOut()).toContain('routes:');
+    expect(errOut()).toContain('ignore:');
+  });
+
+  it('does not block on ignored files', async () => {
+    await writeProjectWithIgnore();
+    getChangedFilesMock.mockResolvedValue(['README.md', 'docs/guide.md']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, failOnUnmapped: true });
+
+    expect(code).toBe(EXIT_OK);
+  });
+
+  it('is additive: blocks even when the score gate passes', async () => {
+    await writeProjectWithIgnore();
+    getChangedFilesMock.mockResolvedValue(['src/lib/money.ts']);
+
+    // Nothing executed, so the score is 100 and min-score 80 is satisfied.
+    const code = await runCommand({
+      cwd: dir,
+      tags: [],
+      impacted: true,
+      minScore: 80,
+      failOnUnmapped: true,
+    });
+
+    expect(code).toBe(EXIT_FAILED);
+  });
+
+  it('leaves the exit code untouched without the flag', async () => {
+    await writeProjectWithIgnore();
+    getChangedFilesMock.mockResolvedValue(['src/lib/money.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('Unclassified files');
   });
 });

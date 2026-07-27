@@ -69,6 +69,8 @@ const configSchema = z.object({
   llm: llmSchema.default({}),
   browser: browserSchema.default({}),
   routes: z.record(z.array(z.string())).optional(),
+  /** Globs for files knowingly irrelevant to any route (docs, CI config, licences). */
+  ignore: z.array(z.string()).optional(),
   auth: authSchema.optional(),
   max_retries_per_step: z.number().int().min(1).default(3),
 });

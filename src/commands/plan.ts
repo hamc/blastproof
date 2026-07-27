@@ -90,13 +90,13 @@ async function resolveTargets(
 
   const base = options.base ?? 'main';
   const changedFiles = await getChangedFiles(base, options.cwd);
-  const impact = mapImpact(changedFiles, config.routes ?? {});
+  const impact = mapImpact(changedFiles, config.routes ?? {}, config.ignore ?? []);
 
   // Re-run the glob match per route so each generation prompt sees only the files
   // that made *that* route impacted (design D3), not the whole changed set.
   const filesForRoute = (route: string): string[] =>
     changedFiles.filter((file) =>
-      mapImpact([file], config.routes ?? {}).affectedRoutes.includes(route),
+      mapImpact([file], config.routes ?? {}, config.ignore ?? []).affectedRoutes.includes(route),
     );
 
   const work: RouteWork[] = [];

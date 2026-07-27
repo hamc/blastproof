@@ -45,6 +45,36 @@ describe('mapImpact', () => {
 
   it('returns empty results for no changed files', () => {
     const result = mapImpact([], { 'src/**': ['/x'] });
-    expect(result).toEqual({ affectedRoutes: [], unmappedFiles: [] });
+    expect(result).toEqual({ affectedRoutes: [], unmappedFiles: [], ignoredFiles: [] });
+  });
+});
+
+describe('ignore globs', () => {
+  const ROUTES = { 'src/cart/**': ['/cart'] };
+
+  it('keeps an ignored file out of the unmapped report', () => {
+    const result = mapImpact(['README.md'], ROUTES, ['**/*.md']);
+    expect(result.unmappedFiles).toEqual([]);
+    expect(result.ignoredFiles).toEqual(['README.md']);
+    expect(result.affectedRoutes).toEqual([]);
+  });
+
+  it('lets ignore win over a routes match, so irrelevant means irrelevant', () => {
+    const result = mapImpact(['src/cart/README.md'], ROUTES, ['**/*.md']);
+    expect(result.affectedRoutes).toEqual([]);
+    expect(result.ignoredFiles).toEqual(['src/cart/README.md']);
+  });
+
+  it('still reports a file matching neither', () => {
+    const result = mapImpact(['src/lib/money.ts'], ROUTES, ['**/*.md']);
+    expect(result.unmappedFiles).toEqual(['src/lib/money.ts']);
+    expect(result.ignoredFiles).toEqual([]);
+  });
+
+  it('behaves exactly as before with no ignore list', () => {
+    const result = mapImpact(['docs/guide.md', 'src/cart/a.ts'], ROUTES);
+    expect(result.unmappedFiles).toEqual(['docs/guide.md']);
+    expect(result.ignoredFiles).toEqual([]);
+    expect(result.affectedRoutes).toEqual(['/cart']);
   });
 });

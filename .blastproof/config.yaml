@@ -32,6 +32,16 @@ routes:
   "examples/demo-app/orders.html": ["/orders"]
   "examples/demo-app/account.html": ["/account"]
 
+# Files that cannot affect any page in the demo app.
+ignore:
+  - "**/*.md"
+  - "docs/**"
+  - ".github/**"
+  - "LICENSE"
+  - "openspec/**"
+  - "tests/**"
+  - ".blastproof/**"
+
 # The demo shop keeps a session in localStorage, so /orders and /account are only
 # reachable signed in. This recipe signs in once per run and every test reuses it.
 # The demo credentials are public on purpose; in a real project use {{env.VAR}}

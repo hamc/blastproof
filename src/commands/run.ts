@@ -50,6 +50,12 @@ export interface RunOptions extends TestFilters {
   junit?: string | boolean;
   /** Write an HTML report: `true` for the session-directory default, or an explicit path. */
   html?: string | boolean;
+  /**
+   * Fail the run when the diff contains a file matching neither a `routes:` glob
+   * nor an `ignore:` glob. Additive to `--min-score`: a run can verify what it
+   * selected and still be blocked by a change nobody has classified (design D4).
+   */
+  failOnUnmapped?: boolean;
 }
 
 function sessionId(): string {
@@ -203,8 +209,11 @@ function printImpactReport(
   );
   for (const route of impact.affectedRoutes) console.log(`  ${route}`);
   if (impact.unmappedFiles.length > 0) {
-    console.log('Unmapped files (matched by no routes: glob):');
+    console.log('Unclassified files (matched by no routes: or ignore: glob):');
     for (const file of impact.unmappedFiles) console.log(`  ${file}`);
+  }
+  if (impact.ignoredFiles.length > 0) {
+    console.log(`Ignored files: ${impact.ignoredFiles.length}`);
   }
   if (selection.unroutedSkipped.length > 0) {
     console.log('Unrouted tests (skipped):');
@@ -230,6 +239,7 @@ async function finalize(
   options: RunOptions,
   sessionDir: string,
   durationMs: number,
+  impact?: ImpactResult,
 ): Promise<number> {
   if (results.length > 0) printSummary(results);
 
@@ -259,6 +269,22 @@ async function finalize(
     });
     await writeHtml(target, html);
     console.log(`HTML report: ${path.relative(options.cwd, target)}`);
+  }
+
+  // Additive, unlike --min-score (design D4): "the tests I ran passed" and
+  // "something changed that nobody has classified" are different claims, and the
+  // second is exactly the silent false negative this flag exists to remove.
+  const unclassified = options.failOnUnmapped ? (impact?.unmappedFiles ?? []) : [];
+  if (unclassified.length > 0) {
+    console.error(
+      `error: ${unclassified.length} changed file(s) match no routes: or ignore: glob, ` +
+        'so their blast radius is unknown:',
+    );
+    for (const file of unclassified) console.error(`  ${file}`);
+    console.error(
+      'Map them in routes: if they can affect a page, or list them in ignore: if they cannot.',
+    );
+    return EXIT_FAILED;
   }
 
   if (options.minScore !== undefined) {
@@ -309,7 +335,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       }
       throw error;
     }
-    impact = mapImpact(changedFiles, config.routes ?? {});
+    impact = mapImpact(changedFiles, config.routes ?? {}, config.ignore ?? []);
   }
 
   const testsDir = path.join(options.cwd, TESTS_RELATIVE_DIR);
@@ -372,7 +398,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     console.log(
       impact ? 'No impacted tests to run.' : 'No tests matched the given filters.',
     );
-    return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt);
+    return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt, impact);
   }
 
   // Fail fast on a missing API key before launching any browser (spec: llm-providers).
@@ -426,5 +452,5 @@ export async function runCommand(options: RunOptions): Promise<number> {
     await browser.close();
   }
 
-  return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt);
+  return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt, impact);
 }

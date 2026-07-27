@@ -116,6 +116,36 @@ Exit codes: 0 when every route generated (or nothing needed coverage), 1 when a 
 
 **Known limitation:** a route behind authentication snapshots as the login wall, so its draft describes logging in rather than the feature. The `auth` config recipe is not applied by the planner yet — generate those routes after an auth session lands, or write them by hand.
 
+### Closing the coverage hole
+
+Impact mapping has a failure mode worth understanding. A changed file that matches no `routes:` glob contributes no affected routes — so a diff touching only a shared module selects nothing, scores 100 because nothing executed, and merges green. The information is printed, but nobody reads a passing run.
+
+Each changed file is classified three ways:
+
+| a changed file | means |
+| --- | --- |
+| matches a `routes:` glob | contributes its routes |
+| matches an `ignore:` glob | knowingly irrelevant to any page |
+| matches neither | **nobody has said what this affects** |
+
+```yaml
+routes:
+  "src/cart/**": ["/cart", "/checkout"]
+ignore:
+  - "**/*.md"
+  - ".github/**"
+```
+
+```bash
+blastproof run --impacted --fail-on-unmapped
+```
+
+The flag fails the run on the third case only, naming the files and both ways to resolve them. `ignore:` is what makes that signal survivable — without it the flag would fire on every README edit and get switched off within a day, and a disabled gate protects nothing.
+
+Nothing is ignored by default, on purpose: a file nobody has classified is exactly the risk the flag exists to surface, and a default that guesses on your behalf would hide the first files worth thinking about. This flag is **additive** — a run can meet its `--min-score` and still be blocked here, because "the tests I ran passed" and "something changed that nobody has classified" are different claims.
+
+Be clear on its limit: it catches files that are *unclassified*, not files that are *misclassified*. A shared module mapped to one route when it can break five will still slip through. Mapping by import graph is the answer to that, and blastproof does not do it yet.
+
 ### Score and merge gating
 
 Every run ends with a score: the percentage of executed test **weight** that passed, where a test weighs 3 at P0, 2 at P1 and 1 at P2. Weighting is the point — a failing checkout costs three times a failing tooltip, so a pile of trivial passes can't hide a broken critical journey.
