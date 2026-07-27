@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { chromium } from 'playwright';
+import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
 import { DiffError, getChangedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
@@ -145,6 +146,7 @@ async function runOne(
   test: TestFile,
   config: BlastproofConfig,
   sessionDir: string,
+  session: AuthSession | undefined,
 ): Promise<TestResult> {
   const brain = createBrain(createModel(config.llm).model);
 
@@ -169,8 +171,10 @@ async function runOne(
     throw error;
   }
 
-  // Fresh context per test: no cookies, storage or history leakage (design D6).
-  const context = await browser.newContext();
+  // Fresh context per test: no cookies, storage or history leakage (m1 design D6).
+  // With auth configured the context merely starts from the shared session instead
+  // of empty, so isolation is preserved (auth design D3); `auth: false` opts out.
+  const context = await browser.newContext(test.auth ? contextOptions(session) : {});
   try {
     const page = await context.newPage();
     page.setDefaultTimeout(config.browser.timeout_ms);
@@ -389,9 +393,34 @@ export async function runCommand(options: RunOptions): Promise<number> {
 
   const browser = await chromium.launch({ headless: config.browser.headless });
   try {
+    // Authenticate once, before the first test (design D3). A failed login is a
+    // configuration problem, not a product defect, so it aborts with exit 2 rather
+    // than surfacing as N failing tests and a meaningless score (design D6).
+    let session: AuthSession | undefined;
+    if (config.auth) {
+      try {
+        console.log('Authenticating...');
+        session = await authenticate({
+          auth: config.auth,
+          cwd: options.cwd,
+          baseUrl: config.base_url,
+          browser: browser as unknown as BrowserLike,
+          brain: createBrain(createModel(config.llm).model),
+          maxRetries: config.max_retries_per_step,
+          onEvent: printEvent,
+        });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          console.error(`error: ${error.message}`);
+          return EXIT_USAGE;
+        }
+        throw error;
+      }
+    }
+
     for (const test of selected) {
       console.log(`\n> ${test.summary} [${test.priority}] (${path.relative(options.cwd, test.path)})`);
-      results.push(await runOne(browser, test, config, sessionDir));
+      results.push(await runOne(browser, test, config, sessionDir, session));
     }
   } finally {
     await browser.close();

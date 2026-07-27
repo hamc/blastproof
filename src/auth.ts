@@ -1,0 +1,247 @@
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import type { AuthConfig } from './config.js';
+import type { AgentBrain } from './llm/brain.js';
+import type { PageLike } from './runner/actions.js';
+import { SecretsMask, substituteEnv } from './runner/env.js';
+import { defaultSnapshot, executeTest, type ExecutorEvent } from './runner/executor.js';
+
+/** Where a captured session is cached when `auth.cache` is enabled (design D9). */
+export const AUTH_STATE_RELATIVE_PATH = path.join('.blastproof', '.auth-state.json');
+
+export class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthError';
+  }
+}
+
+/** Playwright storage state: cookies plus per-origin storage. */
+export interface StorageState {
+  cookies: unknown[];
+  origins: unknown[];
+}
+
+/**
+ * The single internal contract every strategy produces (design D1). Consumers seed
+ * a browser context with it and never learn how the session was obtained.
+ */
+export interface AuthSession {
+  storageState?: StorageState;
+  extraHTTPHeaders?: Record<string, string>;
+}
+
+/** Narrow Playwright subset the authenticator needs; real objects are compatible. */
+export interface ContextLike {
+  newPage(): Promise<PageLike>;
+  storageState(): Promise<StorageState>;
+  close(): Promise<void>;
+}
+
+export interface BrowserLike {
+  newContext(options?: Record<string, unknown>): Promise<ContextLike>;
+}
+
+export interface AuthenticateOptions {
+  auth: AuthConfig;
+  cwd: string;
+  baseUrl: string;
+  browser: BrowserLike;
+  brain: AgentBrain;
+  maxRetries?: number;
+  /** Injectable snapshotter, mirroring the executor, so tests need no browser. */
+  snapshot?: (page: PageLike) => Promise<string>;
+  /**
+   * Progress reporter for the login journey. Without it authentication is a black
+   * box, and a failing login is the moment you most need to see what happened.
+   */
+  onEvent?: (event: ExecutorEvent) => void;
+}
+
+function isStorageState(value: unknown): value is StorageState {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Array.isArray((value as StorageState).cookies) &&
+    Array.isArray((value as StorageState).origins)
+  );
+}
+
+/** Reads a previously captured state, failing with the path when unusable. */
+async function fromStorageState(file: string): Promise<AuthSession> {
+  let raw: string;
+  try {
+    raw = await readFile(file, 'utf8');
+  } catch {
+    throw new AuthError(
+      `Cannot read auth.storage_state at ${file}. Capture a session first, or switch to an auth.steps recipe.`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new AuthError(`Invalid JSON in auth.storage_state at ${file}.`);
+  }
+  if (!isStorageState(parsed)) {
+    throw new AuthError(
+      `Invalid storage state at ${file}: expected an object with "cookies" and "origins" arrays.`,
+    );
+  }
+  return { storageState: parsed };
+}
+
+/**
+ * Builds a session from static values (design D2). `{{env.*}}` placeholders are
+ * substituted here, so a token never has to be written into the config file.
+ */
+function fromStatic(auth: AuthConfig): { session: AuthSession; mask: SecretsMask } {
+  const mask = new SecretsMask();
+  const session: AuthSession = {};
+
+  if (auth.headers) {
+    const headers: Record<string, string> = {};
+    for (const [name, value] of Object.entries(auth.headers)) {
+      mask.registerFrom(value);
+      headers[name] = substituteEnv(value);
+    }
+    session.extraHTTPHeaders = headers;
+  }
+
+  if (auth.cookies) {
+    const cookies = auth.cookies.map((cookie) => {
+      mask.registerFrom(cookie.value);
+      return { ...cookie, value: substituteEnv(cookie.value) };
+    });
+    session.storageState = { cookies, origins: [] };
+  }
+
+  return { session, mask };
+}
+
+/** Runs the journey, converting any thrown error into an AuthError. */
+async function runJourney(
+  ...args: Parameters<typeof executeTest>
+): ReturnType<typeof executeTest> {
+  try {
+    return await executeTest(...args);
+  } catch (error) {
+    throw new AuthError(
+      `Authentication could not run: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * Runs the login journey once in an empty context and captures the resulting
+ * session (design D2/D3). Reuses the agentic executor, so a login is described in
+ * exactly the same plain English as a test.
+ */
+async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
+  const { auth, baseUrl, browser, brain, maxRetries, snapshot = defaultSnapshot, onEvent } = options;
+  const steps = auth.steps!;
+
+  const mask = new SecretsMask();
+  for (const step of steps) mask.registerFrom(step);
+
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    // The executor's opening navigation happens outside its per-step error handling,
+    // so an unreachable app throws raw here. Every failure in this function must
+    // surface as an AuthError with an actionable message (design D6).
+    const result = await runJourney(
+      page,
+      {
+        path: '<auth>',
+        summary: 'authentication',
+        steps: steps.map((step) => substituteEnv(step)),
+        priority: 'P0',
+        tags: [],
+        routes: [],
+        auth: false,
+      },
+      {
+        brain,
+        sessionDir: path.join(options.cwd, '.blastproof', 'reports', 'auth'),
+        baseUrl,
+        maxRetries,
+        mask: (text) => mask.mask(text),
+        snapshot,
+        onEvent,
+      },
+    );
+
+    if (result.status === 'failed') {
+      throw new AuthError(
+        `Authentication failed at step "${result.failedStep ?? 'unknown'}": ${result.reason ?? 'no reason given'}`,
+      );
+    }
+
+    // Optional post-login check: turns N mysterious test failures into one message (D5).
+    if (auth.verify) {
+      const judgment = await brain.judge(auth.verify, await snapshot(page));
+      if (!judgment.pass) {
+        throw new AuthError(`Authentication could not be verified: ${mask.mask(judgment.reason)}`);
+      }
+    }
+
+    return { storageState: await context.storageState() };
+  } finally {
+    await context.close();
+  }
+}
+
+/** Reads the cached session, or undefined when absent or unusable. */
+async function readCached(cwd: string): Promise<AuthSession | undefined> {
+  try {
+    return await fromStorageState(path.join(cwd, AUTH_STATE_RELATIVE_PATH));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Persists the captured session. Never logged: it is a live credential (design D7). */
+async function writeCached(cwd: string, session: AuthSession): Promise<void> {
+  if (!session.storageState) return;
+  const file = path.join(cwd, AUTH_STATE_RELATIVE_PATH);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify(session.storageState), 'utf8');
+}
+
+/**
+ * Produces the authenticated session for a run, at most once (design D3).
+ * Throws {@link AuthError} with an actionable message; callers abort before
+ * executing any test, since a failed login is a configuration problem and must
+ * not be reported as failing tests (design D6).
+ */
+export async function authenticate(options: AuthenticateOptions): Promise<AuthSession> {
+  const { auth, cwd } = options;
+
+  if (auth.cache) {
+    const cached = await readCached(cwd);
+    if (cached) return cached;
+  }
+
+  if (auth.storage_state) {
+    return fromStorageState(path.resolve(cwd, auth.storage_state));
+  }
+
+  if (auth.headers || auth.cookies) {
+    return fromStatic(auth).session;
+  }
+
+  const session = await fromSteps(options);
+  if (auth.cache) await writeCached(cwd, session);
+  return session;
+}
+
+/** Context options that seed a browser context with the session, if any. */
+export function contextOptions(session: AuthSession | undefined): Record<string, unknown> {
+  if (!session) return {};
+  return {
+    ...(session.storageState ? { storageState: session.storageState } : {}),
+    ...(session.extraHTTPHeaders ? { extraHTTPHeaders: session.extraHTTPHeaders } : {}),
+  };
+}

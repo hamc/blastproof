@@ -1,9 +1,10 @@
 import path from 'node:path';
 import { chromium } from 'playwright';
+import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
 import { DiffError, getChangedFiles } from '../diff.js';
 import { mapImpact } from '../impact.js';
-import { createPlanner } from '../llm/brain.js';
+import { createBrain, createPlanner } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
 import {
   coveredRoutes,
@@ -14,6 +15,7 @@ import {
   type TestDraft,
 } from '../planner.js';
 import type { PageLike } from '../runner/actions.js';
+import type { ExecutorEvent } from '../runner/executor.js';
 import {
   discoverTestFiles,
   parseTestFile,
@@ -33,6 +35,17 @@ export interface PlanOptions {
   routes?: string[];
   /** Persist drafts under `.blastproof/tests/` instead of previewing them. */
   write?: boolean;
+}
+
+/** Prints login-journey progress, so a failing authentication is not a black box. */
+function printAuthEvent(event: ExecutorEvent): void {
+  if (event.type === 'step-start') {
+    console.log(`  step ${event.index + 1}/${event.total}: ${event.step}`);
+  } else if (event.type === 'action') {
+    console.log(`    -> ${event.action.action} :: ${event.result}`);
+  } else if (event.status === 'failed') {
+    console.log(`    X step failed: ${event.reason ?? 'unknown reason'}`);
+  }
 }
 
 /** Loads the suite, tolerating unreadable files (a broken test must not block planning). */
@@ -165,10 +178,34 @@ export async function planCommand(options: PlanOptions): Promise<number> {
 
   const browser = await chromium.launch({ headless: config.browser.headless });
   try {
+    // The planner authenticates too (design D8): without a session it would snapshot
+    // the login wall and draft a test for that instead of for the actual feature.
+    let session: AuthSession | undefined;
+    if (config.auth) {
+      try {
+        console.log('Authenticating...');
+        session = await authenticate({
+          auth: config.auth,
+          cwd: options.cwd,
+          baseUrl: config.base_url,
+          browser: browser as unknown as BrowserLike,
+          brain: createBrain(createModel(config.llm).model),
+          maxRetries: config.max_retries_per_step,
+          onEvent: printAuthEvent,
+        });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          console.error(`error: ${error.message}`);
+          return EXIT_USAGE;
+        }
+        throw error;
+      }
+    }
+
     for (const { route, changedFiles } of work) {
       console.log(`\n> ${route}`);
       let draft: TestDraft;
-      const context = await browser.newContext();
+      const context = await browser.newContext(contextOptions(session));
       try {
         const page = await context.newPage();
         page.setDefaultTimeout(config.browser.timeout_ms);

@@ -34,6 +34,43 @@
     });
   });
 
+  // --- session ------------------------------------------------------------------
+  // A session in localStorage, so protected pages really are unreachable when
+  // signed out. Playwright captures localStorage in its storage state, which is
+  // what lets blastproof sign in once and reuse the session across tests.
+  var SESSION_KEY = 'bp_session';
+
+  function signIn(email) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ email: email, at: Date.now() }));
+  }
+
+  function currentUser() {
+    try {
+      return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // Protected pages bounce to the login form when there is no session.
+  if (document.body.hasAttribute('data-requires-auth') && !currentUser()) {
+    window.location.replace('login.html');
+    return;
+  }
+
+  var whoami = document.getElementById('whoami');
+  if (whoami) {
+    var user = currentUser();
+    if (user) whoami.textContent = user.email;
+  }
+
+  var logout = document.getElementById('logout');
+  if (logout) {
+    logout.addEventListener('click', function () {
+      localStorage.removeItem(SESSION_KEY);
+    });
+  }
+
   // --- login ------------------------------------------------------------------
   var loginForm = document.getElementById('login-form');
   if (loginForm) {
@@ -42,6 +79,7 @@
       var email = document.getElementById('email').value.trim();
       var password = document.getElementById('password').value;
       if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
+        signIn(email);
         window.location.href = 'account.html';
       } else {
         document.getElementById('login-error').hidden = false;

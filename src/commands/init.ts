@@ -31,6 +31,29 @@ routes:
   "src/auth/**": ["/login"]
   "src/cart/**": ["/cart", "/checkout"]
 
+# Optional: authenticate once per run so tests and \`plan\` reach pages behind a login.
+# Pick exactly ONE strategy. Credentials come from the environment via {{env.VAR}} —
+# never write them here. A test can opt out with \`auth: false\` (a login test must).
+#
+# 1) A plain-English login journey, executed once (form login, any clickable flow):
+# auth:
+#   steps:
+#     - navigate to /login
+#     - fill the email field with {{env.TEST_EMAIL}}
+#     - fill the password field with {{env.TEST_PASSWORD}}
+#     - submit the login form
+#   verify: a signed-in indicator is visible   # optional, but turns N failures into 1
+#
+# 2) A session captured by hand — for SSO, MFA or magic links, which cannot be
+#    automated honestly. The file holds live session cookies: NEVER commit it.
+# auth:
+#   storage_state: .blastproof/auth.json
+#
+# 3) Static values, for token-based apps where driving a UI would be theatre:
+# auth:
+#   headers:
+#     Authorization: "Bearer {{env.API_TOKEN}}"
+
 # CI tip: these settings can be overridden from the environment, so you never have
 # to commit a provider choice just to configure a pipeline. Precedence is
 # CLI flag > environment > this file.
@@ -50,10 +73,26 @@ steps:
   - verify the home page loads and shows a heading
 `;
 
+/**
+ * Keeps captured sessions and run artifacts out of git. A storage state holds live
+ * session cookies: whoever has the file is signed in as that user (design D7).
+ */
+const GITIGNORE = `# blastproof runtime artifacts
+reports/
+sessions/
+
+# Captured sessions are live credentials — never commit them.
+.auth-state.json
+auth.json
+`;
+
 const SAMPLE_LOGIN_TEST = `summary: Login with valid credentials succeeds
 priority: P0
 tags: [smoke, auth]
 routes: ["/login"]
+# This test exercises the login itself, so it must start signed out even when an
+# auth recipe is configured.
+auth: false
 steps:
   - navigate to /login
   - fill the email field with demo@blastproof.dev
@@ -93,6 +132,7 @@ export async function initProject(cwd: string = process.cwd()): Promise<InitResu
   const result: InitResult = { created: [], kept: [] };
   const root = path.join(cwd, '.blastproof');
 
+  await writeIfAbsent(path.join(root, '.gitignore'), GITIGNORE, result);
   await writeIfAbsent(path.join(root, 'config.yaml'), DEFAULT_CONFIG, result);
   await writeIfAbsent(path.join(root, 'tests', 'app-load.yaml'), SAMPLE_TEST, result);
   await writeIfAbsent(path.join(root, 'tests', 'login.yaml'), SAMPLE_LOGIN_TEST, result);

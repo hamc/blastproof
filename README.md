@@ -157,6 +157,47 @@ Two workflows, split by what they cost:
 - **Impact** — runs on every pull request, including forks. Deterministic and keyless: it reports the blast radius of the diff and which tests cover it, before anyone spends a token.
 - **Dogfood** — runs daily and on demand. The agentic run needs an API key, so it stays out of the merge path: a non-deterministic model answer should never block a merge.
 
+## Testing behind a login
+
+Most of a product lives behind authentication. Declare a recipe once and blastproof signs in a single time per run, then reuses that session for every test **and** for `plan` — so generated drafts describe the actual feature instead of the login wall.
+
+Pick exactly one strategy:
+
+```yaml
+# 1) A plain-English login journey — form login, or anything a person can click through
+auth:
+  steps:
+    - navigate to /login
+    - fill the email field with {{env.TEST_EMAIL}}
+    - fill the password field with {{env.TEST_PASSWORD}}
+    - submit the login form
+  verify: a signed-in indicator is visible    # optional, strongly recommended
+
+# 2) A session captured by hand — for SSO, MFA or magic links
+auth:
+  storage_state: .blastproof/auth.json
+
+# 3) Static values — for token-based apps
+auth:
+  headers:
+    Authorization: "Bearer {{env.API_TOKEN}}"
+```
+
+A test that exercises the login itself must start signed out:
+
+```yaml
+summary: Login with valid credentials succeeds
+auth: false
+```
+
+**`verify` is worth the one extra call.** Without it, a wrong password surfaces as every test failing on a login wall — N failures, none naming the cause. With it, the run stops before the first test and says what happened. Authentication failure exits 2 and never reports as failing tests: a login you cannot complete says nothing about the code under review, so it must not produce a score.
+
+Each test still gets its own browser context; it simply starts from the shared session rather than empty, so isolation is unchanged. Set `auth.cache: true` to reuse a session across runs — off by default, because an expired session produces failures at random points with nothing pointing at the cause.
+
+**A captured session is a credential.** The file holds live cookies: whoever has it is signed in as that user. `init` git-ignores it; never commit one.
+
+> **Note on self-healing:** the executor recovers from failed steps by re-reading the page, which means it can complete a login using credentials the page itself displays — some apps show demo credentials on the sign-in form. That is the self-healing loop working as designed, but it does mean a deliberately-wrong password is not a reliable way to test your auth failure path.
+
 ## LLM providers (BYOK)
 
 Bring your own key — runs 100% locally:

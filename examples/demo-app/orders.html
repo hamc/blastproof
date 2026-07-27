@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your orders — Blastproof Demo Shop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body data-requires-auth>
+  <header>
+    <nav aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="login.html">Login</a>
+      <a href="cart.html">Cart</a>
+      <a href="orders.html">Orders</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Your orders</h1>
+    <p>Signed in as <span id="whoami">demo@blastproof.dev</span>.</p>
+    <table>
+      <caption>Order history</caption>
+      <thead>
+        <tr><th>Order</th><th>Date</th><th>Items</th><th>Total</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>#BP-1001</td><td>2026-07-20</td><td>2</td><td>$96.00</td><td>Delivered</td></tr>
+        <tr><td>#BP-1000</td><td>2026-07-11</td><td>1</td><td>$45.00</td><td>Refunded</td></tr>
+      </tbody>
+    </table>
+    <p id="orders-total">Total spent: <strong>$141.00</strong></p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

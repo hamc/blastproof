@@ -11,6 +11,10 @@ coverage/
 .blastproof/reports/
 .blastproof/sessions/
 
+# Captured sessions are live credentials — never commit them.
+.blastproof/.auth-state.json
+.blastproof/auth.json
+
 # Env / secrets
 .env
 .env.*

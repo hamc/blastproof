@@ -1,0 +1,9 @@
+summary: Order history lists past orders for the signed-in user
+priority: P1
+tags: [account]
+routes: ["/orders"]
+steps:
+  - navigate to /orders
+  - verify the page shows the heading "Your orders"
+  - verify order "#BP-1001" is listed with status Delivered
+  - verify the total spent is $141.00

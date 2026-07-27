@@ -6,18 +6,20 @@
   <title>Welcome — Blastproof Demo Shop</title>
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body data-requires-auth>
   <header>
     <nav aria-label="Main">
       <a href="index.html">Home</a>
       <a href="login.html">Login</a>
       <a href="cart.html">Cart</a>
+      <a href="orders.html">Orders</a>
     </nav>
   </header>
   <main>
-    <h1>Welcome, demo@blastproof.dev</h1>
+    <h1>Welcome, <span id="whoami">demo@blastproof.dev</span></h1>
     <p>You are signed in to the demo shop.</p>
     <a href="login.html" id="logout">Log out</a>
   </main>
+  <script src="app.js"></script>
 </body>
 </html>

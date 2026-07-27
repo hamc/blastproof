@@ -106,3 +106,22 @@ describe('discoverTestFiles', () => {
     ]);
   });
 });
+
+describe('auth opt-out', () => {
+  it('defaults to true', async () => {
+    const file = await writeTest('a.yaml', 'summary: A test\nsteps:\n  - do it\n');
+    const parsed = await parseTestFile(file);
+    expect(parsed.auth).toBe(true);
+  });
+
+  it('parses auth: false', async () => {
+    const file = await writeTest('b.yaml', 'summary: Login test\nauth: false\nsteps:\n  - log in\n');
+    const parsed = await parseTestFile(file);
+    expect(parsed.auth).toBe(false);
+  });
+
+  it('rejects a non-boolean', async () => {
+    const file = await writeTest('c.yaml', 'summary: A test\nauth: yes-please\nsteps:\n  - do it\n');
+    await expect(parseTestFile(file)).rejects.toThrow(/auth/);
+  });
+});

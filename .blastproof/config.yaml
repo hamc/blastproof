@@ -29,3 +29,17 @@ routes:
   "examples/demo-app/login.html": ["/login"]
   "examples/demo-app/cart.html": ["/cart", "/checkout"]
   "examples/demo-app/index.html": ["/"]
+  "examples/demo-app/orders.html": ["/orders"]
+  "examples/demo-app/account.html": ["/account"]
+
+# The demo shop keeps a session in localStorage, so /orders and /account are only
+# reachable signed in. This recipe signs in once per run and every test reuses it.
+# The demo credentials are public on purpose; in a real project use {{env.VAR}}
+# placeholders, which are masked in all output.
+auth:
+  steps:
+    - navigate to /login
+    - fill the email field with demo@blastproof.dev
+    - fill the password field with demo123
+    - submit the login form
+  verify: the page shows a welcome heading for the signed-in user

@@ -17,17 +17,66 @@ const browserSchema = z.object({
   timeout_ms: z.number().int().positive().default(30_000),
 });
 
+const cookieSchema = z.object({
+  name: z.string().min(1),
+  value: z.string(),
+  domain: z.string().optional(),
+  path: z.string().optional(),
+  url: z.string().optional(),
+});
+
+/**
+ * Authentication recipe. Exactly one strategy, chosen by which field is present
+ * (design D2): a plain-English login journey, a previously captured storage state,
+ * or static headers/cookies. All three converge on one authenticated session (D1).
+ */
+const authSchema = z
+  .object({
+    steps: z.array(z.string().min(1)).min(1).optional(),
+    storage_state: z.string().min(1).optional(),
+    headers: z.record(z.string()).optional(),
+    cookies: z.array(cookieSchema).min(1).optional(),
+    verify: z.string().min(1).optional(),
+    cache: z.boolean().default(false),
+  })
+  .superRefine((value, ctx) => {
+    const present: string[] = [];
+    if (value.steps) present.push('steps');
+    if (value.storage_state) present.push('storage_state');
+    if (value.headers || value.cookies) {
+      present.push([value.headers && 'headers', value.cookies && 'cookies'].filter(Boolean).join('+'));
+    }
+
+    if (present.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'configure one auth strategy: steps (login journey), storage_state (captured session), or headers/cookies',
+      });
+      return;
+    }
+    if (present.length > 1) {
+      // Silently preferring one would make a typo look like it worked.
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `configure exactly one auth strategy, found ${present.join(' and ')}`,
+      });
+    }
+  });
+
 const configSchema = z.object({
   base_url: z.string().url(),
   llm: llmSchema.default({}),
   browser: browserSchema.default({}),
   routes: z.record(z.array(z.string())).optional(),
+  auth: authSchema.optional(),
   max_retries_per_step: z.number().int().min(1).default(3),
 });
 
 export type BlastproofConfig = z.infer<typeof configSchema>;
 export type LlmConfig = BlastproofConfig['llm'];
 export type BrowserConfig = BlastproofConfig['browser'];
+export type AuthConfig = NonNullable<BlastproofConfig['auth']>;
 
 /**
  * Environment overrides, one entry per settable field (design D2). `base_url` (the

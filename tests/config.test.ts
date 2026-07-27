@@ -184,3 +184,60 @@ describe('loadConfig environment overrides', () => {
     expect(error.message).toContain('with overrides from');
   });
 });
+
+describe('auth recipe', () => {
+  it('accepts a steps strategy', async () => {
+    await writeConfig(
+      'base_url: http://localhost:3000\nauth:\n  steps:\n    - navigate to /login\n  verify: signed in\n',
+    );
+    const config = await loadConfig(dir, {});
+    expect(config.auth?.steps).toEqual(['navigate to /login']);
+    expect(config.auth?.verify).toBe('signed in');
+    expect(config.auth?.cache).toBe(false);
+  });
+
+  it('accepts a storage_state strategy', async () => {
+    await writeConfig('base_url: http://localhost:3000\nauth:\n  storage_state: .blastproof/auth.json\n');
+    const config = await loadConfig(dir, {});
+    expect(config.auth?.storage_state).toBe('.blastproof/auth.json');
+  });
+
+  it('accepts headers and cookies together as one strategy', async () => {
+    await writeConfig(
+      [
+        'base_url: http://localhost:3000',
+        'auth:',
+        '  headers:',
+        '    Authorization: "Bearer {{env.TOKEN}}"',
+        '  cookies:',
+        '    - name: session',
+        '      value: "{{env.SESSION}}"',
+        '',
+      ].join('\n'),
+    );
+    const config = await loadConfig(dir, {});
+    expect(config.auth?.headers).toEqual({ Authorization: 'Bearer {{env.TOKEN}}' });
+    expect(config.auth?.cookies).toHaveLength(1);
+  });
+
+  it('rejects two strategies, naming both', async () => {
+    await writeConfig(
+      'base_url: http://localhost:3000\nauth:\n  steps:\n    - sign in\n  storage_state: a.json\n',
+    );
+    const error = await loadConfig(dir, {}).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect(error.message).toContain('steps');
+    expect(error.message).toContain('storage_state');
+  });
+
+  it('rejects an empty auth section', async () => {
+    await writeConfig('base_url: http://localhost:3000\nauth:\n  cache: true\n');
+    await expect(loadConfig(dir, {})).rejects.toThrow(/configure one auth strategy/);
+  });
+
+  it('leaves auth undefined when the section is absent', async () => {
+    await writeConfig('base_url: http://localhost:3000\n');
+    const config = await loadConfig(dir, {});
+    expect(config.auth).toBeUndefined();
+  });
+});

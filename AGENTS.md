@@ -39,6 +39,7 @@ src/
   diff.ts           # git diff base...head → changed files + context
   impact.ts         # diff + route hints → affected journeys/URLs
   planner.ts        # generates YAML tests for affected-but-uncovered routes
+  auth.ts           # sign in once per run; all strategies yield one browser session
   runner/
     executor.ts     # agentic per-step loop (retry budget, self-heal)
     snapshot.ts     # ariaSnapshot capture + trimming
@@ -54,11 +55,11 @@ src/
 
 ### Conventions
 
-- **Test files** (the product's, not ours): `.blastproof/tests/**/*.yaml` — fields `summary` (required), `steps` (required, plain English), `priority` (P0–P2), `tags`, optional `setup`, `{{env.VAR}}` placeholders for secrets
-- **Config**: `.blastproof/config.yaml` — `base_url`, `llm.{provider,model,api_key_env}`, `browser`, `routes` (glob→URLs impact hints), optional `auth` recipe
+- **Test files** (the product's, not ours): `.blastproof/tests/**/*.yaml` — fields `summary` (required), `steps` (required, plain English), `priority` (P0–P2), `tags`, `routes`, optional `setup`, `auth` (default true; a login test must set `false`), `{{env.VAR}}` placeholders for secrets
+- **Config**: `.blastproof/config.yaml` — `base_url`, `llm.{provider,model,api_key_env}`, `browser`, `routes` (glob→URLs impact hints), optional `auth` recipe (one of `steps` | `storage_state` | `headers`/`cookies`, plus optional `verify` and `cache`). Overridable from the environment via `BLASTPROOF_*`
 - No static selectors anywhere in generated tests or runner state — resolution is always live via accessibility tree
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:` …), one-line subject
-- Never log secrets; `{{env.*}}` values are masked in reports
+- Never log secrets; `{{env.*}}` values are masked in reports. A captured auth session is a live credential: git-ignored, never printed, never embedded in a report
 
 ## Spec-driven development workflow (REQUIRED)
 

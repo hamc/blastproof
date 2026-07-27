@@ -15,6 +15,7 @@ const testFileSchema = z.object({
   tags: z.array(z.string()).default([]),
   setup: z.array(z.string().min(1)).optional(),
   routes: z.array(z.string()).default([]),
+  auth: z.boolean().default(true),
 });
 
 export interface TestFile {
@@ -27,6 +28,11 @@ export interface TestFile {
   setup?: string[];
   /** Routes/URLs this test covers, used by `run --impacted` for impact matching. */
   routes: string[];
+  /**
+   * Whether this test runs with the configured authenticated session (default true).
+   * A login test must set `false`, or it would start already signed in.
+   */
+  auth: boolean;
 }
 
 export class TestFileError extends Error {
