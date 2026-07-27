@@ -29,6 +29,7 @@ Pipeline: `git diff → impact mapping → test generation → agentic execution
 - **LLM**: Vercel AI SDK (`generateObject` + Zod schemas) — providers: Anthropic, OpenAI, Ollama (OpenAI-compatible)
 - **CLI**: commander · **Config/tests**: `yaml` · **Git**: simple-git · **Build**: tsup · **Tests**: vitest
 - **SDD**: OpenSpec (`openspec/` + slash commands `/opsx:*`)
+- **Distribution**: published to npm as `blastproof`; the consumable composite action is `action.yml` at the repository root
 
 ## Target architecture (`src/`)
 
@@ -108,7 +109,7 @@ Before considering any task done: `build`, `test` and `typecheck` must pass. E2E
 | M1 | `init` + `run`: YAML runner with agentic LLM executor + demo app | implemented (`openspec/changes/m1-yaml-runner`) |
 | M2 | `plan`: diff analysis, impact mapping, test generation | done — m2a (`run --impacted`) + m2b (`plan`); the one-shot `test` pipeline is deferred to M3 |
 | M3 | Reports (JUnit/HTML), scoring, exit codes | done — m3a (score + `--min-score` + JUnit) + m3b (HTML + `test`) |
-| M4 | GitHub Action, npm publish | m4a (npm packaging + release workflow) implemented (`openspec/changes/m4a-npm-release`); m4b (consumable Action) pending |
+| M4 | GitHub Action, npm publish | done — published to npm (m4a) and a composite action at the repository root (m4b) |
 
 Post-MVP (do not build unless asked): VS Code extension, session replay, worker parallelism, Flutter, GitHub PR comments.
 

@@ -189,6 +189,70 @@ Two workflows, split by what they cost:
 - **Impact** — runs on every pull request, including forks. Deterministic and keyless: it reports the blast radius of the diff and which tests cover it, before anyone spends a token.
 - **Dogfood** — runs daily and on demand. The agentic run needs an API key, so it stays out of the merge path: a non-deterministic model answer should never block a merge.
 
+## GitHub Action
+
+```yaml
+name: blastproof
+on: pull_request
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # required: the diff needs a merge-base
+
+      - run: npm start &          # however your app boots
+
+      - uses: hamc/blastproof@v0.1.1
+        with:
+          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          base: ${{ github.event.pull_request.base.ref }}
+          min-score: '80'
+```
+
+Exit non-zero blocks the merge. Use the score in a later step:
+
+```yaml
+      - id: bp
+        uses: hamc/blastproof@v0.1.1
+        with:
+          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          base: ${{ github.event.pull_request.base.ref }}
+          min-score: '80'
+          fail-on-unmapped: 'true'
+          html: report.html
+
+      - if: always()
+        run: echo "scored ${{ steps.bp.outputs.score }}"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: blastproof-report, path: report.html }
+```
+
+| input | |
+| --- | --- |
+| `api-key` | Your provider key, from a secret. Not needed for ollama |
+| `provider` · `model` · `llm-base-url` | Override the committed config without editing it |
+| `command` | `test` (default), `run` or `plan` |
+| `base` | Base ref for the diff |
+| `url` | Base URL of the app under test |
+| `min-score` | Weighted score threshold — replaces the all-must-pass rule |
+| `fail-on-unmapped` | Fail on a changed file matching no `routes:` or `ignore:` glob |
+| `write` | Persist generated drafts instead of previewing |
+| `junit` · `html` | Where to write the reports |
+| `version` | Which blastproof release to install (default `latest`) |
+| `install-browser` | Set `false` if the workflow already installed Chromium |
+| `working-directory` | Directory containing `.blastproof/` |
+
+Output: **`score`** — 0–100, empty when no report was produced, so "no score" stays distinguishable from "scored zero".
+
+**Pin both the tag and `version` when the result gates merges.** `latest` is convenient for trying it out, but a pipeline that blocks merges should not change behaviour without you changing something.
+
+**`fetch-depth: 0` is not optional** for `test` and `plan`. The default checkout is shallow and has no merge-base; the action detects this and fails immediately rather than letting it surface as a git error mid-run.
+
 ## Testing behind a login
 
 Most of a product lives behind authentication. Declare a recipe once and blastproof signs in a single time per run, then reuses that session for every test **and** for `plan` — so generated drafts describe the actual feature instead of the login wall.
