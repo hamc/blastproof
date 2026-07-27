@@ -16,8 +16,8 @@ git diff → impact mapping → test generation → agentic execution → report
 
 1. **Reads the diff** — `blastproof test --base main` parses the branch diff and maps it to affected routes.
 2. **Maps the blast radius** — traces changed files to the user journeys and routes most likely affected.
-3. **Generates tests** — writes/updates plain-English YAML tests in `.blastproof/tests/`.
-4. **Executes agentically** — an LLM-driven loop over Playwright resolves elements via the accessibility tree on every step. No static selectors, so no flakiness: the agent re-resolves when the UI shifts.
+3. **Writes the missing tests** — drafts plain-English YAML for affected routes nothing covers. Drafts are yours to review; existing tests are never rewritten.
+4. **Executes agentically** — an LLM-driven loop over Playwright resolves elements via the accessibility tree on every step. No static selectors to rot: the agent re-resolves when the UI shifts. Being model-driven it is not deterministic, which is why the free, deterministic impact analysis is what runs on every pull request.
 5. **Reports & scores** — console, JUnit XML and HTML reports, plus a priority-weighted score that fails the run below `--min-score`.
 
 ## Quick start
@@ -42,7 +42,7 @@ export ANTHROPIC_API_KEY=...
 blastproof run
 ```
 
-> **Status:** the full pipeline works today — `init`, `run` (including `--impacted`), `plan` and `test`, with JUnit and HTML reports. The consumable GitHub Action is next.
+> **Status:** the pipeline is complete and published. `init`, `run` (including `--impacted`), `plan` and `test`, with authentication, JUnit and HTML reports, a merge gate, and a GitHub Action. Pre-1.0: the command surface may still change.
 
 ## Test format
 
@@ -60,7 +60,7 @@ steps:
   - complete checkout
 ```
 
-`priority` is P0–P2 (default P1); `tags` and `setup` steps are optional. `routes` (optional) declares the URLs a test covers: `blastproof run --impacted` runs only tests whose `routes:` intersect the routes affected by your PR diff (mapped from changed files via the `routes:` globs in `.blastproof/config.yaml`). Route strings compare by exact equality (`/cart` ≠ `/cart/` — write them consistently). Tests without `routes:` are skipped and reported under `--impacted`.
+`priority` is P0–P2 (default P1); `tags`, `setup` steps and `auth` are optional (`auth: false` runs the test signed out — a login test needs it). `routes` (optional) declares the URLs a test covers: `blastproof run --impacted` runs only tests whose `routes:` intersect the routes affected by your PR diff (mapped from changed files via the `routes:` globs in `.blastproof/config.yaml`). Route strings compare by exact equality (`/cart` ≠ `/cart/` — write them consistently). Tests without `routes:` are skipped and reported under `--impacted`.
 
 ## CLI
 
@@ -332,8 +332,9 @@ Note the last one names *which variable* holds your key — the key itself is ne
 - [x] **M1** — `init` + `run`: YAML test runner with agentic LLM executor
 - [x] **M2** — diff analysis, impact mapping (`run --impacted`) and test generation (`plan`)
 - [x] **M3** — Reports (JUnit + HTML), priority-weighted score, `--min-score` gate, `blastproof test`
-- [ ] **M4** — GitHub Action, npm publish
-- [ ] Post-MVP — VS Code extension, session replay, worker parallelism
+- [x] **M4** — [published to npm](https://www.npmjs.com/package/blastproof) and a consumable GitHub Action
+- [ ] Next — impact by import graph, so a shared module's blast radius stops depending on hand-curated globs
+- [ ] Post-MVP — VS Code extension, session replay, worker parallelism, PR comments
 
 ## Development
 
