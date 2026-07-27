@@ -17,6 +17,10 @@ jobs:
   guard:
     name: shallow checkout is rejected
     runs-on: ubuntu-latest
+    # Depends on the full run so a broken manifest cannot produce a green guard:
+    # this job asserts on a *failure*, and an action that fails to load would
+    # satisfy that assertion for entirely the wrong reason. It did, once.
+    needs: run
     steps:
       # Default depth: shallow. The guard must fail before installing anything.
       - uses: actions/checkout@v7

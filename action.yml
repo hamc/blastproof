@@ -9,7 +9,7 @@ branding:
 inputs:
   api-key:
     description: >
-      Your LLM provider key, e.g. ${{ secrets.ANTHROPIC_API_KEY }}. Never hardcode it.
+      Your LLM provider key — pass it from a repository secret, never a literal.
       Not needed when the provider is ollama.
     required: false
   provider:
