@@ -205,7 +205,7 @@ jobs:
 
       - run: npm start &          # however your app boots
 
-      - uses: hamc/blastproof@v0.1.1
+      - uses: hamc/blastproof@v0.1.2
         with:
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
@@ -216,7 +216,7 @@ Exit non-zero blocks the merge. Use the score in a later step:
 
 ```yaml
       - id: bp
-        uses: hamc/blastproof@v0.1.1
+        uses: hamc/blastproof@v0.1.2
         with:
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
