@@ -18,7 +18,7 @@ Pipeline: `git diff → impact mapping → test generation → agentic execution
 | Scriptless agentic execution | ✅ own loop: Playwright `ariaSnapshot()` + LLM structured output |
 | Self-healing (no static selectors) | ✅ elements re-resolved by role/name every step |
 | Score with merge threshold | ✅ priority-weighted (P0=3, P1=2, P2=1), `--min-score` gate |
-| JUnit/HTML reports, PR comment | ✅ JUnit + HTML locally (M3); GitHub Action (M4) |
+| JUnit/HTML reports, PR comment | ✅ JUnit + HTML locally; GitHub Action and PR comments pending (M4) |
 | SaaS backend, credits, dashboards | ❌ never — local-first BYOK |
 | VS Code extension, Flutter, session replay | ❌ post-MVP |
 
@@ -34,7 +34,7 @@ Pipeline: `git diff → impact mapping → test generation → agentic execution
 
 ```
 src/
-  cli.ts            # entry: init | run | plan | (test | report — pending)
+  cli.ts            # entry: init | run | plan | test
   config.ts         # loads .blastproof/config.yaml (zod-validated)
   diff.ts           # git diff base...head → changed files + context
   impact.ts         # diff + route hints → affected journeys/URLs
@@ -49,7 +49,7 @@ src/
   report/
     score.ts        # priority-weighted score + --min-score gate
     junit.ts        # JUnit XML (CI-compatible)
-    html.ts         # HTML report with failure screenshots (m3b, pending)
+    html.ts         # self-contained HTML report with embedded screenshots
 ```
 
 ### Conventions
@@ -106,7 +106,7 @@ Before considering any task done: `build`, `test` and `typecheck` must pass. E2E
 | --- | --- | --- |
 | M1 | `init` + `run`: YAML runner with agentic LLM executor + demo app | implemented (`openspec/changes/m1-yaml-runner`) |
 | M2 | `plan`: diff analysis, impact mapping, test generation | done — m2a (`run --impacted`) + m2b (`plan`); the one-shot `test` pipeline is deferred to M3 |
-| M3 | Reports (JUnit/HTML), scoring, exit codes | m3a (score + `--min-score` + JUnit) implemented (`openspec/changes/m3a-score-and-junit`); m3b (HTML + `test`) pending |
+| M3 | Reports (JUnit/HTML), scoring, exit codes | done — m3a (score + `--min-score` + JUnit) + m3b (HTML + `test`) |
 | M4 | GitHub Action, npm publish | pending |
 
 Post-MVP (do not build unless asked): VS Code extension, session replay, worker parallelism, Flutter, GitHub PR comments.

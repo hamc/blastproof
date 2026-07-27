@@ -14,7 +14,7 @@ git diff → impact mapping → test generation → agentic execution → report
 
 ## How it works
 
-1. **Reads the diff** — `blastproof test --base main` parses the branch diff and builds change context.
+1. **Reads the diff** — `blastproof test --base main` parses the branch diff and maps it to affected routes.
 2. **Maps the blast radius** — traces changed files to the user journeys and routes most likely affected.
 3. **Generates tests** — writes/updates plain-English YAML tests in `.blastproof/tests/`.
 4. **Executes agentically** — an LLM-driven loop over Playwright resolves elements via the accessibility tree on every step. No static selectors, so no flakiness: the agent re-resolves when the UI shifts.
@@ -40,7 +40,7 @@ export ANTHROPIC_API_KEY=...
 blastproof run
 ```
 
-> **Status:** early MVP — `init`, `run` (including `--impacted`) and `plan` work today; the one-shot `test` pipeline and reports are on the roadmap below.
+> **Status:** the full pipeline works today — `init`, `run` (including `--impacted`), `plan` and `test`, with JUnit and HTML reports. Packaging and the GitHub Action are next (M4).
 
 ## Test format
 
@@ -74,8 +74,31 @@ steps:
 | `blastproof plan --write` | Persist drafts to `.blastproof/tests/<route-slug>.yaml`. Never overwrites: a colliding filename fails that route |
 | `blastproof run --min-score <n>` | Require a weighted score of at least `n` (0–100). **Replaces** the all-must-pass rule — see below |
 | `blastproof run --junit [path]` | Write a JUnit XML report; without a path it lands in `.blastproof/reports/<session>/junit.xml` |
+| `blastproof run --html [path]` | Write a self-contained HTML report with failure screenshots embedded inline |
+| `blastproof test [--base <ref>]` | The full pipeline: run the tests covering the diff, then draft tests for the gaps |
 
-Coming next (roadmap): `blastproof test --base main` (full PR pipeline), `blastproof report`.
+### The full pipeline: `blastproof test`
+
+One command for the whole loop — map the blast radius, run what covers it, draft what doesn't exist yet:
+
+```bash
+blastproof test --base main --min-score 80 --junit junit.xml --html report.html
+```
+
+It does two things and reports them separately:
+
+1. **Verify** — executes the tests covering the affected routes, scores them, applies the gate
+2. **Draft** — generates tests for affected routes no test covers, and prints them
+
+**Generated drafts are never executed, and never affect the score.** That is deliberate. An unreviewed, model-written test in the merge path fails in two directions: a hallucinated expectation blocks a correct pull request, and a credulous one waves a broken change through while looking like coverage. Either costs more trust than the automation saves.
+
+So read the result honestly: `test` does not make an uncovered route safe. It makes the gap visible, with a draft ready for you to review, and the score keeps describing only what was actually verified. Add `--write` to persist the drafts (never overwriting an existing file) and commit them once you have read them.
+
+Exit codes: 2 usage/config/diff, 1 when the gate fails **or** a draft could not be generated, 0 otherwise.
+
+### Reports
+
+`--junit` is for CI; `--html` is for humans. The HTML report is a single self-contained file — inline CSS, screenshots embedded as data URIs, no scripts — so it opens offline, survives being moved, and uploads as one artifact. It leads with the score and gate verdict, sorts failures above passes, and expands each failure to its failing step, reason and screenshot.
 
 ### Generating tests with `plan`
 
@@ -171,7 +194,7 @@ Note the last one names *which variable* holds your key — the key itself is ne
 - [x] Repository & spec-driven development setup
 - [x] **M1** — `init` + `run`: YAML test runner with agentic LLM executor
 - [x] **M2** — diff analysis, impact mapping (`run --impacted`) and test generation (`plan`)
-- [ ] **M3** — Reports and scoring: score + `--min-score` gate + JUnit done; HTML report and `blastproof test` pending
+- [x] **M3** — Reports (JUnit + HTML), priority-weighted score, `--min-score` gate, `blastproof test`
 - [ ] **M4** — GitHub Action, npm publish
 - [ ] Post-MVP — VS Code extension, session replay, worker parallelism
 

@@ -384,3 +384,45 @@ describe('config precedence: flag > env > file', () => {
     expect(launchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('runCommand --html', () => {
+  it('writes nothing when the flag is absent', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    await runCommand({ cwd: dir, tags: [], query: 'no match' });
+
+    await expect(readdir(path.join(dir, '.blastproof', 'reports'))).rejects.toThrow();
+  });
+
+  it('writes to the session directory by default', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], query: 'no match', html: true });
+
+    expect(code).toBe(EXIT_OK);
+    const sessions = await readdir(path.join(dir, '.blastproof', 'reports'));
+    const html = await readFile(
+      path.join(dir, '.blastproof', 'reports', sessions[0]!, 'report.html'),
+      'utf8',
+    );
+    expect(html).toContain('blastproof report');
+    expect(out()).toContain('HTML report:');
+  });
+
+  it('writes both reports when both flags are given', async () => {
+    await writeProject({ 'broken.yaml': BROKEN_TEST });
+
+    const code = await runCommand({
+      cwd: dir,
+      tags: [],
+      junit: 'junit.xml',
+      html: path.join('build', 'report.html'),
+    });
+
+    expect(code).toBe(EXIT_FAILED);
+    await expect(readFile(path.join(dir, 'junit.xml'), 'utf8')).resolves.toContain('<testsuite');
+    await expect(
+      readFile(path.join(dir, 'build', 'report.html'), 'utf8'),
+    ).resolves.toContain('<b>0</b>');
+  });
+});

@@ -5,6 +5,7 @@ import { DiffError, getChangedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
 import { createBrain } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
+import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
 import { computeScore, formatScoreLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
@@ -46,6 +47,8 @@ export interface RunOptions extends TestFilters {
   minScore?: number;
   /** Write a JUnit report: `true` for the session-directory default, or an explicit path. */
   junit?: string | boolean;
+  /** Write an HTML report: `true` for the session-directory default, or an explicit path. */
+  html?: string | boolean;
 }
 
 function sessionId(): string {
@@ -237,6 +240,21 @@ async function finalize(
     const xml = renderJUnit(results, skipped, { score, durationMs, cwd: options.cwd });
     await writeJUnit(target, xml);
     console.log(`JUnit report: ${path.relative(options.cwd, target)}`);
+  }
+
+  if (options.html) {
+    const target =
+      typeof options.html === 'string'
+        ? path.resolve(options.cwd, options.html)
+        : path.join(sessionDir, 'report.html');
+    const html = await renderHtml(results, skipped, {
+      score,
+      durationMs,
+      minScore: options.minScore,
+      cwd: options.cwd,
+    });
+    await writeHtml(target, html);
+    console.log(`HTML report: ${path.relative(options.cwd, target)}`);
   }
 
   if (options.minScore !== undefined) {

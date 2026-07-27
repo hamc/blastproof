@@ -2,6 +2,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { formatInitGuidance, initProject } from './commands/init.js';
 import { planCommand } from './commands/plan.js';
 import { EXIT_OK, EXIT_USAGE, runCommand } from './commands/run.js';
+import { testCommand } from './commands/test.js';
 import type { Priority } from './runner/testfile.js';
 
 function collect(value: string, previous: string[]): string[] {
@@ -60,6 +61,7 @@ program
     parseMinScore,
   )
   .option('--junit [path]', 'write a JUnit XML report (default: .blastproof/reports/<session>/junit.xml)')
+  .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .action(
     async (options: {
       tag: string[];
@@ -71,6 +73,7 @@ program
       dryRun?: boolean;
       minScore?: number;
       junit?: string | boolean;
+      html?: string | boolean;
     }) => {
       try {
         process.exitCode = await runCommand({
@@ -84,6 +87,7 @@ program
           dryRun: options.dryRun,
           minScore: options.minScore,
           junit: options.junit,
+          html: options.html,
         });
       } catch (error) {
         console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
@@ -113,6 +117,45 @@ program
       process.exitCode = EXIT_USAGE;
     }
   });
+
+program
+  .command('test')
+  .description('Full PR pipeline: run the tests covering the diff, then draft tests for the gaps')
+  .option('--base <ref>', 'base git ref for the diff', 'main')
+  .option('--url <url>', 'override config base_url for this run only (config file untouched)')
+  .option(
+    '--min-score <n>',
+    'require a weighted score of at least n (0-100); replaces the all-must-pass rule',
+    parseMinScore,
+  )
+  .option('--junit [path]', 'write a JUnit XML report (default: .blastproof/reports/<session>/junit.xml)')
+  .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
+  .option('--write', 'persist generated drafts under .blastproof/tests/ instead of previewing them')
+  .action(
+    async (options: {
+      base: string;
+      url?: string;
+      minScore?: number;
+      junit?: string | boolean;
+      html?: string | boolean;
+      write?: boolean;
+    }) => {
+      try {
+        process.exitCode = await testCommand({
+          cwd: process.cwd(),
+          base: options.base,
+          url: options.url,
+          minScore: options.minScore,
+          junit: options.junit,
+          html: options.html,
+          write: options.write,
+        });
+      } catch (error) {
+        console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = EXIT_USAGE;
+      }
+    },
+  );
 
 // Commander exits 1 on a bad flag by default; usage errors are exit 2 here (spec:
 // cli-run-command). It writes the message itself, so we only map the outcome.
