@@ -67,4 +67,25 @@ describe('createModel', () => {
     const model = resolved.model as { provider?: string };
     expect(model.provider).toBe('openai.chat');
   });
+
+  it('directs anthropic at a configured endpoint, not the public API', () => {
+    // The untested combination: base_url was exercised with openai and ollama,
+    // and anthropic — the one that silently dropped it — never was. Every line
+    // of the factory was covered; this pair of values was not.
+    const resolved = createModel(
+      { provider: 'anthropic', base_url: 'https://proxy.internal/v1', api_key_env: 'ANTHROPIC_API_KEY' },
+      { ANTHROPIC_API_KEY: 'sk-ant-test' },
+    );
+    const model = resolved.model as unknown as { config?: { baseURL?: string } };
+    expect(model.config?.baseURL).toBe('https://proxy.internal/v1');
+  });
+
+  it('leaves anthropic on its default endpoint when no base_url is set', () => {
+    const resolved = createModel(
+      { provider: 'anthropic', api_key_env: 'ANTHROPIC_API_KEY' },
+      { ANTHROPIC_API_KEY: 'sk-ant-test' },
+    );
+    const model = resolved.model as unknown as { config?: { baseURL?: string } };
+    expect(model.config?.baseURL).not.toBe('https://proxy.internal/v1');
+  });
 });

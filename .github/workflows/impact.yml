@@ -39,3 +39,13 @@ jobs:
             --impacted \
             --base "origin/${{ github.event.pull_request.base.ref }}" \
             --dry-run
+
+      - name: Every changed file must be classified
+        # Without this the job could only ever report, never fail — and a change
+        # whose blast radius nobody declared would sail through green. Separate
+        # from the step above so the report is visible even when this blocks.
+        run: |
+          node dist/cli.js run \
+            --impacted \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --fail-on-unmapped

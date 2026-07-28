@@ -50,12 +50,16 @@ export function createModel(
       if (!apiKey) {
         throw new MissingApiKeyError(keyEnv, llm.provider);
       }
+      const baseURL = llm.base_url ? { baseURL: llm.base_url } : {};
       const model =
         llm.provider === 'anthropic'
-          ? createAnthropic({ apiKey })(modelId)
+          ? // A configured endpoint applies to whichever provider is selected —
+            // dropping it here routed corporate-proxy configs to the public API
+            // with no error (design D2).
+            createAnthropic({ apiKey, ...baseURL })(modelId)
           : // `.chat` = Chat Completions: works with official OpenAI and any
             // OpenAI-compatible endpoint (OpenRouter, LiteLLM, vLLM) via base_url.
-            createOpenAI({ apiKey, ...(llm.base_url ? { baseURL: llm.base_url } : {}) }).chat(modelId);
+            createOpenAI({ apiKey, ...baseURL }).chat(modelId);
       return { model, provider: llm.provider, modelId };
     }
     case 'ollama': {

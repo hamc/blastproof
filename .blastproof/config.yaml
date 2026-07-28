@@ -29,11 +29,30 @@ routes:
   "examples/demo-app/login.html": ["/login"]
   "examples/demo-app/cart.html": ["/cart", "/checkout"]
   "examples/demo-app/index.html": ["/"]
+  "examples/demo-app/checkout.html": ["/checkout"]
   "examples/demo-app/orders.html": ["/orders"]
   "examples/demo-app/account.html": ["/account"]
+  # Shared across every page: app.js holds all the business logic, style.css the
+  # layout, serve.mjs the routing. A change to any of them can break any journey,
+  # so each maps to the whole surface rather than to one page.
+  "examples/demo-app/app.js": ["/", "/login", "/cart", "/checkout", "/orders", "/account"]
+  "examples/demo-app/style.css": ["/", "/login", "/cart", "/checkout", "/orders", "/account"]
+  "examples/demo-app/serve.mjs": ["/", "/login", "/cart", "/checkout", "/orders", "/account"]
 
 # Files that cannot affect any page in the demo app.
 ignore:
+  # This project's own source cannot affect the demo app under test, but it must
+  # be classified: an unclassified file is exactly what --fail-on-unmapped exists
+  # to catch, and leaving src/ out made this repo the live example of that gap.
+  - "src/**"
+  - "action.yml"
+  - "package.json"
+  - "package-lock.json"
+  - "tsconfig.json"
+  - "tsup.config.ts"
+  - "vitest.config.ts"
+  - ".gitignore"
+  - ".claude/**"
   - "**/*.md"
   - "docs/**"
   - ".github/**"
