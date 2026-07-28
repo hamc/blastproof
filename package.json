@@ -1,6 +1,6 @@
 {
   "name": "blastproof",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Open-source AI testing agent for pull requests. Diff in, confidence out.",
   "license": "MIT",
   "author": "Heitor Cardozo <heitor.augusto@gmail.com>",
