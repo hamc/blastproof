@@ -39,6 +39,10 @@ export interface ExecutorOptions {
   /** Session directory for failure screenshots, e.g. `.blastproof/reports/<session>`. */
   sessionDir: string;
   baseUrl: string;
+  /** Extra origins the agent may navigate to; `baseUrl`'s own is always allowed. */
+  allowedOrigins?: string[];
+  /** Expands `{{env.*}}` in action payloads at action time, never before. */
+  resolveValue?: (value: string) => string;
   /** Budget of failed attempts per step (self-healing retries). Default 3. */
   maxRetries?: number;
   /** Hard cap on LLM actions per step. Default 15. */
@@ -77,6 +81,8 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     brain,
     sessionDir,
     baseUrl,
+    allowedOrigins,
+    resolveValue,
     maxRetries = 3,
     maxIterationsPerStep = 15,
     mask = (s: string) => s,
@@ -177,7 +183,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         }
 
         try {
-          const result = await performAction(page, action, { baseUrl });
+          const result = await performAction(page, action, { baseUrl, allowedOrigins, resolveValue });
           lastResult = result;
           emitAction(index, action, result);
         } catch (error) {
@@ -217,7 +223,10 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
   if (failure) {
     try {
       await mkdir(sessionDir, { recursive: true });
-      const file = path.join(sessionDir, `${slugify(test.summary)}.png`);
+      // The slug alone collides when two tests share a summary (or its first 60
+      // chars), silently overwriting one failure's evidence with another's.
+      const stem = `${slugify(test.summary)}-${slugify(path.basename(test.path))}`;
+      const file = path.join(sessionDir, `${stem}.png`);
       await page.screenshot({ path: file, fullPage: true });
       screenshot = file;
     } catch {

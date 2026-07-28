@@ -81,20 +81,18 @@ export function applyUrlOverride(
   return { ...config, base_url: url };
 }
 
-/** Substitutes env placeholders across setup+steps, registering every secret for masking. */
+/**
+ * Registers every referenced secret for masking, and leaves the steps untouched:
+ * placeholders must survive into the prompt so the value never reaches the model
+ * (design D2). `registerFrom` still throws on an unset variable, so the fail-fast
+ * before any browser opens is unchanged — only the moment of expansion moved.
+ */
 function resolveSecretsAndSteps(test: TestFile): { test: TestFile; mask: SecretsMask } {
   const mask = new SecretsMask();
   for (const step of [...(test.setup ?? []), ...test.steps]) {
     mask.registerFrom(step);
   }
-  return {
-    test: {
-      ...test,
-      setup: test.setup?.map((step) => substituteEnv(step)),
-      steps: test.steps.map((step) => substituteEnv(step)),
-    },
-    mask,
-  };
+  return { test, mask };
 }
 
 function printEvent(event: ExecutorEvent): void {
@@ -188,6 +186,8 @@ async function runOne(
       brain,
       sessionDir,
       baseUrl: config.base_url,
+      allowedOrigins: config.allowed_origins,
+      resolveValue: (value) => substituteEnv(value),
       maxRetries: config.max_retries_per_step,
       mask: (text) => mask.mask(text),
       onEvent: printEvent,
@@ -430,6 +430,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
           auth: config.auth,
           cwd: options.cwd,
           baseUrl: config.base_url,
+          allowedOrigins: config.allowed_origins,
           browser: browser as unknown as BrowserLike,
           brain: createBrain(createModel(config.llm).model),
           maxRetries: config.max_retries_per_step,

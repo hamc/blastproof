@@ -71,6 +71,12 @@ const configSchema = z.object({
   routes: z.record(z.array(z.string())).optional(),
   /** Globs for files knowingly irrelevant to any route (docs, CI config, licences). */
   ignore: z.array(z.string()).optional(),
+  /**
+   * Origins the agent may navigate to besides `base_url`'s own — a separate auth
+   * host, a payment provider. Crossing to a third party during a test is a real
+   * decision and belongs in a reviewed file, not in a model's choice (design D1).
+   */
+  allowed_origins: z.array(z.string().url()).optional(),
   auth: authSchema.optional(),
   max_retries_per_step: z.number().int().min(1).default(3),
 });

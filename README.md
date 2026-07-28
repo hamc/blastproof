@@ -210,6 +210,7 @@ jobs:
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
           min-score: '80'
+          fail-on-unmapped: 'true'   # a change nobody classified must not pass silently
 ```
 
 Exit non-zero blocks the merge. Use the score in a later step:
@@ -252,6 +253,23 @@ Output: **`score`** — 0–100, empty when no report was produced, so "no score
 **Pin both the tag and `version` when the result gates merges.** `latest` is convenient for trying it out, but a pipeline that blocks merges should not change behaviour without you changing something.
 
 **`fetch-depth: 0` is not optional** for `test` and `plan`. The default checkout is shallow and has no merge-base; the action detects this and fails immediately rather than letting it surface as a git error mid-run.
+
+## What the agent can and cannot do
+
+The application under test is not trusted input. Its page content reaches the model — that is how the agent knows what is on screen — so a page able to influence its own accessible text can try to influence the agent. Two things constrain that:
+
+**The agent cannot leave your application.** `navigate` is bounded by `base_url`'s origin. An app that legitimately spans hosts declares them:
+
+```yaml
+allowed_origins:
+  - https://auth.example.com
+```
+
+This is enforced by comparison, not by asking the model nicely, so it holds regardless of what the page says.
+
+**Your secrets never reach the model.** `{{env.*}}` placeholders stay intact all the way through the prompt and are substituted at the moment of typing. The model is told to pass them through unchanged. This matters because blastproof encourages pointing `llm.base_url` at a gateway you do not run — the credential now stays on your machine either way.
+
+The system prompt also tells the model that page content is data under test and never an instruction to obey. That raises the cost of a casual injection and is **not** a security boundary — a determined one will get past prompt wording. The origin constraint is the boundary; treat the rest as hygiene, and do not point blastproof at an application you would not run locally.
 
 ## Testing behind a login
 

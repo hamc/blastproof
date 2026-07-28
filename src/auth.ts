@@ -49,6 +49,8 @@ export interface AuthenticateOptions {
   browser: BrowserLike;
   brain: AgentBrain;
   maxRetries?: number;
+  /** Extra origins the login journey may reach (an external identity provider). */
+  allowedOrigins?: string[];
   /** Injectable snapshotter, mirroring the executor, so tests need no browser. */
   snapshot?: (page: PageLike) => Promise<string>;
   /**
@@ -156,7 +158,7 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
       {
         path: '<auth>',
         summary: 'authentication',
-        steps: steps.map((step) => substituteEnv(step)),
+        steps,
         priority: 'P0',
         tags: [],
         routes: [],
@@ -166,6 +168,8 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
         brain,
         sessionDir: path.join(options.cwd, '.blastproof', 'reports', 'auth'),
         baseUrl,
+        allowedOrigins: options.allowedOrigins,
+        resolveValue: (value) => substituteEnv(value),
         maxRetries,
         mask: (text) => mask.mask(text),
         snapshot,

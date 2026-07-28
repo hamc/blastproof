@@ -220,7 +220,8 @@ describe('executeTest', () => {
     expect(result.failedStep).toBe('do a');
     expect(result.reason).toContain('login button is gone');
     expect(result.screenshot).toBeDefined();
-    expect(page.screenshots[0]).toContain('sample-test.png');
+    expect(page.screenshots[0]).toContain('sample-test');
+    expect(page.screenshots[0]).toMatch(/\.png$/);
   });
 
   it('exhausts the retry budget on repeated element failures and fails the step', async () => {
@@ -406,5 +407,50 @@ describe('trimSnapshot', () => {
     const trimmed = trimSnapshot(yaml, 10);
     expect(trimmed.split('\n')).toHaveLength(11);
     expect(trimmed).toContain('truncated after 10 lines');
+  });
+});
+
+describe('screenshot naming', () => {
+  it('distinguishes two failing tests that share a summary', async () => {
+    // The slug alone collided, so the second failure silently overwrote the
+    // first one's evidence — exactly when you need both.
+    const dir = await mkdtemp(path.join(tmpdir(), 'blastproof-shots-'));
+    try {
+      const failing: AgentBrain = {
+        async nextAction() {
+          return { action: 'fail', reasoning: 'nope' };
+        },
+        async judge() {
+          return { pass: false, reason: 'nope' };
+        },
+      };
+      const shots: string[] = [];
+      for (const file of ['a.yaml', 'b.yaml']) {
+        const page = new FakePage();
+        await executeTest(
+          page,
+          {
+            path: file,
+            summary: 'Same summary',
+            steps: ['do it'],
+            priority: 'P1',
+            tags: [],
+            routes: [],
+            auth: true,
+          },
+          {
+            brain: failing,
+            sessionDir: dir,
+            baseUrl: 'http://localhost:4173',
+            snapshot: async () => '- main',
+          },
+        );
+        shots.push(...page.screenshots);
+      }
+      expect(shots).toHaveLength(2);
+      expect(new Set(shots).size).toBe(2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

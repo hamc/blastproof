@@ -73,6 +73,8 @@ src/
 - **Config**: `.blastproof/config.yaml` — `base_url`, `llm.{provider,model,api_key_env}`, `browser`, `routes` (glob→URLs impact hints), optional `auth` recipe (one of `steps` | `storage_state` | `headers`/`cookies`, plus optional `verify` and `cache`). Overridable from the environment via `BLASTPROOF_*`
 - No static selectors anywhere in generated tests or runner state — resolution is always live via accessibility tree
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:` …), one-line subject
+- Secrets never enter a prompt: `{{env.*}}` placeholders survive to action time and are substituted immediately before use. Values are also masked in reports.
+- The agent may not navigate outside `base_url`'s origin plus any declared `allowed_origins`. Enforced in `actions.ts`, not by prompt wording.
 - Never log secrets; `{{env.*}}` values are masked in reports. A captured auth session is a live credential: git-ignored, never printed, never embedded in a report
 
 ## Spec-driven development workflow (REQUIRED)

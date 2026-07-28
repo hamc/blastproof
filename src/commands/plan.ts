@@ -188,6 +188,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           auth: config.auth,
           cwd: options.cwd,
           baseUrl: config.base_url,
+          allowedOrigins: config.allowed_origins,
           browser: browser as unknown as BrowserLike,
           brain: createBrain(createModel(config.llm).model),
           maxRetries: config.max_retries_per_step,

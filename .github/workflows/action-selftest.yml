@@ -58,14 +58,18 @@ jobs:
           echo "demo app did not come up" >&2
           exit 1
 
+      # `test` is the action's default command and the one that drives the whole
+      # diff→impact→run→plan pipeline; the self-test previously only exercised it
+      # in the failure path, so its success path had no coverage at all.
       - id: blastproof
         uses: ./
         with:
-          command: run
+          command: test
           api-key: ${{ secrets.OPENROUTER_API_KEY }}
           provider: openai
           model: anthropic/claude-haiku-4.5
           llm-base-url: https://openrouter.ai/api/v1
+          base: ${{ github.event.repository.default_branch }}
           min-score: '80'
 
       - name: The score output must be readable

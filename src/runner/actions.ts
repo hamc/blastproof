@@ -34,6 +34,29 @@ export interface ActionContext {
   baseUrl: string;
   /** Per-resolution wait budget in ms (each fallback candidate gets a short wait). */
   resolveTimeoutMs?: number;
+  /** Extra origins the agent may reach; `baseUrl`'s own is always allowed. */
+  allowedOrigins?: string[];
+  /** Resolves `{{env.*}}` in action payloads at the moment of acting (design D2). */
+  resolveValue?: (value: string) => string;
+}
+
+/**
+ * The one containment that does not depend on the model cooperating: an absolute
+ * URL ignores the base entirely (`new URL('https://x/y', base)` is `https://x/y`),
+ * so a page that can influence the agent could otherwise send it anywhere while it
+ * holds a live session. Compared, not argued with (design D1).
+ */
+function assertAllowedOrigin(url: URL, ctx: ActionContext): void {
+  const allowed = new Set<string>([new URL(ctx.baseUrl).origin]);
+  for (const origin of ctx.allowedOrigins ?? []) {
+    allowed.add(new URL(origin).origin);
+  }
+  if (!allowed.has(url.origin)) {
+    throw new ActionError(
+      `Refusing to navigate outside the application: ${url.origin} is not ${[...allowed].join(' or ')}. ` +
+        'Add it to allowed_origins in .blastproof/config.yaml if the app legitimately spans hosts.',
+    );
+  }
 }
 
 function describeTarget(target: AgentTarget): string {
@@ -84,6 +107,11 @@ function requireTarget(action: AgentAction): AgentTarget {
   return action.target;
 }
 
+/** Expands `{{env.*}}` only now, so the value was never in a prompt (design D2). */
+function resolve(value: string, ctx: ActionContext): string {
+  return ctx.resolveValue ? ctx.resolveValue(value) : value;
+}
+
 function requireValue(action: AgentAction): string {
   if (action.value === undefined || action.value === '') {
     throw new ActionError(`Action "${action.action}" requires a value`);
@@ -103,10 +131,11 @@ export async function performAction(
 ): Promise<string> {
   switch (action.action) {
     case 'navigate': {
-      const value = requireValue(action);
-      const url = new URL(value, ctx.baseUrl).toString();
-      await page.goto(url, { timeout: 30_000 });
-      return `ok: navigated to ${url}`;
+      const value = resolve(requireValue(action), ctx);
+      const url = new URL(value, ctx.baseUrl);
+      assertAllowedOrigin(url, ctx);
+      await page.goto(url.toString(), { timeout: 30_000 });
+      return `ok: navigated to ${url.toString()}`;
     }
     case 'click': {
       const target = requireTarget(action);
@@ -116,13 +145,13 @@ export async function performAction(
     }
     case 'fill': {
       const target = requireTarget(action);
-      const value = requireValue(action);
+      const value = resolve(requireValue(action), ctx);
       const locator = await resolveTarget(page, target, ctx.resolveTimeoutMs);
       await locator.fill(value);
       return `ok: filled ${describeTarget(target)}`;
     }
     case 'press': {
-      const key = action.value ?? 'Enter';
+      const key = action.value ? resolve(action.value, ctx) : 'Enter';
       if (action.target && (action.target.role || action.target.name || action.target.text)) {
         const locator = await resolveTarget(page, action.target, ctx.resolveTimeoutMs);
         await locator.press(key);
@@ -133,7 +162,7 @@ export async function performAction(
     }
     case 'select': {
       const target = requireTarget(action);
-      const value = requireValue(action);
+      const value = resolve(requireValue(action), ctx);
       const locator = await resolveTarget(page, target, ctx.resolveTimeoutMs);
       await locator.selectOption({ label: value });
       return `ok: selected "${value}" in ${describeTarget(target)}`;
