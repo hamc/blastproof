@@ -25,21 +25,26 @@ git diff → impact mapping → test generation → agentic execution → report
 ```bash
 npm install -g blastproof                    # requires Node.js >= 20.19
 npx playwright install --with-deps chromium  # one-time browser download
+
 cd your-project
-blastproof init
+blastproof init                              # scaffolds .blastproof/
+# start your app, then point base_url at it in .blastproof/config.yaml
 export ANTHROPIC_API_KEY=...                 # or OPENAI_API_KEY, or a local Ollama model
 blastproof run                               # runs .blastproof/tests/**/*.yaml agentically
 ```
 
+`init` scaffolds one smoke test that works against any app, plus a commented login template you rename and edit once it describes *your* login. Nothing is written that assumes anything about your application.
+
 Published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements), so the tarball is verifiably built from this repository.
 
-Try it locally without your own app — this repo ships a demo shop:
+Try it without your own app — the demo shop lives in this repository, so clone it:
 
 ```bash
-node examples/demo-app/serve.mjs 4173 &   # home, login and cart + promo-code pages
-blastproof init
+git clone https://github.com/hamc/blastproof && cd blastproof
+npm install && npm run build
+node examples/demo-app/serve.mjs 4173 &   # home, login, cart, checkout, orders
 export ANTHROPIC_API_KEY=...
-blastproof run
+node dist/cli.js run
 ```
 
 > **Status:** the pipeline is complete and published. `init`, `run` (including `--impacted`), `plan` and `test`, with authentication, JUnit and HTML reports, a merge gate, and a GitHub Action. Pre-1.0: the command surface may still change.
@@ -219,6 +224,7 @@ Exit non-zero blocks the merge. Use the score in a later step:
       - id: bp
         uses: hamc/blastproof@v0.2.0
         with:
+          version: '0.2.0'          # pin both when the result gates merges
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
           min-score: '80'
@@ -355,6 +361,12 @@ Note the last one names *which variable* holds your key — the key itself is ne
 - [ ] Post-MVP — VS Code extension, session replay, worker parallelism, PR comments
 
 ## Development
+
+Built with AI assistance, using spec-driven development throughout: every change began as a written
+proposal with its design rationale, and those documents are kept rather than discarded — `openspec/`
+holds the reasoning behind each decision, including the alternatives that were rejected and why. The
+`.claude/`, `.cursor/` and `.opencode/` directories are agent configuration for the tools used to
+build it; ignore them unless you are contributing with one.
 
 This project uses **spec-driven development** via [OpenSpec](https://github.com/Fission-AI/OpenSpec). See [`AGENTS.md`](./AGENTS.md) for architecture, conventions and the contribution workflow — every change starts with an OpenSpec proposal.
 

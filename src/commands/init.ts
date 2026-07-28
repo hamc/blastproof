@@ -95,21 +95,31 @@ sessions/
 auth.json
 `;
 
-const SAMPLE_LOGIN_TEST = `summary: Login with valid credentials succeeds
+/**
+ * A template, not a runnable test. It ships as `.yaml.example` so discovery
+ * ignores it: a login test written for someone else's app would fail on the
+ * user's very first run, on a tool that promises they need not write tests.
+ * Rename to `.yaml` once the steps describe your login.
+ */
+const SAMPLE_LOGIN_TEMPLATE = `# TEMPLATE — rename to login.yaml once these steps match your app.
+# Until then it is ignored: only .yaml/.yml files are discovered.
+#
+# Credentials come from the environment. Export them before running:
+#   export TEST_EMAIL=... TEST_PASSWORD=...
+# Substituted values are masked as *** everywhere and never reach the model.
+summary: Login with valid credentials succeeds
 priority: P0
 tags: [smoke, auth]
 routes: ["/login"]
-# This test exercises the login itself, so it must start signed out even when an
-# auth recipe is configured.
+# Exercises the login itself, so it must start signed out even when an auth
+# recipe is configured.
 auth: false
 steps:
   - navigate to /login
-  - fill the email field with demo@blastproof.dev
-  - fill the password field with demo123
+  - fill the email field with {{env.TEST_EMAIL}}
+  - fill the password field with {{env.TEST_PASSWORD}}
   - submit the login form
   - verify a welcome message is shown
-# Secrets tip: use {{env.VAR_NAME}} placeholders in steps (e.g. {{env.TEST_PASSWORD}})
-# and export the variable before running. Values are masked as *** in all output.
 `;
 
 export interface InitResult {
@@ -144,7 +154,7 @@ export async function initProject(cwd: string = process.cwd()): Promise<InitResu
   await writeIfAbsent(path.join(root, '.gitignore'), GITIGNORE, result);
   await writeIfAbsent(path.join(root, 'config.yaml'), DEFAULT_CONFIG, result);
   await writeIfAbsent(path.join(root, 'tests', 'app-load.yaml'), SAMPLE_TEST, result);
-  await writeIfAbsent(path.join(root, 'tests', 'login.yaml'), SAMPLE_LOGIN_TEST, result);
+  await writeIfAbsent(path.join(root, 'tests', 'login.yaml.example'), SAMPLE_LOGIN_TEMPLATE, result);
 
   return result;
 }
@@ -163,7 +173,7 @@ export function formatInitGuidance(result: InitResult): string {
     '',
     'Next steps:',
     '  1. Set your LLM API key:  export ANTHROPIC_API_KEY=...   (or OPENAI_API_KEY; ollama needs no key)',
-    '  2. Point base_url at your app in .blastproof/config.yaml',
+    '  2. Start your app, then point base_url at it in .blastproof/config.yaml',
     '  3. Run your tests:        blastproof run',
     '',
     'First time with Playwright? Install the browser:  npx playwright install chromium',

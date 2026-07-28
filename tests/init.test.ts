@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { initProject } from '../src/commands/init.js';
-import { parseTestFile } from '../src/runner/testfile.js';
+import { discoverTestFiles, parseTestFile } from '../src/runner/testfile.js';
 import { loadConfig } from '../src/config.js';
 
 let dir: string;
@@ -34,14 +34,26 @@ describe('initProject', () => {
     expect(config.llm.provider).toBe('anthropic');
   });
 
-  it('produces sample tests that actually parse', async () => {
+  it('produces a sample test that actually parses', async () => {
     await initProject(dir);
     const sample = await parseTestFile(at('tests', 'app-load.yaml'));
     expect(sample.routes).toEqual(['/']);
+  });
 
-    const login = await parseTestFile(at('tests', 'login.yaml'));
-    // A login test must start signed out, or an auth recipe would break it.
-    expect(login.auth).toBe(false);
+  it('scaffolds only tests that can pass against an unknown app', async () => {
+    await initProject(dir);
+    const discovered = await discoverTestFiles(at('tests'));
+
+    // The login template ships inert. A scaffolded test written for someone
+    // else's login would fail on the user's very first run — on a tool whose
+    // whole promise is that they need not write tests.
+    expect(discovered.map((f) => path.basename(f))).toEqual(['app-load.yaml']);
+
+    const template = await readFile(at('tests', 'login.yaml.example'), 'utf8');
+    expect(template).toContain('TEMPLATE');
+    // And it models the practice we document rather than hardcoding credentials.
+    expect(template).toContain('{{env.TEST_PASSWORD}}');
+    expect(template).not.toContain('demo123');
   });
 
   it('points the scaffolded config at the canonical repository', async () => {
