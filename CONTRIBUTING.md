@@ -69,6 +69,10 @@ git tag v0.1.0 && git push origin v0.1.0
 
 The release workflow refuses to publish if the tag and the manifest version disagree, rebuilds and re-runs the full verification, and publishes with npm provenance. It needs an `NPM_TOKEN` secret on the repository.
 
+## Finding something to work on
+
+Open issues are the backlog. Each states a problem and why it matters, not a solution — deciding the solution is what a change proposal is for.
+
 ## Reporting bugs
 
 Include the command you ran, the provider and model, what you expected, and what happened. A `--dry-run` output or a JUnit/HTML report is worth more than a description. Redact your keys — and note that a failure screenshot may contain application data you would rather not publish.

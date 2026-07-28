@@ -77,6 +77,15 @@ src/
 - The agent may not navigate outside `base_url`'s origin plus any declared `allowed_origins`. Enforced in `actions.ts`, not by prompt wording.
 - Never log secrets; `{{env.*}}` values are masked in reports. A captured auth session is a live credential: git-ignored, never printed, never embedded in a report
 
+## Where the work comes from
+
+**Start here when picking up this project.** Two systems, with a deliberate division:
+
+- **GitHub Issues** are the inbox: a problem someone observed, not yet a decision. `gh issue list` is the backlog, and every known gap lives there rather than in someone's head.
+- **OpenSpec changes** are committed work: an issue graduates into a proposal with a design, and the design records the alternatives that were rejected and why.
+
+An issue may sit open indefinitely; a change should not. If you are looking for what to do next, read the issues. If you are looking for why something is the way it is, read `openspec/changes/archive/` — that is where the reasoning lives, not in the commit that shipped it.
+
 ## Spec-driven development workflow (REQUIRED)
 
 This repo uses [OpenSpec](https://github.com/Fission-AI/OpenSpec). **No code change without an approved change proposal.**
@@ -126,7 +135,9 @@ Before considering any task done: `build`, `test` and `typecheck` must pass. E2E
 | M3 | Reports (JUnit/HTML), scoring, exit codes | done — m3a (score + `--min-score` + JUnit) + m3b (HTML + `test`) |
 | M4 | GitHub Action, npm publish | done — published to npm (m4a) and a composite action at the repository root (m4b) |
 
-Post-MVP (do not build unless asked): VS Code extension, session replay, worker parallelism, Flutter, GitHub PR comments.
+Post-MVP (do not build unless asked): VS Code extension, session replay, Flutter, GitHub PR comments.
+
+Everything else known to be missing or wrong is tracked in GitHub Issues.
 
 ## Guardrails
 
