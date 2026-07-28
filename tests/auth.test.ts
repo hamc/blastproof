@@ -63,6 +63,25 @@ function stubBrain(opts: { succeed?: boolean; verifyPasses?: boolean } = {}): Ag
   };
 }
 
+/**
+ * Brain whose first turn is an assert that judges pass, and whose second turn —
+ * reachable only if the executor still `continue`s past a passing assertion —
+ * fails the step. Used to prove `authenticate()` inherits the fix (task 3.1).
+ */
+function assertThenFailBrain(): AgentBrain {
+  let calls = 0;
+  return {
+    async nextAction() {
+      calls++;
+      if (calls === 1) return { action: 'assert' as const, reasoning: 'check', expectation: 'signed in' };
+      return { action: 'fail' as const, reasoning: 'should never be requested' };
+    },
+    async judge() {
+      return { pass: true, reason: 'signed-in indicator visible' };
+    },
+  };
+}
+
 let dir: string;
 
 beforeEach(async () => {
@@ -118,6 +137,18 @@ describe('authenticate: steps strategy', () => {
         ),
       ),
     ).rejects.toThrow(/could not be verified/);
+  });
+
+  it('does not abort with AuthError when the login journey ends on a passing assertion', async () => {
+    // Single-step journey: if the executor still `continue`d past a passing
+    // assertion, this step's second nextAction call would return `fail` and
+    // authenticate() would raise AuthError, aborting the whole run before a
+    // single test executes — no score, no report (blast radius per proposal).
+    const session = await authenticate(
+      options({ steps: ['assert a signed-in indicator is visible'], cache: false }, assertThenFailBrain()),
+    );
+
+    expect(session.storageState).toEqual(CAPTURED);
   });
 
   it('keeps a substituted password out of the error message', async () => {

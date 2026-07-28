@@ -3,6 +3,16 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [Unreleased]
+
+### Fixed
+- A step whose `assert` judgment passed did not end the step: the executor recorded the pass and
+  looped for another action, and `fail` was still legal on that extra turn — so the model could, and
+  measurably did, fail a step it had just proved succeeded. A passing assertion now terminates the
+  step immediately, exactly as `done` does; the failing-assertion path (retry within budget, then
+  fail) is unchanged. Measured over twenty dogfood runs against an unchanged tree and app: 15% before
+  the fix (3/20, one hole across five tests) — **after: TBD, pending the twenty-run re-measurement.**
+
 ## [0.2.2] — 2026-07-28
 
 ### Security

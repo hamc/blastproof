@@ -176,8 +176,12 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             : `assertion failed: ${judgment.reason}`;
           emitAction(index, action, result);
           if (judgment.pass) {
+            // Terminate here, exactly as `done` does. The extra turn this used to
+            // spend asking for a further action is what let the model contradict
+            // its own passing assertion by emitting `fail` next (see design D1) —
+            // don't reintroduce it by turning this back into a `continue`.
             lastResult = result;
-            continue;
+            break;
           }
           // A failed judgment may just mean the page hasn't settled: retry within budget.
           failedAttempts++;

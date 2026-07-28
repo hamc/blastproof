@@ -259,24 +259,55 @@ describe('executeTest', () => {
     expect(result.steps[0]?.failedAttempts).toBe(1);
   });
 
-  it('handles assert: pass continues, repeated failures fail the step', async () => {
+  it('terminates the step on a passing assertion: an offered fail is never requested', async () => {
     const page = new FakePage();
-    const passing = scriptedBrain(
-      [{ action: 'assert', reasoning: 'check', expectation: 'total is $80' }, { action: 'done', reasoning: 'ok' }],
+    // The second scripted action would fail the step if it were ever asked for.
+    // Regression for the defect: a passing assertion used to `continue` the loop,
+    // giving the model a further turn in which it could contradict its own pass.
+    const brain = scriptedBrain(
+      [
+        { action: 'assert', reasoning: 'check', expectation: 'total is $80' },
+        { action: 'fail', reasoning: 'should never be requested' },
+      ],
       [{ pass: true, reason: 'total shows $80' }],
     );
-    const okResult = await executeTest(page, makeTest(), {
-      brain: passing,
+
+    const result = await executeTest(page, makeTest(), {
+      brain,
       sessionDir,
       baseUrl: 'http://x.test',
       snapshot: async () => 'snap',
     });
-    expect(okResult.status).toBe('passed');
 
+    expect(result.status).toBe('passed');
+    expect(result.steps[0]?.status).toBe('passed');
+  });
+
+  it('makes no further nextAction call once an assertion passes (design D3: the economic claim)', async () => {
+    const page = new FakePage();
+    const brain = scriptedBrain(
+      [{ action: 'assert', reasoning: 'check', expectation: 'total is $80' }],
+      [{ pass: true, reason: 'total shows $80' }],
+    );
+
+    const result = await executeTest(page, makeTest(), {
+      brain,
+      sessionDir,
+      baseUrl: 'http://x.test',
+      snapshot: async () => 'snap',
+    });
+
+    expect(result.status).toBe('passed');
+    expect(brain.calls).toBe(1);
+  });
+
+  it('retries a failing assertion to the budget and then fails the step, unchanged', async () => {
+    const page = new FakePage();
     const failing = scriptedBrain(
       Array(3).fill({ action: 'assert', reasoning: 'check', expectation: 'total is $80' }),
       Array(3).fill({ pass: false, reason: 'no total rendered' }),
     );
+
     const failResult = await executeTest(page, makeTest(), {
       brain: failing,
       sessionDir,
@@ -284,8 +315,10 @@ describe('executeTest', () => {
       maxRetries: 3,
       snapshot: async () => 'snap',
     });
+
     expect(failResult.status).toBe('failed');
     expect(failResult.reason).toContain('no total rendered');
+    expect(failResult.steps[0]?.failedAttempts).toBe(3);
   });
 
   it('aborts a step that exceeds the iteration cap', async () => {
