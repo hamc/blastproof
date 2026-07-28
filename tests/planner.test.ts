@@ -115,6 +115,7 @@ describe('generateForRoute', () => {
       baseUrl: 'http://localhost:4173',
       changedFiles: ['src/cart/discount.ts'],
       brain: stubBrain(DRAFT, captured),
+      mask: (t: string) => t,
       snapshot: async () => '- button "Apply discount"',
     });
 
@@ -135,6 +136,7 @@ describe('generateForRoute', () => {
       baseUrl: 'http://localhost:4173',
       changedFiles: [],
       brain: stubBrain(rogue),
+      mask: (t: string) => t,
       snapshot: async () => '- main',
     });
 
@@ -154,6 +156,7 @@ describe('generateForRoute', () => {
         baseUrl: 'http://localhost:4173',
         changedFiles: [],
         brain: stubBrain(),
+        mask: (t: string) => t,
         snapshot: async () => '',
       }),
     ).rejects.toThrow(/Cannot load http:\/\/localhost:4173\/cart/);
@@ -172,9 +175,31 @@ describe('generateForRoute', () => {
         baseUrl: 'http://localhost:4173',
         changedFiles: [],
         brain: stubBrain(leaky),
+        mask: (t: string) => t,
         snapshot: async () => '- textbox "Password"',
       }),
     ).rejects.toThrow(PlannerError);
+  });
+});
+
+describe('the planner masks too', () => {
+  it('never sends a rendered secret to the model', async () => {
+    // `plan` authenticates and then browses that session, and shipped with no
+    // masking at all: the boundary had been closed at one call site instead of
+    // being defined over every caller that prompts a model.
+    const captured: { input?: { snapshot?: string } } = {};
+    const { page } = fakePage();
+
+    await generateForRoute(page, {
+      route: '/account',
+      baseUrl: 'http://localhost:4173',
+      changedFiles: [],
+      brain: stubBrain(DRAFT, captured),
+      mask: (t) => t.replace(/LIVE-SECRET-abc123/g, '***'),
+      snapshot: async () => '- text "Authenticated with token: LIVE-SECRET-abc123"',
+    });
+
+    expect(captured.input?.snapshot).not.toContain('LIVE-SECRET-abc123');
   });
 });
 

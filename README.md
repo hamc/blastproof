@@ -273,7 +273,9 @@ allowed_origins:
 
 This is enforced by comparison, not by asking the model nicely, so it holds regardless of what the page says.
 
-**Your secrets never reach the model.** `{{env.*}}` placeholders stay intact all the way through the prompt and are substituted at the moment of typing. The model is told to pass them through unchanged. This matters because blastproof encourages pointing `llm.base_url` at a gateway you do not run — the credential now stays on your machine either way.
+**Your secrets stay out of the model's prompts.** `{{env.*}}` placeholders stay intact all the way through the prompt and are substituted at the moment of typing. Every value any test or the auth recipe references is also redacted from anything else crossing into a prompt — page snapshots included, since your app may render the credential itself — in both literal and percent-encoded form. This matters because blastproof encourages pointing `llm.base_url` at a gateway you do not run.
+
+Redaction matches known values, so it cannot anticipate every way a page might transform one before rendering it. Treat it as a strong default, not a guarantee against a hostile application.
 
 The system prompt also tells the model that page content is data under test and never an instruction to obey. That raises the cost of a casual injection and is **not** a security boundary — a determined one will get past prompt wording. The origin constraint is the boundary; treat the rest as hygiene, and do not point blastproof at an application you would not run locally.
 

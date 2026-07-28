@@ -12,6 +12,7 @@ import {
 } from '../src/auth.js';
 import type { AuthConfig } from '../src/config.js';
 import type { AgentBrain } from '../src/llm/brain.js';
+import { SecretsMask } from '../src/runner/env.js';
 
 const CAPTURED: StorageState = { cookies: [{ name: 'session', value: 'abc' }], origins: [] };
 
@@ -85,6 +86,8 @@ function options(auth: AuthConfig, brain: AgentBrain = stubBrain(), browser?: Br
     baseUrl: 'http://localhost:4173',
     browser: browser ?? fakeBrowser().browser,
     brain,
+    // The run's mask: the credential typed here stays live for the whole run.
+    mask: new SecretsMask(),
     snapshot: async () => '- heading "Welcome"',
   };
 }

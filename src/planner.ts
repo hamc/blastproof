@@ -23,6 +23,13 @@ export interface GenerateOptions {
   /** Changed files that mapped to this route; empty for `--route` generation. */
   changedFiles: string[];
   brain: PlannerBrain;
+  /**
+   * Required, not optional: `plan` authenticates and then browses the session, so
+   * a page can render the credential. This command shipped with no masking at all
+   * because the boundary was closed at one call site instead of being defined over
+   * every caller that prompts a model (design D2).
+   */
+  mask: (text: string) => string;
   /** Injectable snapshotter (defaults to live ariaSnapshot), mirroring the executor. */
   snapshot?: (page: PageLike) => Promise<string>;
 }
@@ -90,7 +97,7 @@ export function renderTestYaml(draft: TestDraft, meta: ProvenanceMeta): string {
  * coverage gap that triggered it (design D6).
  */
 export async function generateForRoute(page: PageLike, options: GenerateOptions): Promise<TestDraft> {
-  const { route, baseUrl, changedFiles, brain, snapshot = defaultSnapshot } = options;
+  const { route, baseUrl, changedFiles, brain, mask, snapshot = defaultSnapshot } = options;
 
   const url = new URL(route, baseUrl).toString();
   try {
@@ -101,7 +108,11 @@ export async function generateForRoute(page: PageLike, options: GenerateOptions)
     );
   }
 
-  const generated = await brain.planTest({ route, snapshot: await snapshot(page), changedFiles });
+  const generated = await brain.planTest({
+    route,
+    snapshot: mask(await snapshot(page)),
+    changedFiles,
+  });
 
   const leaked = findSecretLiterals(generated.steps);
   if (leaked.length > 0) {

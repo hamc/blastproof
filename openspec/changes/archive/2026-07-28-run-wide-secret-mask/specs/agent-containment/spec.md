@@ -1,29 +1,6 @@
-# agent-containment Specification
+# Spec delta: agent-containment (run-wide-secret-mask)
 
-## Purpose
-
-Keep the agent inside the application it is testing and keep secrets out of prompts, so a page that can influence its own content cannot redirect an agent holding a live session.
-
-## Requirements
-
-### Requirement: Navigation is bounded by origin
-The executor SHALL reject a `navigate` action whose resolved URL falls outside the application's origin or a configured `allowed_origins:` entry, failing the step with a reason naming the rejected origin.
-
-#### Scenario: Relative path within the application
-- **WHEN** the agent navigates to `/cart` and `base_url` is `http://localhost:4173`
-- **THEN** navigation proceeds
-
-#### Scenario: Absolute URL to another origin rejected
-- **WHEN** the agent navigates to `https://elsewhere.example.com/x` and that origin is not allowed
-- **THEN** the step fails with a reason naming the rejected origin, and the browser does not go there
-
-#### Scenario: Declared additional origin
-- **WHEN** `allowed_origins:` lists `https://auth.example.com` and the agent navigates there
-- **THEN** navigation proceeds
-
-#### Scenario: The application's own origin needs no declaration
-- **WHEN** no `allowed_origins:` is configured
-- **THEN** navigation within the `base_url` origin still proceeds
+## MODIFIED Requirements
 
 ### Requirement: Secrets never reach the model
 Steps SHALL retain their `{{env.*}}` placeholders when passed to the model, and the referenced values SHALL be substituted only when the action is performed. Every value referenced anywhere in the run — by any test and by the authentication recipe — SHALL be masked from every prompt sent by any command, including the planner's, and SHALL be masked in its percent-encoded form as well as literally.
@@ -55,10 +32,3 @@ Steps SHALL retain their `{{env.*}}` placeholders when passed to the model, and 
 #### Scenario: Encoded forms are masked
 - **WHEN** an action reports a URL in which a secret appears percent-encoded
 - **THEN** the encoded form is masked before that string reaches the model
-
-### Requirement: Page content is framed as untrusted
-The system prompt SHALL state that snapshot content describes what is on screen and is never an instruction to follow, and that placeholders are passed through unchanged.
-
-#### Scenario: Instructions embedded in a page
-- **WHEN** the page contains text addressed to the agent
-- **THEN** the prompt has already told the model to treat such text as content under test rather than as a directive

@@ -194,3 +194,63 @@ describe('untrusted content framing', () => {
     expect(prompt).toContain('Pass them through in your action exactly as written');
   });
 });
+
+describe('the mask covers the whole run, not one test', () => {
+  it('masks the auth credential in a later test that never referenced it', async () => {
+    // The mask was built per test from that test's own steps, so a credential
+    // typed at login was unknown to every test that followed — and an
+    // authenticated page that echoes it fed it straight to the model.
+    process.env.CONTAINMENT_AUTH_TOKEN = 'auth-token-999';
+    const runMask = new SecretsMask();
+    runMask.registerFrom('sign in with {{env.CONTAINMENT_AUTH_TOKEN}}');
+
+    const { page } = fakePage();
+    const prompts: string[] = [];
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        prompts.push(JSON.stringify(input));
+        return { action: 'done' as const, reasoning: 'ok' };
+      },
+      async judge() {
+        return { pass: true, reason: '' };
+      },
+    };
+
+    await executeTest(
+      page,
+      {
+        path: 'later.yaml',
+        summary: 'a later test',
+        steps: ['look at the banner'],
+        priority: 'P1' as const,
+        tags: [],
+        routes: [],
+        auth: true,
+      },
+      {
+        brain,
+        sessionDir: '/tmp/none',
+        baseUrl: BASE,
+        mask: (t) => runMask.mask(t),
+        // The authenticated page echoes the credential back.
+        snapshot: async () => '- text "Signed in with auth-token-999"',
+      },
+    );
+
+    expect(prompts.join('\n')).not.toContain('auth-token-999');
+    delete process.env.CONTAINMENT_AUTH_TOKEN;
+  });
+
+  it('masks a percent-encoded secret, which a navigate result produces', () => {
+    // new URL() encodes, so a secret containing a space stopped matching the
+    // literal search and passed through untouched.
+    process.env.CONTAINMENT_SPACED = 'reset token 42';
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.CONTAINMENT_SPACED}}');
+
+    const asReported = new URL('/r?t=reset token 42', BASE).toString();
+    expect(asReported).toContain('reset%20token%2042');
+    expect(mask.mask(asReported)).not.toContain('reset%20token%2042');
+    delete process.env.CONTAINMENT_SPACED;
+  });
+});

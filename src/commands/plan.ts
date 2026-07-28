@@ -23,6 +23,7 @@ import {
   TestFileError,
   type TestFile,
 } from '../runner/testfile.js';
+import { SecretsMask } from '../runner/env.js';
 import { applyUrlOverride, EXIT_FAILED, EXIT_OK, EXIT_USAGE } from './run.js';
 
 export interface PlanOptions {
@@ -172,6 +173,15 @@ export async function planCommand(options: PlanOptions): Promise<number> {
     `blastproof plan: ${work.length} route(s), provider=${provider} model=${modelId}, base_url=${config.base_url}`,
   );
 
+  // Same scope as `run`: the auth credential plus every placeholder in the suite.
+  const mask = new SecretsMask();
+  for (const step of config.auth?.steps ?? []) mask.registerFrom(step);
+  for (const value of Object.values(config.auth?.headers ?? {})) mask.registerFrom(value);
+  for (const cookie of config.auth?.cookies ?? []) mask.registerFrom(cookie.value);
+  for (const test of suite) {
+    for (const step of [...(test.setup ?? []), ...test.steps]) mask.registerFrom(step);
+  }
+
   const generated: string[] = [];
   const written: string[] = [];
   const failed: { route: string; reason: string }[] = [];
@@ -192,6 +202,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           browser: browser as unknown as BrowserLike,
           brain: createBrain(createModel(config.llm).model),
           maxRetries: config.max_retries_per_step,
+          mask,
           onEvent: printAuthEvent,
         });
       } catch (error) {
@@ -215,6 +226,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           baseUrl: config.base_url,
           changedFiles,
           brain,
+          mask: (text) => mask.mask(text),
         });
       } catch (error) {
         // Per-route isolation (design D9): report and keep going.

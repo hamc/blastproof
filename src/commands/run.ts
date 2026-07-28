@@ -82,17 +82,33 @@ export function applyUrlOverride(
 }
 
 /**
+ * Seeds one mask for the whole run (design D1): the auth credential plus every
+ * placeholder any test references. A secret is dangerous for as long as it lives
+ * in the session, not for the duration of the test that happened to declare it.
+ */
+function buildRunMask(config: BlastproofConfig, tests: TestFile[]): SecretsMask {
+  const mask = new SecretsMask();
+  for (const step of config.auth?.steps ?? []) mask.registerFrom(step);
+  for (const value of Object.values(config.auth?.headers ?? {})) mask.registerFrom(value);
+  for (const cookie of config.auth?.cookies ?? []) mask.registerFrom(cookie.value);
+  for (const test of tests) {
+    for (const step of [...(test.setup ?? []), ...test.steps]) mask.registerFrom(step);
+  }
+  return mask;
+}
+
+/**
  * Registers every referenced secret for masking, and leaves the steps untouched:
  * placeholders must survive into the prompt so the value never reaches the model
  * (design D2). `registerFrom` still throws on an unset variable, so the fail-fast
  * before any browser opens is unchanged — only the moment of expansion moved.
  */
-function resolveSecretsAndSteps(test: TestFile): { test: TestFile; mask: SecretsMask } {
-  const mask = new SecretsMask();
+function resolveSecretsAndSteps(test: TestFile): { test: TestFile } {
   for (const step of [...(test.setup ?? []), ...test.steps]) {
-    mask.registerFrom(step);
+    // Validation only: an unset variable must still fail before a browser opens.
+    new SecretsMask().registerFrom(step);
   }
-  return { test, mask };
+  return { test };
 }
 
 function printEvent(event: ExecutorEvent): void {
@@ -151,13 +167,14 @@ async function runOne(
   config: BlastproofConfig,
   sessionDir: string,
   session: AuthSession | undefined,
+  runMask: SecretsMask,
 ): Promise<TestResult> {
   const brain = createBrain(createModel(config.llm).model);
 
   let resolved: TestFile;
-  let mask: SecretsMask;
+  const mask = runMask;
   try {
-    ({ test: resolved, mask } = resolveSecretsAndSteps(test));
+    ({ test: resolved } = resolveSecretsAndSteps(test));
   } catch (error) {
     if (error instanceof MissingEnvError) {
       // Spec: missing env var fails the test before any page is opened.
@@ -271,21 +288,8 @@ async function finalize(
     console.log(`HTML report: ${path.relative(options.cwd, target)}`);
   }
 
-  // Additive, unlike --min-score (design D4): "the tests I ran passed" and
-  // "something changed that nobody has classified" are different claims, and the
-  // second is exactly the silent false negative this flag exists to remove.
-  const unclassified = options.failOnUnmapped ? (impact?.unmappedFiles ?? []) : [];
-  if (unclassified.length > 0) {
-    console.error(
-      `error: ${unclassified.length} changed file(s) match no routes: or ignore: glob, ` +
-        'so their blast radius is unknown:',
-    );
-    for (const file of unclassified) console.error(`  ${file}`);
-    console.error(
-      'Map them in routes: if they can affect a page, or list them in ignore: if they cannot.',
-    );
-    return EXIT_FAILED;
-  }
+
+  if (reportUnclassified(options, impact)) return EXIT_FAILED;
 
   if (options.minScore !== undefined) {
     return score >= options.minScore ? EXIT_OK : EXIT_FAILED;
@@ -294,6 +298,26 @@ async function finalize(
 }
 
 /** Prints the --dry-run selection plan; no browser is launched and no LLM is called. */
+/**
+ * Additive, unlike --min-score (design D4): "the tests I ran passed" and
+ * "something changed that nobody has classified" are different claims. Returns
+ * true when the run is blocked. Shared with --dry-run, which bypassed it — and a
+ * keyless, browserless pre-flight is the worst place for a false green.
+ */
+function reportUnclassified(options: RunOptions, impact: ImpactResult | undefined): boolean {
+  const unclassified = options.failOnUnmapped ? (impact?.unmappedFiles ?? []) : [];
+  if (unclassified.length === 0) return false;
+  console.error(
+    `error: ${unclassified.length} changed file(s) match no routes: or ignore: glob, ` +
+      'so their blast radius is unknown:',
+  );
+  for (const file of unclassified) console.error(`  ${file}`);
+  console.error(
+    'Map them in routes: if they can affect a page, or list them in ignore: if they cannot.',
+  );
+  return true;
+}
+
 function printDryRun(selected: TestFile[], baseUrl: string, cwd: string): void {
   console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${baseUrl}`);
   for (const test of selected) {
@@ -403,7 +427,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       for (const broken of results) console.error(`  ${broken.file}: ${broken.reason ?? 'invalid'}`);
       return EXIT_FAILED;
     }
-    return EXIT_OK;
+    return reportUnclassified(options, impact) ? EXIT_FAILED : EXIT_OK;
   }
 
   const sessionDir = path.join(options.cwd, '.blastproof', 'reports', sessionId());
@@ -433,6 +457,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
     `blastproof run: ${selected.length} test(s), provider=${provider} model=${modelId}, base_url=${config.base_url}`,
   );
 
+  const runMask = buildRunMask(config, parsed);
+
   const browser = await chromium.launch({ headless: config.browser.headless });
   try {
     // Authenticate once, before the first test (design D3). A failed login is a
@@ -450,6 +476,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
           browser: browser as unknown as BrowserLike,
           brain: createBrain(createModel(config.llm).model),
           maxRetries: config.max_retries_per_step,
+          mask: runMask,
           onEvent: printEvent,
         });
       } catch (error) {
@@ -463,7 +490,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
 
     for (const test of selected) {
       console.log(`\n> ${test.summary} [${test.priority}] (${path.relative(options.cwd, test.path)})`);
-      results.push(await runOne(browser, test, config, sessionDir, session));
+      results.push(await runOne(browser, test, config, sessionDir, session, runMask));
     }
   } finally {
     await browser.close();

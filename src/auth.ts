@@ -51,6 +51,12 @@ export interface AuthenticateOptions {
   maxRetries?: number;
   /** Extra origins the login journey may reach (an external identity provider). */
   allowedOrigins?: string[];
+  /**
+   * The run's mask. The credential typed here stays dangerous for the whole run —
+   * an authenticated page can echo it during any later test — so it must be
+   * registered where every prompt can see it, not in a mask discarded at login.
+   */
+  mask: SecretsMask;
   /** Injectable snapshotter, mirroring the executor, so tests need no browser. */
   snapshot?: (page: PageLike) => Promise<string>;
   /**
@@ -98,8 +104,7 @@ async function fromStorageState(file: string): Promise<AuthSession> {
  * Builds a session from static values (design D2). `{{env.*}}` placeholders are
  * substituted here, so a token never has to be written into the config file.
  */
-function fromStatic(auth: AuthConfig): { session: AuthSession; mask: SecretsMask } {
-  const mask = new SecretsMask();
+function fromStatic(auth: AuthConfig, mask: SecretsMask): AuthSession {
   const session: AuthSession = {};
 
   if (auth.headers) {
@@ -119,7 +124,7 @@ function fromStatic(auth: AuthConfig): { session: AuthSession; mask: SecretsMask
     session.storageState = { cookies, origins: [] };
   }
 
-  return { session, mask };
+  return session;
 }
 
 /** Runs the journey, converting any thrown error into an AuthError. */
@@ -141,11 +146,8 @@ async function runJourney(
  * exactly the same plain English as a test.
  */
 async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
-  const { auth, baseUrl, browser, brain, maxRetries, snapshot = defaultSnapshot, onEvent } = options;
+  const { auth, baseUrl, browser, brain, maxRetries, snapshot = defaultSnapshot, onEvent, mask } = options;
   const steps = auth.steps!;
-
-  const mask = new SecretsMask();
-  for (const step of steps) mask.registerFrom(step);
 
   const context = await browser.newContext();
   try {
@@ -234,7 +236,7 @@ export async function authenticate(options: AuthenticateOptions): Promise<AuthSe
   }
 
   if (auth.headers || auth.cookies) {
-    return fromStatic(auth).session;
+    return fromStatic(auth, options.mask);
   }
 
   const session = await fromSteps(options);

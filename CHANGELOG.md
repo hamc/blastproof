@@ -6,6 +6,11 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 ## Unreleased
 
 ### Security
+- **The mask now covers the whole run, and every command.** It was built per test from that test's
+  own steps, so the credential typed at login was invisible to every test that followed — an
+  authenticated page echoing it fed it straight to the model. `plan` had no masking at all, on a path
+  that authenticates and then browses the session. And matching was literal, while `navigate` reports
+  a percent-encoded URL, so a secret containing a space passed through untouched.
 - **Secrets could still reach the model.** `select` and `navigate` embed their resolved value in
   the result string, which was fed back into the next prompt as `lastResult` unmasked — so the
   0.2.0 guarantee held only for `fill`, the one action the regression test happened to cover.
@@ -19,6 +24,8 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   suite that was about to fail. It now reports them and exits 1.
 - The action passed `--write` to `run`, which has no such flag, turning a plausible input
   combination into a hard failure.
+- `run --dry-run --fail-on-unmapped` printed the unclassified files and exited 0 — a false green in
+  the keyless, browserless pre-flight most likely to be trusted in CI.
 
 ### Documentation
 - Removed a stale "known limitation" claiming `plan` cannot reach pages behind a login. It has used

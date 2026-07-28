@@ -60,8 +60,21 @@ export class SecretsMask {
       if (value === undefined) {
         throw new MissingEnvError(name);
       }
-      this.secrets.add(value);
+      this.add(value);
     }
+  }
+
+  /**
+   * Registers a value and the forms it takes on the way to a prompt. `navigate`
+   * reports a resolved URL, and `new URL()` percent-encodes — so a secret with a
+   * space stopped matching a literal search and passed through unmasked.
+   * This cannot cover every transform a page might apply; see the README.
+   */
+  add(value: string): void {
+    if (!value) return;
+    this.secrets.add(value);
+    const encoded = encodeURIComponent(value);
+    if (encoded !== value) this.secrets.add(encoded);
   }
 
   mask(text: string): string {
