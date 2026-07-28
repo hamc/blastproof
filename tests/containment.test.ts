@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ActionError, performAction, type PageLike } from '../src/runner/actions.js';
 import { executeTest } from '../src/runner/executor.js';
-import { substituteEnv } from '../src/runner/env.js';
+import { SecretsMask, substituteEnv } from '../src/runner/env.js';
 import { agentSystemPrompt } from '../src/llm/prompts.js';
 import type { AgentBrain } from '../src/llm/brain.js';
 import type { TestFile } from '../src/runner/testfile.js';
@@ -123,6 +123,58 @@ describe('secret boundary', () => {
     expect(seenByModel.join('\n')).not.toContain('hunter2');
     delete process.env.CONTAINMENT_TEST_PASSWORD;
   });
+
+  it.each(['select', 'navigate', 'fill'] as const)(
+    'keeps the secret out of the prompt for %s',
+    async (kind) => {
+      // The first version of this test covered only `fill` — the one action whose
+      // result string does not embed the resolved value — so it passed while
+      // `select` and `navigate` fed the live secret back to the model through
+      // lastResult. A test that covers only the safe case is worse than none.
+      process.env.CONTAINMENT_LEAK_PROBE = 'sk-supersecret-123';
+      const { page } = fakePage();
+      const prompts: string[] = [];
+      const mask = new SecretsMask();
+      mask.registerFrom('{{env.CONTAINMENT_LEAK_PROBE}}');
+      let calls = 0;
+
+      const brain: AgentBrain = {
+        async nextAction(input) {
+          prompts.push(JSON.stringify(input));
+          calls += 1;
+          if (calls > 1) return { action: 'done' as const, reasoning: 'ok' };
+          return kind === 'navigate'
+            ? { action: 'navigate' as const, value: '/p/{{env.CONTAINMENT_LEAK_PROBE}}', reasoning: 'go' }
+            : {
+                action: kind,
+                target: { role: 'combobox', name: 'Plan' },
+                value: '{{env.CONTAINMENT_LEAK_PROBE}}',
+                reasoning: 'x',
+              };
+        },
+        async judge() {
+          return { pass: true, reason: '' };
+        },
+      };
+
+      await executeTest(
+        page,
+        { ...test, steps: ['use {{env.CONTAINMENT_LEAK_PROBE}}'] },
+        {
+          brain,
+          sessionDir: '/tmp/none',
+          baseUrl: BASE,
+          resolveValue: (v) => substituteEnv(v),
+          mask: (t) => mask.mask(t),
+          // The page itself may render the secret; that is a prompt input too.
+          snapshot: async () => '- combobox "Plan" value="sk-supersecret-123"',
+        },
+      );
+
+      expect(prompts.join('\n')).not.toContain('sk-supersecret-123');
+      delete process.env.CONTAINMENT_LEAK_PROBE;
+    },
+  );
 
   it('leaves a payload without placeholders untouched', async () => {
     const { page, filled } = fakePage();

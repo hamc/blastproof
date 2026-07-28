@@ -185,7 +185,8 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
 
     // Optional post-login check: turns N mysterious test failures into one message (D5).
     if (auth.verify) {
-      const judgment = await brain.judge(auth.verify, await snapshot(page));
+      // The login page is the one most likely to be rendering a credential.
+      const judgment = await brain.judge(auth.verify, mask.mask(await snapshot(page)));
       if (!judgment.pass) {
         throw new AuthError(`Authentication could not be verified: ${mask.mask(judgment.reason)}`);
       }

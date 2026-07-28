@@ -3,6 +3,27 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## Unreleased
+
+### Security
+- **Secrets could still reach the model.** `select` and `navigate` embed their resolved value in
+  the result string, which was fed back into the next prompt as `lastResult` unmasked — so the
+  0.2.0 guarantee held only for `fill`, the one action the regression test happened to cover.
+  Everything crossing into a prompt is now masked at a single choke point, including the page
+  snapshot, which can itself render a credential.
+
+### Fixed
+- `--fail-on-unmapped` silently did nothing without `--impacted`, since nothing is classified
+  without a diff. It is now a usage error.
+- `run --dry-run` reported a clean plan while ignoring test files that failed to parse, blessing a
+  suite that was about to fail. It now reports them and exits 1.
+- The action passed `--write` to `run`, which has no such flag, turning a plausible input
+  combination into a hard failure.
+
+### Documentation
+- Removed a stale "known limitation" claiming `plan` cannot reach pages behind a login. It has used
+  the `auth` recipe since 0.2.0.
+
 ## [0.2.1] — 2026-07-28
 
 ### Fixed

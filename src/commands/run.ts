@@ -322,6 +322,15 @@ export async function runCommand(options: RunOptions): Promise<number> {
   const impacted = options.impacted ?? false;
   const base = options.base ?? 'main';
 
+  // Without --impacted there is no diff, so nothing is ever classified and the
+  // flag would silently pass — the exact false-safe it exists to prevent.
+  if (options.failOnUnmapped && !impacted) {
+    console.error(
+      'error: --fail-on-unmapped classifies the files in a diff, so it requires --impacted.',
+    );
+    return EXIT_USAGE;
+  }
+
   // Impact analysis fails fast (usage error) before any browser launch.
   let impact: ImpactResult | undefined;
   if (impacted) {
@@ -387,6 +396,13 @@ export async function runCommand(options: RunOptions): Promise<number> {
 
   if (options.dryRun) {
     printDryRun(selected, config.base_url, options.cwd);
+    // A dry run is a pre-flight; reporting a clean plan while a file in the suite
+    // cannot be parsed would bless a run that is about to fail and drop the score.
+    if (results.length > 0) {
+      console.error(`\n${results.length} test file(s) could not be parsed:`);
+      for (const broken of results) console.error(`  ${broken.file}: ${broken.reason ?? 'invalid'}`);
+      return EXIT_FAILED;
+    }
     return EXIT_OK;
   }
 

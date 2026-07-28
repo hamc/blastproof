@@ -121,7 +121,7 @@ Drafts are **previews by default** — nothing touches disk until `--write`, and
 
 Exit codes: 0 when every route generated (or nothing needed coverage), 1 when a route failed, 2 on usage/config/diff errors. A route that fails to load never aborts the others.
 
-**Known limitation:** a route behind authentication snapshots as the login wall, so its draft describes logging in rather than the feature. The `auth` config recipe is not applied by the planner yet — generate those routes after an auth session lands, or write them by hand.
+`plan` uses the same `auth:` recipe as `run`, so a route behind a login is drafted from the real page rather than from the login wall.
 
 ### Closing the coverage hole
 

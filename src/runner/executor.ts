@@ -133,11 +133,16 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
 
         let action: AgentAction;
         try {
+          // One choke point for everything crossing into the prompt. Masking each
+          // assignment site was tried and got it wrong: `select` and `navigate`
+          // embed the resolved value in their result string, so a secret reached
+          // the model through `lastResult` while the display channel looked clean.
+          // The page can render a secret too, so the snapshot is masked as well.
           action = await brain.nextAction({
             step,
             isSetup: setup,
-            snapshot: snap,
-            lastResult,
+            snapshot: mask(snap),
+            lastResult: lastResult === undefined ? undefined : mask(lastResult),
             retriesLeft: maxRetries - failedAttempts,
             iterationsLeft: maxIterationsPerStep - iterations,
           });
@@ -164,7 +169,8 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
 
         if (action.action === 'assert') {
           const expectation = action.expectation ?? action.reasoning;
-          const judgment = await brain.judge(expectation, snap);
+          // Same boundary: the judge is a prompt too.
+          const judgment = await brain.judge(mask(expectation), mask(snap));
           const result = judgment.pass
             ? `ok: assertion passed: ${judgment.reason}`
             : `assertion failed: ${judgment.reason}`;

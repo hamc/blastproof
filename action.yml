@@ -45,7 +45,7 @@ inputs:
     required: false
     default: 'false'
   write:
-    description: Persist generated test drafts instead of only previewing them.
+    description: 'Persist generated test drafts instead of only previewing them. Ignored when command is run, which generates nothing.'
     required: false
     default: 'false'
   junit:
@@ -128,7 +128,10 @@ runs:
         esac
         [ -n "${{ inputs.min-score }}" ] && args+=(--min-score "${{ inputs.min-score }}")
         [ "${{ inputs.fail-on-unmapped }}" = "true" ] && args+=(--fail-on-unmapped)
-        [ "${{ inputs.write }}" = "true" ] && args+=(--write)
+        # `write` only exists on test/plan; passing it to `run` is a usage error.
+        case "${{ inputs.command }}" in
+          test|plan) [ "${{ inputs.write }}" = "true" ] && args+=(--write) ;;
+        esac
         [ -n "${{ inputs.html }}" ] && args+=(--html "${{ inputs.html }}")
         args+=(--junit "$junit")
 
