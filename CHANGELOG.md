@@ -3,7 +3,7 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
-## Unreleased
+## [0.2.2] — 2026-07-28
 
 ### Security
 - **The mask now covers the whole run, and every command.** It was built per test from that test's
