@@ -77,6 +77,9 @@ beforeEach(async () => {
   generateForRouteMock.mockReset();
 
   launchMock.mockResolvedValue(fakeBrowser());
+  // Preflight probes the provider and base_url with plain `fetch`; stubbed so
+  // these tests never depend on real network or a running app (spec preflight).
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({}));
   createPlannerMock.mockReturnValue({ planTest: vi.fn() });
   generateForRouteMock.mockImplementation(async (_page: unknown, options: { route: string }) => ({
     ...DRAFT,
@@ -94,6 +97,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   delete process.env.BLASTPROOF_TEST_KEY;
   await rm(dir, { recursive: true, force: true });
 });
@@ -195,6 +199,45 @@ describe('planCommand route selection', () => {
   });
 });
 
+describe('planCommand --dry-run (spec cli-plan-command)', () => {
+  it('reports the affected-but-uncovered routes without a browser or the LLM, and exits 0', async () => {
+    delete process.env.BLASTPROOF_TEST_KEY;
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts', 'src/settings/flags.ts']);
+
+    const code = await planCommand({ cwd: dir, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(launchMock).not.toHaveBeenCalled();
+    expect(generateForRouteMock).not.toHaveBeenCalled();
+    expect(out()).toContain('Dry run: 1 route(s) would generate a draft for');
+    expect(out()).toContain('/settings');
+    expect(out()).toContain('no browser launched, no LLM calls made');
+  });
+
+  it('says so and exits 0 when every affected route is already covered', async () => {
+    delete process.env.BLASTPROOF_TEST_KEY;
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await planCommand({ cwd: dir, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(launchMock).not.toHaveBeenCalled();
+    expect(out()).toContain('Nothing to generate: no affected route is missing coverage.');
+  });
+
+  it('succeeds with no provider key configured', async () => {
+    delete process.env.BLASTPROOF_TEST_KEY;
+    await writeProject();
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart'], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).toBe('');
+  });
+});
+
 describe('planCommand preview vs write', () => {
   it('previews to stdout without touching disk', async () => {
     await writeProject();
@@ -283,5 +326,36 @@ describe('planCommand failure isolation', () => {
     expect(out()).toContain('Failed:');
     expect(out()).toContain('/settings: Cannot load /settings: timeout');
     expect(out()).toContain('Generated: /cart');
+  });
+});
+
+describe('planCommand preflight (spec preflight)', () => {
+  it('reports the browser and the app being down together, in one run, and exits 2', async () => {
+    await writeProject();
+    launchMock.mockRejectedValue(new Error("Executable doesn't exist at /nope/chrome"));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url === 'http://localhost:4173') return Promise.reject(new Error('ECONNREFUSED'));
+        return Promise.resolve({});
+      }),
+    );
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart'] });
+
+    expect(code).toBe(EXIT_USAGE);
+    expect(errOut()).toMatch(/not installed/i);
+    expect(errOut()).toMatch(/localhost:4173.*not responding|not responding.*localhost:4173/is);
+    expect(errOut()).toContain('2 unmet prerequisite(s)');
+    expect(generateForRouteMock).not.toHaveBeenCalled();
+  });
+
+  it('prints nothing extra when every prerequisite is met', async () => {
+    await writeProject();
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart'] });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).toBe('');
   });
 });

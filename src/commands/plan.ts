@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { chromium } from 'playwright';
 import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
 import { DiffError, getChangedFiles } from '../diff.js';
@@ -14,6 +13,7 @@ import {
   writeDraft,
   type TestDraft,
 } from '../planner.js';
+import { printPreflightFailures, runPreflight } from '../preflight.js';
 import type { PageLike } from '../runner/actions.js';
 import { BudgetExhaustedError, RunBudget } from '../runner/budget.js';
 import type { ExecutorEvent } from '../runner/executor.js';
@@ -44,6 +44,13 @@ export interface PlanOptions extends BudgetFlags {
   routes?: string[];
   /** Persist drafts under `.blastproof/tests/` instead of previewing them. */
   write?: boolean;
+  /**
+   * Report the routes drafts would be generated for — and those already
+   * covered — without launching a browser or calling the LLM; exits 0 (spec
+   * cli-plan-command). Makes the coverage-gap answer available without a
+   * provider key, same as `run --impacted --dry-run`.
+   */
+  dryRun?: boolean;
   /**
    * A budget already constructed by a composing caller (`test`), so both phases
    * share one allowance. When absent, resolved here from `flag > env > file`.
@@ -163,6 +170,21 @@ export async function planCommand(options: PlanOptions): Promise<number> {
     for (const route of alreadyCovered) console.log(`  ${route}`);
   }
 
+  // Dry run (spec cli-plan-command): the routes drafts would be generated for,
+  // without a browser or a provider — the same keyless, browserless answer
+  // `run --impacted --dry-run` already gives, for the one command documented
+  // for coverage gaps.
+  if (options.dryRun) {
+    if (work.length === 0) {
+      console.log('Nothing to generate: no affected route is missing coverage.');
+    } else {
+      console.log(`Dry run: ${work.length} route(s) would generate a draft for:`);
+      for (const { route } of work) console.log(`  ${route}`);
+    }
+    console.log('Dry run: no browser launched, no LLM calls made.');
+    return EXIT_OK;
+  }
+
   // Nothing to generate: no browser, no LLM key required.
   if (work.length === 0) {
     console.log('Nothing to generate: no affected route is missing coverage.');
@@ -207,7 +229,15 @@ export async function planCommand(options: PlanOptions): Promise<number> {
   // failure once this is set, so `notAttempted` — not `failed` — is what remains.
   let incomplete: BudgetExhaustedError | undefined;
 
-  const browser = await chromium.launch({ headless: config.browser.headless });
+  // Every unmet prerequisite reported together, before any of them is spent on
+  // (design D2, spec preflight). The browser it launches is reused below rather
+  // than launched a second time (task 2.4).
+  const preflight = await runPreflight({ browser: true, model: true, baseUrl: true }, config);
+  if (!preflight.ok) {
+    printPreflightFailures(preflight.failures);
+    return EXIT_USAGE;
+  }
+  const browser = preflight.browser!;
   try {
     // The planner authenticates too (design D8): without a session it would snapshot
     // the login wall and draft a test for that instead of for the actual feature.

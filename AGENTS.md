@@ -79,6 +79,7 @@ src/
 - The agent may not navigate outside `base_url`'s origin plus any declared `allowed_origins`. Enforced in `actions.ts`, not by prompt wording.
 - Never log secrets; `{{env.*}}` values are masked in reports. A captured auth session is a live credential: git-ignored, never printed, never embedded in a report
 - A run's budget (calls/tokens/deadline, optional `budget:` in config) is a run-wide guarantee enforced at the single choke point every model call passes through — `createBrain`/`createPlanner` in `llm/brain.ts` — the same shape and the same reason as the secrets mask above: a guarantee implemented at a call site instead of over the whole scope is this codebase's recurring defect (it produced the secret leaks, and it produced #15). Exhausting it ends the run as **incomplete**, never as a failed test — see `openspec/changes/archive/run-budget-and-deadline` (once archived) for the reasoning
+- Every error message at the prerequisite boundary (a missing browser, an unreachable model provider, a stopped app, a missing API key) is held to the standard the missing-API-key message already sets: name the variable or component, name the provider or command, and give a copy-pasteable remedy. `MissingApiKeyError` (`llm/provider.ts`) is that standard; `preflight.ts` and `runner/browser.ts` exist because Playwright's raw launch exception was proportionally worse for being the one unhandled path in an otherwise exemplary set — see `openspec/changes/archive/onboarding-preflight` (once archived) for the reasoning
 
 ## Where the work comes from
 
