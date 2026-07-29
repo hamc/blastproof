@@ -3,19 +3,25 @@
 ## Purpose
 
 TBD - created by syncing change m1-yaml-runner. Update purpose after archive.
-
 ## Requirements
-
 ### Requirement: Per-step agentic loop
-The executor SHALL execute each plain-English step via a loop: capture the page accessibility snapshot, ask the LLM for a structured next action, perform the action on the page, and repeat until the LLM signals the step is complete or failed.
+The executor SHALL execute each plain-English step via a loop: capture the page accessibility snapshot, ask the LLM for a structured next action, perform the action on the page, and repeat until the step is complete or failed. A step SHALL be complete when the LLM returns `done` **or** when an `assert` judgment passes; the executor SHALL NOT request a further action once either has occurred.
 
 #### Scenario: Step completes
 - **WHEN** the LLM returns action `done` for a step
 - **THEN** the executor records the step as passed and advances to the next step
 
+#### Scenario: Step completes on a passing assertion
+- **WHEN** an `assert` action's judgment passes
+- **THEN** the executor records the step as passed and advances to the next step, without requesting a further action
+
 #### Scenario: Step fails
 - **WHEN** the LLM returns action `fail` or the retry budget is exhausted
 - **THEN** the executor records the step as failed with the LLM-provided reason, captures a screenshot, and the test is marked failed
+
+#### Scenario: A satisfied step cannot subsequently be failed
+- **WHEN** a step's assertion has passed
+- **THEN** the step is already complete, so no later `fail` can apply to it
 
 ### Requirement: Live element resolution
 The executor SHALL resolve target elements exclusively from the current accessibility snapshot (role/name/text) on every action attempt and SHALL NOT persist selectors between steps or runs.
@@ -31,6 +37,14 @@ The executor SHALL support the actions `navigate`, `click`, `fill`, `press`, `se
 - **WHEN** the LLM action is `assert` with an expectation
 - **THEN** the LLM judges the current snapshot against the expectation and returns pass/fail with a reason, which the executor records
 
+#### Scenario: Assert judgment passes
+- **WHEN** an `assert` judgment returns pass
+- **THEN** the executor records the result and treats the step as complete
+
+#### Scenario: Assert judgment fails
+- **WHEN** an `assert` judgment returns fail
+- **THEN** the executor records the result and retries within the per-step retry budget, failing the step when the budget is exhausted
+
 #### Scenario: Placeholder resolved at action time
 - **WHEN** a fill action carries `{{env.TEST_PASSWORD}}` as its value
 - **THEN** the environment value is substituted immediately before typing
@@ -45,3 +59,4 @@ The executor SHALL run optional `setup` steps before the test steps, start from 
 #### Scenario: Fresh context per test
 - **WHEN** two tests run in sequence
 - **THEN** the second test starts with no cookies, storage, or navigation history from the first
+

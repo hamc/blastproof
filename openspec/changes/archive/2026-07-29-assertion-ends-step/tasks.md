@@ -24,5 +24,5 @@
 
 ## 5. Documentation
 
-- [ ] 5.1 Update `openspec/specs/agentic-execution/spec.md` via archive, not by hand.
+- [x] 5.1 Update `openspec/specs/agentic-execution/spec.md` via archive, not by hand.
 - [x] 5.2 Add a CHANGELOG entry under Unreleased describing the behavioural fix and the measured before/after rate.
