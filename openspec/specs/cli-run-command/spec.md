@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - created by syncing change m1-yaml-runner. Update purpose after archive.
-
 ## Requirements
-
 ### Requirement: Test discovery
 The `run` command SHALL discover all `.yaml`/`.yml` files under `.blastproof/tests/` recursively and execute them sequentially.
 
@@ -32,7 +30,7 @@ The `run` command SHALL print per-step progress and a final summary table with p
 - **THEN** the console shows passed/failed counts and each failed test lists its failing step and reason
 
 ### Requirement: Exit codes
-Without `--min-score`, the `run` command SHALL exit with code 0 when all executed tests pass and 1 when any test fails. With `--min-score <n>`, the threshold decides instead: exit 0 when the score is at least `n`, 1 otherwise. Exit code 2 is reserved for usage/config errors in both modes.
+Without `--min-score`, the `run` command SHALL exit with code 0 when all executed tests pass and 1 when any test fails. With `--min-score <n>`, the threshold decides instead: exit 0 when the score is at least `n`, 1 otherwise. A run stopped by its budget or deadline SHALL exit 1 in both modes, since its result is incomplete rather than passing. Exit code 2 is reserved for usage/config errors in all modes.
 
 #### Scenario: Failing test exits 1
 - **WHEN** at least one executed test fails and no threshold was given
@@ -40,6 +38,10 @@ Without `--min-score`, the `run` command SHALL exit with code 0 when all execute
 
 #### Scenario: Score below threshold exits 1
 - **WHEN** the run is given `--min-score 80` and scores 60
+- **THEN** the process exits with code 1
+
+#### Scenario: Interrupted run exits 1
+- **WHEN** a run is stopped by its budget or deadline, whatever the executed tests scored
 - **THEN** the process exits with code 1
 
 #### Scenario: Missing config exits 2
@@ -79,11 +81,15 @@ The `run` command SHALL support `--url <url>`, overriding the config `base_url` 
 - **THEN** all navigation resolves against the given URL while the config file remains unchanged
 
 ### Requirement: Dry run
-The `run` command SHALL support `--dry-run`, printing the impacted selection (affected routes, unmapped files, selected and skipped tests) without launching a browser or calling the LLM, exiting with code 0.
+The `run` command SHALL support `--dry-run`, printing the impacted selection (affected routes, unmapped files, selected and skipped tests) and the worst-case model-call count for that selection, without launching a browser or calling the LLM, exiting with code 0.
 
 #### Scenario: Dry run output
 - **WHEN** the user runs `blastproof run --impacted --dry-run`
 - **THEN** the console shows affected routes, unmapped files and the tests that would run, and no browser is launched
+
+#### Scenario: Dry run reports the ceiling
+- **WHEN** a dry run reports its selection
+- **THEN** it also reports the maximum number of model calls that selection could make
 
 ### Requirement: Score in the summary
 The `run` command SHALL print the run score in the final summary on every run, whether or not a score threshold was given.
@@ -143,3 +149,15 @@ The `run` command SHALL support `--fail-on-unmapped`, failing the run with exit 
 #### Scenario: Without the flag
 - **WHEN** the diff contains an unclassified file and the flag is not set
 - **THEN** the file is reported and the exit code is unaffected
+
+### Requirement: Budget and deadline flags
+The `run` command SHALL accept `--max-llm-calls <n>`, `--max-tokens <n>` and `--max-duration <seconds>`, each overriding the corresponding config value. A non-positive or non-numeric value SHALL be a usage error.
+
+#### Scenario: Flag overrides config
+- **WHEN** the config sets a maximum of 500 model calls and the run is given `--max-llm-calls 100`
+- **THEN** the run is bounded at 100
+
+#### Scenario: Invalid limit
+- **WHEN** the run is given `--max-llm-calls 0` or a non-numeric value
+- **THEN** the CLI exits with code 2 and an actionable message
+
