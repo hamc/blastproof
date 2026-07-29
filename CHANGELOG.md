@@ -3,7 +3,7 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
-## [Unreleased]
+## [0.3.0] — 2026-07-29
 
 ### Added
 - **A run can now be bounded by a budget and a deadline.** Optional config section `budget:`
