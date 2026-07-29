@@ -15,10 +15,30 @@ git diff → impact mapping → test generation → agentic execution → report
 ## How it works
 
 1. **Reads the diff** — `blastproof test --base main` parses the branch diff and maps it to affected routes.
-2. **Maps the blast radius** — traces changed files to the user journeys and routes most likely affected.
+2. **Maps the blast radius** — matches changed files against the `routes:` map you maintain, to select the journeys worth running. Deterministic and free; see [Closing the coverage hole](#closing-the-coverage-hole) for what that catches and what it does not.
 3. **Writes the missing tests** — drafts plain-English YAML for affected routes nothing covers. Drafts are yours to review; existing tests are never rewritten.
 4. **Executes agentically** — an LLM-driven loop over Playwright resolves elements via the accessibility tree on every step. No static selectors to rot: the agent re-resolves when the UI shifts. Being model-driven it is not deterministic, which is why the free, deterministic impact analysis is what runs on every pull request.
 5. **Reports & scores** — console, JUnit XML and HTML reports, plus a priority-weighted score that fails the run below `--min-score`.
+
+## Does this fit your application?
+
+Read this before installing. The agent drives your app the way a screen reader would, and that has consequences worth knowing in advance rather than discovering on a failing run.
+
+**Your markup has to be accessible. This is a hard requirement, not a nice-to-have.** Every element is found by role, label or visible text, resolved from the page's accessibility tree on each attempt — that is what removes selectors and what lets the agent survive a redesign. The cost is that an interface the accessibility tree cannot describe is one the agent cannot drive at all. Icon-only buttons with no accessible name, custom dropdowns and comboboxes without ARIA roles, and `div`-based controls do not degrade into something slower; they simply cannot be targeted, and there is deliberately no CSS or XPath escape hatch to fall back on. If you are unsure, run your app through any accessibility checker first — the result predicts how well blastproof will do better than anything else.
+
+**Some interactions are not supported yet:**
+
+| Not supported | Consequence |
+|---|---|
+| `iframe` content | Anything inside an embedded frame is invisible to the agent, including the page snapshot. **Hosted payment widgets such as Stripe Elements or PayPal buttons fall in here** — if your checkout embeds one, the checkout journey cannot be driven end to end today |
+| Hover, scroll-to, drag and drop | Menus that open only on hover, and content that loads only once scrolled into view, are out of reach |
+| File upload | No action exists for it |
+| Multiple tabs or windows | The agent works in one page; a flow that opens a popup loses it |
+| Native `alert` / `confirm` dialogs | Not handled |
+
+**Large pages are truncated.** The accessibility snapshot sent to the model is capped at 200 lines. A dense admin table or a long product listing will have its lower content invisible on every step.
+
+**The deterministic half stands on its own.** If none of the above fits, `blastproof run --impacted --dry-run` still works: it reads the diff, reports which routes a change touches, which files are classified by nothing, and which affected routes no test covers. That needs no API key, no browser and no model, costs nothing per pull request, and is useful purely as a coverage-gap report — see [Closing the coverage hole](#closing-the-coverage-hole).
 
 ## Quick start
 
@@ -303,7 +323,9 @@ Output: **`score`** — 0–100, empty when no report was produced, so "no score
 
 **`fetch-depth: 0` is not optional** for `test` and `plan`. The default checkout is shallow and has no merge-base; the action detects this and fails immediately rather than letting it surface as a git error mid-run.
 
-## What the agent can and cannot do
+## Trust boundaries
+
+For what the agent can and cannot *drive*, see [Does this fit your application?](#does-this-fit-your-application). This section is about what it is allowed to *reach*.
 
 The application under test is not trusted input. Its page content reaches the model — that is how the agent knows what is on screen — so a page able to influence its own accessible text can try to influence the agent. Two things constrain that:
 
