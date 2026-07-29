@@ -172,6 +172,55 @@ function formatIssues(error: z.ZodError): string {
     .join('\n');
 }
 
+/** Unwraps `.optional()`, `.default()` and `.superRefine()` (which `authSchema`
+ *  uses) down to the plain object schema underneath, or `undefined` when the
+ *  field isn't an object at all (a string, a record, an array — nothing to
+ *  recurse into). */
+function unwrapToObjectSchema(schema: z.ZodTypeAny): z.ZodObject<z.ZodRawShape> | undefined {
+  let current: z.ZodTypeAny = schema;
+  for (;;) {
+    if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
+      current = current.unwrap();
+    } else if (current instanceof z.ZodDefault) {
+      current = current.removeDefault();
+    } else if (current instanceof z.ZodEffects) {
+      current = current.innerType();
+    } else {
+      break;
+    }
+  }
+  return current instanceof z.ZodObject ? current : undefined;
+}
+
+/**
+ * Finds keys present in `data` that `schema` does not recognise, recursing into
+ * nested sections (`llm`, `browser`, `budget`, `auth` — design task 3.2) so a key
+ * misplaced inside one of them is caught too. `routes:` is a `z.record`, not a
+ * `z.object`, so its keys (route globs, not schema fields) are deliberately never
+ * flagged: `unwrapToObjectSchema` only recurses into an actual object schema.
+ */
+export function findUnknownConfigKeys(
+  data: unknown,
+  schema: z.ZodTypeAny = configSchema,
+  path: string[] = [],
+): string[] {
+  const object = unwrapToObjectSchema(schema);
+  if (!object || data === null || typeof data !== 'object' || Array.isArray(data)) return [];
+
+  const shape = object.shape;
+  const warnings: string[] = [];
+  for (const key of Object.keys(data as Record<string, unknown>)) {
+    const fieldPath = [...path, key];
+    const fieldSchema = shape[key];
+    if (!fieldSchema) {
+      warnings.push(fieldPath.join('.'));
+      continue;
+    }
+    warnings.push(...findUnknownConfigKeys((data as Record<string, unknown>)[key], fieldSchema, fieldPath));
+  }
+  return warnings;
+}
+
 /**
  * Loads and validates `.blastproof/config.yaml` from `cwd`.
  * Throws ConfigError with an actionable message on any problem.
@@ -202,15 +251,27 @@ export async function loadConfig(
 
   const { data: merged, applied } = applyEnvOverrides(data ?? {}, env);
 
+  const source =
+    applied.length > 0
+      ? `${CONFIG_RELATIVE_PATH} (with overrides from ${applied.join(', ')})`
+      : CONFIG_RELATIVE_PATH;
+
   const result = configSchema.safeParse(merged);
   if (!result.success) {
     // The file may be perfectly valid and an override the culprit; saying only
     // "invalid config.yaml" would send the user hunting through a correct file.
-    const source =
-      applied.length > 0
-        ? `${CONFIG_RELATIVE_PATH} (with overrides from ${applied.join(', ')})`
-        : CONFIG_RELATIVE_PATH;
     throw new ConfigError(`Invalid ${source}:\n${formatIssues(result.error)}`);
   }
+
+  // An unknown key is silently discarded by a plain z.object (design D5, spec
+  // preflight): a config written for a newer blastproof must still run on an
+  // older one, so this warns and keeps going rather than failing.
+  for (const key of findUnknownConfigKeys(merged)) {
+    console.warn(
+      `warning: unknown config key '${key}' in ${source} — this version of blastproof does not ` +
+        'recognise it, so it has no effect.',
+    );
+  }
+
   return result.data;
 }

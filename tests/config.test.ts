@@ -1,8 +1,8 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applyEnvOverrides, ConfigError, loadConfig } from '../src/config.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyEnvOverrides, ConfigError, findUnknownConfigKeys, loadConfig } from '../src/config.js';
 
 let dir: string;
 
@@ -302,5 +302,74 @@ describe('budget section (spec run-budget)', () => {
     await expect(
       loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: 'lots' }),
     ).rejects.toThrow(/BLASTPROOF_MAX_LLM_CALLS/);
+  });
+});
+
+describe('unknown configuration keys (design D5, spec preflight)', () => {
+  it('finds nothing wrong with a fully valid config', () => {
+    expect(
+      findUnknownConfigKeys({
+        base_url: 'http://localhost:3000',
+        llm: { provider: 'anthropic' },
+        budget: { max_llm_calls: 5 },
+      }),
+    ).toEqual([]);
+  });
+
+  it('names a top-level key the schema does not recognise', () => {
+    expect(findUnknownConfigKeys({ base_url: 'http://x', retries: 3 })).toEqual(['retries']);
+  });
+
+  it('names a key nested inside a known section (task 3.2)', () => {
+    expect(
+      findUnknownConfigKeys({
+        base_url: 'http://x',
+        budget: { max_llm_calls: 5, max_requests: 10 },
+      }),
+    ).toEqual(['budget.max_requests']);
+  });
+
+  it('flags an entire unknown section by its own name, not by digging inside it', () => {
+    // The trial's exact case: a `budget:` block pasted into a version that
+    // predated the feature. With today's schema `budget` is recognised, so this
+    // exercises the same mechanism against a still-unknown top-level section.
+    expect(findUnknownConfigKeys({ base_url: 'http://x', experimental: { flag: true } })).toEqual([
+      'experimental',
+    ]);
+  });
+
+  it('never flags a route glob as an unknown key — routes: is a record, not a schema section', () => {
+    expect(
+      findUnknownConfigKeys({
+        base_url: 'http://x',
+        routes: { 'src/cart/**': ['/cart'], 'src/auth/**': ['/login'] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('warns and keeps the run going — the section believed to be in effect does nothing (task 3.3)', async () => {
+    const warnings: string[] = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
+
+    await writeConfig('base_url: http://localhost:3000\nbudget:\n  max_llm_calls: 5\n  max_wtf: 1\n');
+    const config = await loadConfig(dir, {});
+
+    expect(config.base_url).toBe('http://localhost:3000');
+    expect(warnings.some((w) => w.includes('budget.max_wtf'))).toBe(true);
+    expect(warnings.some((w) => /no effect/i.test(w))).toBe(true);
+  });
+
+  it('does not warn when the config has no unrecognised key', async () => {
+    const warnings: string[] = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
+
+    await writeConfig('base_url: http://localhost:3000\n');
+    await loadConfig(dir, {});
+
+    expect(warnings).toEqual([]);
   });
 });

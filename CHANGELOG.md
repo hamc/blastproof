@@ -3,6 +3,37 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [Unreleased]
+
+### Added
+- **Preflight: every unmet prerequisite is reported together, before anything is spent on.**
+  `run`, `plan` and `test` now verify — in one pass, not one crash per invocation — that the
+  browser can launch, that the configured model provider is reachable, and that `base_url`
+  responds. Each check is shallow (a connection attempt, never a credential check or a model
+  call), so a false failure never costs more than the raw dump it replaces. Checks are selected
+  by what the command is about to spend: `--dry-run` needs none of them and stays fully keyless
+  and browserless. When the browser check succeeds, the launched instance is reused for the run
+  itself rather than launched twice. Silent when every prerequisite is met.
+- **A failed browser launch now explains itself.** `chromium.launch()` failures at the two launch
+  sites (`run`, `plan`) used to surface Playwright's raw exception — about forty lines, including
+  the full Chrome command line printed twice, with the one line that mattered (a missing shared
+  library) buried behind roughly three hundred characters of `--disable-*` flags. Two causes are
+  now recognised and given a plain remedy: a missing system library (names the library and the
+  `install-deps` command, and notes that installing it needs elevated privileges) and a browser
+  that was never installed (names the `playwright install` command). An unrecognised cause still
+  surfaces the underlying error — never swallowed — but with the browser's command line stripped
+  either way.
+- **`plan --dry-run`.** Reports the routes a draft would be generated for, and those already
+  covered, without launching a browser or calling the LLM — the same keyless, browserless answer
+  `run --impacted --dry-run` already gives, for the one command documented for coverage gaps that
+  previously could not answer without a provider key.
+- **An unknown configuration key now warns instead of vanishing.** `.blastproof/config.yaml` was
+  validated by a plain `z.object`, which discards a key it does not recognise with no error, no
+  warning and no effect — including a whole unrecognised section such as a `budget:` block pasted
+  into a version that predated the feature. Loading the config now names every such key (nested
+  sections included) and warns that it has no effect; the run still proceeds, since a config
+  written for a newer blastproof must still work on an older one.
+
 ## [0.3.0] — 2026-07-29
 
 ### Added

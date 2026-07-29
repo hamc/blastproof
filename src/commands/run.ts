@@ -1,11 +1,11 @@
 import path from 'node:path';
-import { chromium } from 'playwright';
 import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
 import { DiffError, getChangedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
 import { createBrain } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
+import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
 import { computeScore, formatIncompleteLine, formatScoreLine } from '../report/score.js';
@@ -581,7 +581,16 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // its phases share one allowance instead of `run` resolving a fresh one.
   const budget = options.budget ?? new RunBudget(resolveBudgetOptions(config, options));
 
-  const browser = await chromium.launch({ headless: config.browser.headless });
+  // Every unmet prerequisite reported together, before any of them is spent on
+  // (design D2, spec preflight) — not the browser this run, the provider next
+  // run, and the stopped app the one after. The browser it launches (when it
+  // launches) is reused below rather than launched a second time (task 2.4).
+  const preflight = await runPreflight({ browser: true, model: true, baseUrl: true }, config);
+  if (!preflight.ok) {
+    printPreflightFailures(preflight.failures);
+    return EXIT_USAGE;
+  }
+  const browser = preflight.browser!;
   let incomplete: BudgetExhaustedError | undefined;
   try {
     // Authenticate once, before the first test (design D3). A failed login is a

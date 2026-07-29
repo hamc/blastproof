@@ -66,6 +66,9 @@ beforeEach(async () => {
   executeTestMock.mockReset();
 
   launchMock.mockResolvedValue(browserDouble());
+  // Preflight probes the provider and base_url with plain `fetch`; stubbed so
+  // these tests never depend on real network or a running app (spec preflight).
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({}));
   createBrainMock.mockReturnValue({ nextAction: vi.fn(), judge: vi.fn() });
   process.env.BLASTPROOF_BUDGET_TEST_KEY = 'key';
 
@@ -77,6 +80,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   delete process.env.BLASTPROOF_BUDGET_TEST_KEY;
   await rm(dir, { recursive: true, force: true });
 });

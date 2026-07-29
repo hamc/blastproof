@@ -36,6 +36,8 @@ blastproof run
 
 **No sudo?** `--with-deps` installs system libraries as root. Without it, run `npx playwright install chromium` and obtain `libnspr4`, `libnss3`, `libnssutil3` and `libasound2` however you can. Note that a useful half of blastproof needs neither browser nor key — see [Without a browser or a key](#without-a-browser-or-a-key).
 
+Before `run`, `plan` or `test` do anything, they check what they are about to spend — the browser can launch, the model provider is reachable, `base_url` responds — and report every unmet one together, so a stopped app or a missing browser is never a wall you hit one crash at a time. A missing system library names the exact install command and says it needs root; nothing is installed on your behalf. Silent when everything is fine, and skipped entirely by `--dry-run`, which needs none of it.
+
 ## Does this fit your application?
 
 **Your markup must be accessible — a hard requirement.** Elements are found by role, label or visible text from the accessibility tree. That is what removes selectors and survives redesigns; the cost is that an interface the accessibility tree cannot describe cannot be driven at all, and there is deliberately no CSS or XPath fallback. Icon-only buttons without accessible names, `div`-based controls and ARIA-less dropdowns simply cannot be targeted. Run an accessibility checker first — the result predicts how well this will work better than anything else.
@@ -74,7 +76,7 @@ Common flags — `blastproof <command> --help` has the full list:
 
 | flag | |
 | --- | --- |
-| `--dry-run` | Print the selection and exit. No browser, no API key |
+| `--dry-run` | Print the selection (or, for `plan`, the routes it would draft) and exit. No browser, no API key |
 | `--tag` · `--priority` · `--query` | Select a subset of tests |
 | `--url <url>` | Override `base_url` for this run (e.g. a PR preview) |
 | `--min-score <n>` | Gate on a weighted score instead of all-must-pass |
@@ -152,6 +154,7 @@ Half of blastproof is deterministic and free. These need no model, no browser an
 blastproof run --dry-run                              # what would run
 blastproof run --impacted --dry-run                   # + which routes the diff touches
 blastproof run --impacted --fail-on-unmapped --dry-run # + gate on unclassified files
+blastproof plan --base main --dry-run                 # affected routes no test covers, no key needed
 ```
 
 They report affected routes, files nobody has classified, and affected routes no test covers — a coverage-gap report with an exit code, useful even on a repo whose suite is Playwright or Cypress.

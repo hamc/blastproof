@@ -153,6 +153,10 @@ program
   .option('--route <route>', 'generate for this route, bypassing the diff (repeatable)', collect, [])
   .option('--write', 'persist drafts under .blastproof/tests/ instead of previewing them')
   .option(
+    '--dry-run',
+    'print the routes that would generate drafts and exit without launching a browser or calling the LLM',
+  )
+  .option(
     '--max-llm-calls <n>',
     'stop after this many model calls, reported as incomplete (overrides config)',
     parsePositiveInt('--max-llm-calls'),
@@ -173,6 +177,7 @@ program
       url?: string;
       route: string[];
       write?: boolean;
+      dryRun?: boolean;
       maxLlmCalls?: number;
       maxTokens?: number;
       maxDuration?: number;
@@ -184,6 +189,7 @@ program
           url: options.url,
           routes: options.route,
           write: options.write,
+          dryRun: options.dryRun,
           maxLlmCalls: options.maxLlmCalls,
           maxTokens: options.maxTokens,
           maxDuration: options.maxDuration,

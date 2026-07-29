@@ -64,6 +64,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   await rm(dir, { recursive: true, force: true });
 });
 
