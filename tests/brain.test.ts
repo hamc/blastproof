@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LanguageModel } from 'ai';
 import {
   createBrain,
@@ -13,6 +13,7 @@ import {
   plannerSystemPrompt,
   plannerUserPrompt,
 } from '../src/llm/prompts.js';
+import { BudgetExhaustedError, RunBudget } from '../src/runner/budget.js';
 
 const fakeModel = { provider: 'test', modelId: 'test-model' } as unknown as LanguageModel;
 
@@ -65,6 +66,7 @@ describe('createBrain', () => {
     const brain = createBrain(
       fakeModel,
       stubGenerate({ action: 'click', target: { role: 'button', name: 'Save' }, reasoning: 'save form' }, captured),
+      new RunBudget(),
     );
     const action = await brain.nextAction({
       step: 'save the form',
@@ -79,17 +81,111 @@ describe('createBrain', () => {
   });
 
   it('nextAction throws MalformedModelOutputError on schema-invalid output', async () => {
-    const brain = createBrain(fakeModel, stubGenerate({ action: 'explode' }));
+    const brain = createBrain(fakeModel, stubGenerate({ action: 'explode' }), new RunBudget());
     await expect(
       brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }),
     ).rejects.toThrow(MalformedModelOutputError);
   });
 
   it('judge returns the validated judgment', async () => {
-    const brain = createBrain(fakeModel, stubGenerate({ pass: false, reason: 'no discount line' }));
+    const brain = createBrain(
+      fakeModel,
+      stubGenerate({ pass: false, reason: 'no discount line' }),
+      new RunBudget(),
+    );
     const judgment = await brain.judge('discount applied', '- main: cart');
     expect(judgment.pass).toBe(false);
     expect(judgment.reason).toContain('no discount');
+  });
+});
+
+describe('createBrain budget enforcement (design D2)', () => {
+  it('counts a nextAction call against the budget', async () => {
+    const budget = new RunBudget({ maxCalls: 1 });
+    const brain = createBrain(
+      fakeModel,
+      stubGenerate({ action: 'done', reasoning: 'ok' }),
+      budget,
+    );
+    await brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 });
+    expect(budget.callCount).toBe(1);
+    await expect(
+      brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }),
+    ).rejects.toThrow(BudgetExhaustedError);
+  });
+
+  it('counts a judge call against the budget', async () => {
+    const budget = new RunBudget({ maxCalls: 1 });
+    const brain = createBrain(fakeModel, stubGenerate({ pass: true, reason: 'ok' }), budget);
+    await brain.judge('expectation', 'snapshot');
+    expect(budget.callCount).toBe(1);
+  });
+
+  it('records tokens from the AI SDK usage the wrapper previously discarded', async () => {
+    const budget = new RunBudget({ maxTokens: 100 });
+    const generate: GenerateObjectFn = async () => ({
+      object: { action: 'done', reasoning: 'ok' },
+      usage: { totalTokens: 60 },
+    });
+    const brain = createBrain(fakeModel, generate, budget);
+    await brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 });
+    expect(budget.tokenCount).toBe(60);
+    await brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 });
+    expect(budget.tokenCount).toBe(120);
+    // The second call already crossed 100, so the third is never issued.
+    const generateSpy = vi.fn(generate);
+    const brain2 = createBrain(fakeModel, generateSpy, budget);
+    await expect(
+      brain2.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }),
+    ).rejects.toThrow(BudgetExhaustedError);
+    expect(generateSpy).not.toHaveBeenCalled();
+  });
+
+  it('never issues a call that would exceed the budget (spec: not issued and rejected)', async () => {
+    const budget = new RunBudget({ maxCalls: 0 });
+    const generateSpy = vi.fn(stubGenerate({ action: 'done', reasoning: 'ok' }));
+    const brain = createBrain(fakeModel, generateSpy, budget);
+    await expect(
+      brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }),
+    ).rejects.toThrow(BudgetExhaustedError);
+    expect(generateSpy).not.toHaveBeenCalled();
+  });
+
+  it('still records a call whose output later fails schema validation', async () => {
+    const budget = new RunBudget({ maxCalls: 5 });
+    const brain = createBrain(fakeModel, stubGenerate({ action: 'explode' }), budget);
+    await expect(
+      brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }),
+    ).rejects.toThrow(MalformedModelOutputError);
+    expect(budget.callCount).toBe(1);
+  });
+
+  it('does not bind when the budget carries no configured limits (inert by default)', async () => {
+    const brain = createBrain(fakeModel, stubGenerate({ action: 'done', reasoning: 'ok' }), new RunBudget());
+    await expect(
+      brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }),
+    ).resolves.toMatchObject({ action: 'done' });
+  });
+});
+
+describe('createPlanner budget enforcement (design D2)', () => {
+  it('counts a planTest call too — a budget that missed the planner would repeat #15', async () => {
+    const budget = new RunBudget({ maxCalls: 1 });
+    const planner = createPlanner(
+      fakeModel,
+      stubGenerate({
+        summary: 'a test',
+        steps: ['do a thing'],
+        priority: 'P1',
+        tags: [],
+      }),
+      budget,
+    );
+    await planner.planTest({ route: '/x', snapshot: '', changedFiles: [] });
+    expect(budget.callCount).toBe(1);
+    await expect(
+      planner.planTest({ route: '/x', snapshot: '', changedFiles: [] }),
+    ).rejects.toThrow(BudgetExhaustedError);
   });
 });
 
@@ -133,6 +229,7 @@ describe('createPlanner', () => {
         },
         captured,
       ),
+      new RunBudget(),
     );
 
     const draft = await planner.planTest({
@@ -149,7 +246,7 @@ describe('createPlanner', () => {
   });
 
   it('planTest throws MalformedModelOutputError on schema-invalid output', async () => {
-    const planner = createPlanner(fakeModel, stubGenerate({ summary: 'no steps', steps: [] }));
+    const planner = createPlanner(fakeModel, stubGenerate({ summary: 'no steps', steps: [] }), new RunBudget());
     await expect(
       planner.planTest({ route: '/cart', snapshot: '', changedFiles: [] }),
     ).rejects.toThrow(MalformedModelOutputError);

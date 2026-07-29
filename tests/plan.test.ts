@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffError } from '../src/diff.js';
+import { BudgetExhaustedError } from '../src/runner/budget.js';
 
 const { launchMock, getChangedFilesMock, createPlannerMock, generateForRouteMock } = vi.hoisted(
   () => ({
@@ -229,6 +230,41 @@ describe('planCommand preview vs write', () => {
     await expect(readFile(path.join(testsDir(), 'cart.yaml'), 'utf8')).resolves.toContain(
       'apply a discount',
     );
+  });
+});
+
+describe('planCommand budget (spec run-budget: test planning counts against the budget)', () => {
+  it('wires the resolved budget (flag > config) into createPlanner', async () => {
+    await writeProject();
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart'], maxLlmCalls: 1 });
+
+    expect(code).toBe(EXIT_OK);
+    expect(createPlannerMock).toHaveBeenCalled();
+    const budget = createPlannerMock.mock.calls.at(-1)?.[2];
+    expect(budget).toBeDefined();
+    budget.check(); // 0 calls recorded yet: must not throw
+    budget.record(undefined);
+    expect(() => budget.check()).toThrow(/model call budget exhausted/);
+  });
+
+  it('stops generating once the budget is exhausted, without misreporting it as a route failure', async () => {
+    await writeProject();
+    generateForRouteMock.mockImplementation(async (_page: unknown, options: { route: string }) => {
+      if (options.route === '/cart') throw new BudgetExhaustedError('calls', 1, 1);
+      return { ...DRAFT, routes: [options.route] };
+    });
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart', '/settings'] });
+
+    expect(code).toBe(EXIT_FAILED);
+    // /settings was never attempted: the run stopped at /cart, it did not fail it.
+    expect(generateForRouteMock).toHaveBeenCalledTimes(1);
+    expect(out()).toContain('Stopped:');
+    expect(out()).toContain('model call budget exhausted');
+    expect(out()).not.toContain('Failed:');
+    expect(out()).toContain('Not attempted (run out of budget):');
+    expect(out()).toContain('/settings');
   });
 });
 

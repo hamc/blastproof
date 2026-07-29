@@ -5,6 +5,29 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Added
+- **A run can now be bounded by a budget and a deadline.** Optional config section `budget:`
+  (`max_llm_calls`, `max_tokens`, `max_duration_s`) plus matching flags `--max-llm-calls`,
+  `--max-tokens`, `--max-duration`, and `BLASTPROOF_MAX_*` environment overrides (precedence
+  flag > env > file, same as every other setting) — on `run`, `plan`, and `test` alike, since the
+  spec counts "agent action, assert judgment, or test planning" against one budget and `plan` makes
+  model calls too. Enforced at the single choke point every model call already passes through
+  (`createBrain`/`createPlanner`), so it is total by construction — agent actions, assert judgments
+  and the planner are all counted. `test` composes `run` then `plan`; the two phases share one budget
+  instance rather than each resolving its own, so the pipeline stays bounded by the configured
+  maximum instead of up to double it. Exhausting it stops the run and reports it as **incomplete**:
+  unexecuted tests are a new `not-run` state, excluded from the score entirely rather than counted as
+  failures, and the process exits 1 unconditionally, even when the executed tests would satisfy
+  `--min-score`. `run --dry-run` now also prints the worst-case model-call ceiling for the selection,
+  labelled as a maximum, not a forecast: per step this is the iteration cap **plus** the configured
+  `max_retries_per_step` (read from config, not assumed — it has no upper bound), because a malformed
+  model response is retried without spending an iteration, so the two pools are independent and must
+  be added rather than one doubled while the other is ignored; and it includes the login journey's
+  steps when `auth.steps` is configured, since authentication spends model calls through the same loop
+  before any test runs. Absent config and flags, nothing binds and behaviour is unchanged — motivated
+  by measuring #15's flake rate exhausting a provider's credit mid-sequence with no partial accounting
+  and no warning.
+
 ### Fixed
 - A step whose `assert` judgment passed did not end the step: the executor recorded the pass and
   looped for another action, and `fail` was still legal on that extra turn — so the model could, and

@@ -16,7 +16,8 @@ vi.mock('../src/diff.js', async (importOriginal) => {
   return { ...original, getChangedFiles: getChangedFilesMock };
 });
 
-import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, runCommand } from '../src/commands/run.js';
+import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, resolveBudgetOptions, runCommand } from '../src/commands/run.js';
+import { loadConfig } from '../src/config.js';
 
 const CART_TEST = `summary: Cart discount
 priority: P0
@@ -162,6 +163,51 @@ describe('runCommand --dry-run', () => {
     // The routed-but-not-impacted login test is neither selected nor reported.
     expect(out()).not.toContain('Login succeeds');
     expect(out()).toContain('no browser launched, no LLM calls made');
+    // Spec run-budget: the ceiling for the selection, labelled a maximum (design
+    // D5) — CART_TEST has one step; default iteration cap 15 plus default retry
+    // budget 3 (config `max_retries_per_step`, not assumed): 1 * (15 + 3) = 18.
+    expect(out()).toContain('Worst case: up to 18 model call(s)');
+    expect(out()).toContain('a maximum, not a prediction');
+  });
+
+  it('reports zero worst-case calls for an empty selection', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['docs/guide.md']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('Worst case: up to 0 model call(s)');
+  });
+
+  it('includes the login journey in the ceiling when auth.steps is configured (DEF-001 follow-up)', async () => {
+    // `authenticate()` runs auth.steps through the same executeTest loop and
+    // spends model calls (design D8) — a ceiling that omitted it would be
+    // exceedable by the first real run of this same selection.
+    const config = [
+      'base_url: http://localhost:4173',
+      'llm:',
+      '  provider: anthropic',
+      '  api_key_env: BLASTPROOF_TEST_MISSING_KEY',
+      'routes:',
+      '  "src/cart/**": ["/cart"]',
+      'auth:',
+      '  steps:',
+      '    - go to the login page',
+      '    - sign in with test credentials',
+      '',
+    ].join('\n');
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), config);
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'cart.yaml'), CART_TEST);
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    // CART_TEST's 1 step plus auth's 2 steps = 3 * (15 + 3) = 54.
+    expect(out()).toContain('Worst case: up to 54 model call(s)');
+    expect(out()).toContain('including the login journey');
   });
 
   it('without --impacted, prints the tests that would run after filters', async () => {
@@ -382,6 +428,65 @@ describe('config precedence: flag > env > file', () => {
     expect(code).toBe(EXIT_USAGE);
     expect(errOut()).toContain('BLASTPROOF_LLM_PROVIDER');
     expect(launchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)', () => {
+  it('is unbound when nothing is configured — inert by default', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    const config = await loadConfig(dir);
+
+    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [] });
+
+    expect(resolved).toEqual({ maxCalls: undefined, maxTokens: undefined, maxDurationMs: undefined });
+  });
+
+  it('uses the file when nothing else is set', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    await writeFile(
+      path.join(dir, '.blastproof', 'config.yaml'),
+      'base_url: http://localhost:4173\nbudget:\n  max_llm_calls: 500\n  max_duration_s: 60\n',
+    );
+    const config = await loadConfig(dir);
+
+    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [] });
+
+    expect(resolved.maxCalls).toBe(500);
+    expect(resolved.maxDurationMs).toBe(60_000);
+  });
+
+  it('lets the environment beat the file', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    await writeFile(
+      path.join(dir, '.blastproof', 'config.yaml'),
+      'base_url: http://localhost:4173\nbudget:\n  max_llm_calls: 500\n',
+    );
+    const config = await loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: '20' });
+
+    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [] });
+
+    expect(resolved.maxCalls).toBe(20);
+  });
+
+  it('lets the flag beat both the environment and the file', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    await writeFile(
+      path.join(dir, '.blastproof', 'config.yaml'),
+      'base_url: http://localhost:4173\nbudget:\n  max_llm_calls: 500\n',
+    );
+    const config = await loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: '20' });
+
+    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [], maxLlmCalls: 3 });
+
+    expect(resolved.maxCalls).toBe(3);
+  });
+
+  it('converts the seconds flag/config to milliseconds for the budget', () => {
+    const config = { budget: undefined } as unknown as Parameters<typeof resolveBudgetOptions>[0];
+
+    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [], maxDuration: 30 });
+
+    expect(resolved.maxDurationMs).toBe(30_000);
   });
 });
 

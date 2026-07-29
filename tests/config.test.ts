@@ -241,3 +241,66 @@ describe('auth recipe', () => {
     expect(config.auth).toBeUndefined();
   });
 });
+
+describe('budget section (spec run-budget)', () => {
+  it('leaves budget undefined when the section is absent — inert by default', async () => {
+    await writeConfig('base_url: http://localhost:3000\n');
+    const config = await loadConfig(dir, {});
+    expect(config.budget).toBeUndefined();
+  });
+
+  it('accepts all three limits', async () => {
+    await writeConfig(
+      'base_url: http://localhost:3000\nbudget:\n  max_llm_calls: 200\n  max_tokens: 500000\n  max_duration_s: 600\n',
+    );
+    const config = await loadConfig(dir, {});
+    expect(config.budget).toEqual({ max_llm_calls: 200, max_tokens: 500000, max_duration_s: 600 });
+  });
+
+  it('accepts each limit independently', async () => {
+    await writeConfig('base_url: http://localhost:3000\nbudget:\n  max_llm_calls: 50\n');
+    const config = await loadConfig(dir, {});
+    expect(config.budget?.max_llm_calls).toBe(50);
+    expect(config.budget?.max_tokens).toBeUndefined();
+    expect(config.budget?.max_duration_s).toBeUndefined();
+  });
+
+  it('rejects a non-positive limit, naming the field', async () => {
+    await writeConfig('base_url: http://localhost:3000\nbudget:\n  max_llm_calls: 0\n');
+    await expect(loadConfig(dir, {})).rejects.toThrow(/budget\.max_llm_calls/);
+  });
+
+  it('rejects a non-integer call count', async () => {
+    await writeConfig('base_url: http://localhost:3000\nbudget:\n  max_llm_calls: 1.5\n');
+    await expect(loadConfig(dir, {})).rejects.toThrow(/budget\.max_llm_calls/);
+  });
+
+  it('allows a fractional deadline', async () => {
+    await writeConfig('base_url: http://localhost:3000\nbudget:\n  max_duration_s: 90.5\n');
+    const config = await loadConfig(dir, {});
+    expect(config.budget?.max_duration_s).toBe(90.5);
+  });
+
+  it('overrides each field from its BLASTPROOF_MAX_* variable', async () => {
+    await writeConfig('base_url: http://localhost:3000\nbudget:\n  max_llm_calls: 999\n');
+    const config = await loadConfig(dir, {
+      BLASTPROOF_MAX_LLM_CALLS: '10',
+      BLASTPROOF_MAX_TOKENS: '20000',
+      BLASTPROOF_MAX_DURATION_S: '120',
+    });
+    expect(config.budget).toEqual({ max_llm_calls: 10, max_tokens: 20000, max_duration_s: 120 });
+  });
+
+  it('lets the environment win over the file (precedence: env > file)', async () => {
+    await writeConfig('base_url: http://localhost:3000\nbudget:\n  max_llm_calls: 999\n');
+    const config = await loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: '5' });
+    expect(config.budget?.max_llm_calls).toBe(5);
+  });
+
+  it('rejects a non-numeric override, naming the variable', async () => {
+    await writeConfig('base_url: http://localhost:3000\n');
+    await expect(
+      loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: 'lots' }),
+    ).rejects.toThrow(/BLASTPROOF_MAX_LLM_CALLS/);
+  });
+});

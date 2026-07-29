@@ -31,6 +31,19 @@ function failed(summary: string, failedStep: string, reason: string): TestResult
   };
 }
 
+function notRun(summary: string, reason: string): TestResult {
+  return {
+    file: '.blastproof/tests/never.yaml',
+    summary,
+    priority: 'P0',
+    tags: [],
+    status: 'not-run',
+    steps: [],
+    reason,
+    durationMs: 0,
+  };
+}
+
 const SKIPPED: SkippedCase[] = [
   { path: '.blastproof/tests/legacy.yaml', summary: 'Legacy test' },
 ];
@@ -107,6 +120,47 @@ describe('renderJUnit', () => {
     const result = { ...passed('x'), file: '/repo/.blastproof/tests/ok.yaml' };
     const xml = renderJUnit([result], [], { score: 100, durationMs: 1, cwd: '/repo' });
     expect(xml).toContain(`classname="${path.join('.blastproof', 'tests', 'ok.yaml')}"`);
+  });
+});
+
+describe('renderJUnit: incomplete runs (spec run-budget)', () => {
+  it('emits a not-run test as skipped, naming the limit in the message', () => {
+    const xml = renderJUnit(
+      [passed('one'), notRun('two', 'model call budget exhausted: reached the configured maximum of 5 call(s)')],
+      [],
+      { score: 100, durationMs: 10 },
+    );
+    expect(xml).toContain('name="two" time="0.000"');
+    expect(xml).toContain('<skipped message="model call budget exhausted');
+    expect(xml).not.toContain('<failure');
+  });
+
+  it('counts not-run tests in skipped, not in failures', () => {
+    const xml = renderJUnit([passed('one'), notRun('two', 'stopped')], [], {
+      score: 100,
+      durationMs: 10,
+    });
+    expect(xml).toContain('tests="2"');
+    expect(xml).toContain('failures="0"');
+    expect(xml).toContain('skipped="1"');
+  });
+
+  it('adds skipped and unrouted counts together', () => {
+    const xml = renderJUnit([notRun('two', 'stopped')], SKIPPED, { score: 100, durationMs: 10 });
+    expect(xml).toContain('skipped="2"');
+  });
+
+  it('records the run as incomplete, naming the reason, only when it is', () => {
+    const complete = renderJUnit([passed('x')], [], { score: 100, durationMs: 10 });
+    expect(complete).not.toContain('name="incomplete"');
+
+    const incomplete = renderJUnit([passed('x'), notRun('y', 'stopped')], [], {
+      score: 100,
+      durationMs: 10,
+      incomplete: 'model call budget exhausted: reached the configured maximum of 5 call(s)',
+    });
+    expect(incomplete).toContain('<property name="incomplete" value="true"/>');
+    expect(incomplete).toContain('<property name="incomplete_reason" value="model call budget exhausted');
   });
 });
 

@@ -29,6 +29,8 @@ export interface JUnitMeta {
   durationMs: number;
   /** Repo root, so `classname` is repo-relative rather than absolute. */
   cwd?: string;
+  /** The reason the run's budget or deadline stopped it, when it did (spec run-budget). */
+  incomplete?: string;
 }
 
 function seconds(ms: number): string {
@@ -38,7 +40,11 @@ function seconds(ms: number): string {
 /**
  * Renders the run as a JUnit `testsuite` (design D7). Unrouted skipped tests are
  * emitted as `<skipped/>` cases so the coverage gap shows up in CI instead of
- * being absent from the report. Pure — returns the XML, writes nothing.
+ * being absent from the report; tests the run's budget or deadline stopped before
+ * they executed (`not-run`, spec run-budget) are emitted the same way, with the
+ * limit named in the reason rather than the fixed unrouted-skip message. When the
+ * run is incomplete, that is recorded as a run-level property, not folded into any
+ * one testcase. Pure — returns the XML, writes nothing.
  */
 export function renderJUnit(
   results: TestResult[],
@@ -49,15 +55,30 @@ export function renderJUnit(
     meta.cwd ? path.relative(meta.cwd, file) : file;
 
   const failures = results.filter((result) => result.status === 'failed').length;
+  const notRun = results.filter((result) => result.status === 'not-run');
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<testsuite name="blastproof" tests="${results.length + skipped.length}" failures="${failures}" skipped="${skipped.length}" time="${seconds(meta.durationMs)}">`,
+    `<testsuite name="blastproof" tests="${results.length + skipped.length}" failures="${failures}" skipped="${skipped.length + notRun.length}" time="${seconds(meta.durationMs)}">`,
     '  <properties>',
     `    <property name="score" value="${meta.score}"/>`,
+    ...(meta.incomplete !== undefined
+      ? [
+          '    <property name="incomplete" value="true"/>',
+          `    <property name="incomplete_reason" value="${escapeXml(meta.incomplete)}"/>`,
+        ]
+      : []),
     '  </properties>',
   ];
 
   for (const result of results) {
+    if (result.status === 'not-run') {
+      lines.push(
+        `  <testcase classname="${escapeXml(relative(result.file))}" name="${escapeXml(result.summary)}" time="0.000">`,
+        `    <skipped message="${escapeXml(result.reason ?? 'not run: the run stopped before this test executed')}"/>`,
+        '  </testcase>',
+      );
+      continue;
+    }
     const open = `  <testcase classname="${escapeXml(relative(result.file))}" name="${escapeXml(result.summary)}" time="${seconds(result.durationMs)}"`;
     if (result.status === 'passed') {
       lines.push(`${open}/>`);

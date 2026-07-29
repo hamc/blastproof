@@ -42,6 +42,8 @@ export interface HtmlMeta {
   /** Repo root, so paths render relative rather than absolute. */
   cwd?: string;
   generatedAt?: Date;
+  /** The reason the run's budget or deadline stopped it, when it did (spec run-budget). */
+  incomplete?: string;
 }
 
 const STYLES = `
@@ -64,6 +66,8 @@ h1 { font-size:1.35rem; margin:0 0 .25rem; }
 .verdict { font-weight:600; }
 .verdict.pass { color:var(--pass); } .verdict.fail { color:var(--fail); }
 .counts { color:var(--muted); font-size:.9rem; }
+.incomplete { padding:1rem 1.25rem; border:1px solid var(--fail); border-radius:10px;
+  background:color-mix(in srgb, var(--fail) 10%, transparent); margin-bottom:1.5rem; font-weight:600; }
 table { width:100%; border-collapse:collapse; margin-bottom:1.5rem; }
 th, td { text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line);
   font-size:.9rem; vertical-align:top; }
@@ -105,10 +109,13 @@ function renderSteps(steps: StepResult[]): string {
 
 async function renderTest(result: TestResult, cwd?: string): Promise<string> {
   const failed = result.status === 'failed';
+  const notRun = result.status === 'not-run';
+  const tagClass = failed ? 'fail' : notRun ? 'skip' : 'pass';
+  const label = failed ? 'FAIL' : notRun ? 'NOT RUN' : 'PASS';
   const file = cwd ? path.relative(cwd, result.file) : result.file;
   const parts = [
-    `    <details${failed ? ' open' : ''}>`,
-    `      <summary><span class="tag ${failed ? 'fail' : 'pass'}">${failed ? 'FAIL' : 'PASS'}</span> ` +
+    `    <details${failed || notRun ? ' open' : ''}>`,
+    `      <summary><span class="tag ${tagClass}">${label}</span> ` +
       `${escapeHtml(result.summary)} <span class="note">${escapeHtml(result.priority)} · ${escapeHtml(file)}</span></summary>`,
   ];
 
@@ -119,6 +126,10 @@ async function renderTest(result: TestResult, cwd?: string): Promise<string> {
     if (result.reason) {
       parts.push(`      <p class="reason">${escapeHtml(result.reason)}</p>`);
     }
+  }
+
+  if (notRun && result.reason) {
+    parts.push(`      <p class="note">${escapeHtml(result.reason)}</p>`);
   }
 
   parts.push(`      ${renderSteps(result.steps)}`);
@@ -148,10 +159,12 @@ export async function renderHtml(
 ): Promise<string> {
   const passed = results.filter((r) => r.status === 'passed').length;
   const failures = results.filter((r) => r.status === 'failed');
+  const notRun = results.filter((r) => r.status === 'not-run');
   const generatedAt = (meta.generatedAt ?? new Date()).toISOString();
 
-  // Failures first: the reader came for those.
-  const ordered = [...failures, ...results.filter((r) => r.status === 'passed')];
+  // Failures first, then the tests the run never reached: the reader came for
+  // those, and passing tests are the least interesting part of an incomplete run.
+  const ordered = [...failures, ...notRun, ...results.filter((r) => r.status === 'passed')];
   const detail = (await Promise.all(ordered.map((r) => renderTest(r, meta.cwd)))).join('\n');
 
   const verdict =
@@ -161,14 +174,21 @@ export async function renderHtml(
         ? `<span class="verdict pass">min-score ${meta.minScore}: pass</span>`
         : `<span class="verdict fail">min-score ${meta.minScore}: FAIL</span>`;
 
+  const banner =
+    meta.incomplete === undefined
+      ? ''
+      : `  <section class="incomplete">Run stopped: ${escapeHtml(meta.incomplete)}</section>\n\n`;
+
   const rows = results
     .map((r) => {
       const file = meta.cwd ? path.relative(meta.cwd, r.file) : r.file;
+      const tagClass = r.status === 'failed' ? 'fail' : r.status === 'not-run' ? 'skip' : 'pass';
+      const label = r.status === 'failed' ? 'FAIL' : r.status === 'not-run' ? 'NOT RUN' : 'PASS';
+      const time = r.status === 'not-run' ? '—' : seconds(r.durationMs);
       return (
-        `      <tr><td><span class="tag ${r.status === 'failed' ? 'fail' : 'pass'}">` +
-        `${r.status === 'failed' ? 'FAIL' : 'PASS'}</span></td>` +
+        `      <tr><td><span class="tag ${tagClass}">${label}</span></td>` +
         `<td>${escapeHtml(r.priority)}</td><td>${escapeHtml(r.summary)}</td>` +
-        `<td>${escapeHtml(file)}</td><td class="num">${seconds(r.durationMs)}</td></tr>`
+        `<td>${escapeHtml(file)}</td><td class="num">${time}</td></tr>`
       );
     })
     .join('\n');
@@ -197,12 +217,12 @@ export async function renderHtml(
   <h1>blastproof report</h1>
   <p class="sub">${escapeHtml(generatedAt)} · ${seconds(meta.durationMs)}</p>
 
-  <section class="score">
+${banner}  <section class="score">
     <b>${meta.score}</b>
     ${verdict}
     <span class="counts">${passed} passed · ${failures.length} failed${
-      skipped.length > 0 ? ` · ${skipped.length} skipped` : ''
-    }</span>
+      notRun.length > 0 ? ` · ${notRun.length} not run` : ''
+    }${skipped.length > 0 ? ` · ${skipped.length} skipped` : ''}</span>
   </section>
 
   <table>

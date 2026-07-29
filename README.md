@@ -82,6 +82,7 @@ steps:
 | `blastproof run --min-score <n>` | Require a weighted score of at least `n` (0–100). **Replaces** the all-must-pass rule — see below |
 | `blastproof run --junit [path]` | Write a JUnit XML report; without a path it lands in `.blastproof/reports/<session>/junit.xml` |
 | `blastproof run --html [path]` | Write a self-contained HTML report with failure screenshots embedded inline |
+| `--max-llm-calls <n>` \| `--max-tokens <n>` \| `--max-duration <seconds>` | Bound `run`, `plan` or `test` by model calls, tokens or wall-clock time — every command that can call the model accepts these. Overrides `.blastproof/config.yaml`'s `budget:` section — see [Bounding a run](#bounding-a-run-budget-and-deadline) |
 | `blastproof test [--base <ref>]` | The full pipeline: run the tests covering the diff, then draft tests for the gaps |
 
 ### The full pipeline: `blastproof test`
@@ -119,7 +120,7 @@ blastproof plan --route /checkout      # bootstrap a route without a diff
 
 Drafts are **previews by default** — nothing touches disk until `--write`, and `--write` never overwrites an existing file, so a regeneration can't silently replace a test you edited by hand. Each written file carries a header recording its route, base ref and generation date. Review before committing: the steps are model-written and meant to be edited.
 
-Exit codes: 0 when every route generated (or nothing needed coverage), 1 when a route failed, 2 on usage/config/diff errors. A route that fails to load never aborts the others.
+Exit codes: 0 when every route generated (or nothing needed coverage), 1 when a route failed or the budget/deadline stopped generation early, 2 on usage/config/diff errors. A route that fails to load never aborts the others; a budget or deadline stop does — see [Bounding a run](#bounding-a-run-budget-and-deadline).
 
 `plan` uses the same `auth:` recipe as `run`, so a route behind a login is drafted from the real page rather than from the login wall.
 
@@ -172,6 +173,48 @@ blastproof run --impacted --base "$BASE_REF" --min-score 80 --junit junit.xml
 ```
 
 Exit 0 merge-able, 1 blocked, 2 usage/config error. The JUnit report carries the score as a `<property name="score">` so a parser can read it without scraping stdout, and tests skipped for having no `routes:` appear as `<skipped/>` cases — the coverage gap shows up in CI instead of vanishing.
+
+## Bounding a run: budget and deadline
+
+Nothing stops a run by default — a suite runs to completion or the provider refuses. `budget:` puts a ceiling on it, in `.blastproof/config.yaml`. It applies to `run`, `plan` and `test` alike: every model call any of them makes — agent action, assert judgment, or test planning — is counted, because a budget that only covered `run` would leave `plan`'s calls unbounded.
+
+```yaml
+budget:
+  max_llm_calls: 500     # stop after this many model calls
+  max_tokens: 2000000    # stop after this many tokens spent across all calls
+  max_duration_s: 900    # stop after this many seconds of wall-clock time
+```
+
+Each limit is independent and optional; a config with no `budget:` section — or a run with none of `--max-llm-calls` / `--max-tokens` / `--max-duration` — behaves exactly as before. All three are counted in **calls and tokens, not currency**: a price table keyed by model and provider goes stale the day a provider reprices, and a limit that silently stops meaning what it says is worse than no limit, because it is trusted. Calls and tokens are exact, already reported by every provider, and yours to convert to a dollar figure with your own rates if you want one.
+
+`--dry-run` reports the ceiling before you spend anything — the worst case a selection could cost, computed from step counts alone, no provider contacted:
+
+```
+Dry run: 12 test(s) selected, base_url=http://localhost:4173
+Worst case: up to 216 model call(s) for this selection (a maximum, not a prediction).
+```
+
+That number is a ceiling, not a forecast — a real run almost always finishes in a fraction of it, because most steps complete long before either cap runs out. Per step it is the iteration cap **plus** `max_retries_per_step` (read from your config, not assumed): a malformed model response is retried without spending an iteration, and a failing `assert` spends a retry *and* an iteration in the same call — so the two caps are added, not one doubled and the other ignored. If `auth.steps` is configured, the login journey's steps are counted too — it runs once before any test and spends model calls through the same loop, so a ceiling that excluded it could be exceeded by the very first run that logs in.
+
+**Exhausting a budget stops the run — it does not fail a test.** Running out of quota says nothing about the application under test, so recording it as a failure would manufacture a defect that does not exist. Tests the run never reached are reported as **not run**, a third state distinct from passed and failed, and excluded from the score's denominator entirely — counting them as failures would just be a quieter version of the same lie a false pass would have been.
+
+An interrupted run is unmistakably incomplete: the process **exits 1 unconditionally**, even when `--min-score` is given and the tests that did execute would have satisfied it. The tests that finished are whichever ones happened to run first, not a representative sample, so nothing about them is a verdict:
+
+```
+Run incomplete: model call budget exhausted: reached the configured maximum of 500 call(s)
+Score over executed tests: 92 (not a verdict — exit code 1 regardless of --min-score)
+```
+
+Both the JUnit and HTML reports carry the same signal: unexecuted tests appear as `<skipped/>` cases naming the limit, distinct from `<failure>` cases, and the HTML report leads with a banner stating the run was stopped and why.
+
+Like the LLM provider settings, every field overrides from the environment (`BLASTPROOF_MAX_LLM_CALLS`, `BLASTPROOF_MAX_TOKENS`, `BLASTPROOF_MAX_DURATION_S`), and a CLI flag beats both:
+
+```bash
+blastproof run --impacted --max-llm-calls 200 --max-duration 300
+blastproof plan --max-llm-calls 200
+```
+
+`blastproof test` composes `run` then `plan` in one process. It resolves the budget once and hands the same instance to both phases, so the pipeline stays within the configured maximum overall — not up to double it, which is what each phase resolving its own budget would silently allow.
 
 ## blastproof tests itself
 
@@ -339,6 +382,9 @@ You never have to commit a provider choice just to configure a pipeline. These v
 | `BLASTPROOF_LLM_MODEL` | the model name |
 | `BLASTPROOF_LLM_BASE_URL` | the provider endpoint — *not* the app |
 | `BLASTPROOF_LLM_API_KEY_ENV` | the **name** of the variable holding your key |
+| `BLASTPROOF_MAX_LLM_CALLS` | `budget.max_llm_calls` — see [Bounding a run](#bounding-a-run-budget-and-deadline) |
+| `BLASTPROOF_MAX_TOKENS` | `budget.max_tokens` |
+| `BLASTPROOF_MAX_DURATION_S` | `budget.max_duration_s`, in seconds |
 
 Running the committed config against an OpenAI-compatible gateway, without editing a file:
 

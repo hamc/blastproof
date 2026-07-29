@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { AuthConfig } from './config.js';
 import type { AgentBrain } from './llm/brain.js';
 import type { PageLike } from './runner/actions.js';
+import { BudgetExhaustedError } from './runner/budget.js';
 import { SecretsMask, substituteEnv } from './runner/env.js';
 import { defaultSnapshot, executeTest, type ExecutorEvent } from './runner/executor.js';
 
@@ -134,6 +135,10 @@ async function runJourney(
   try {
     return await executeTest(...args);
   } catch (error) {
+    // A budget/deadline stop during login is still a budget stop, not a broken
+    // auth recipe (design D3): the run must end as incomplete, not be reported as
+    // a configuration failure. Let the caller (runCommand) handle it as such.
+    if (error instanceof BudgetExhaustedError) throw error;
     throw new AuthError(
       `Authentication could not run: ${error instanceof Error ? error.message : String(error)}`,
     );

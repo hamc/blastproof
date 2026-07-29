@@ -10,6 +10,7 @@ import {
   type AgentIterationInput,
   type PlannerInput,
 } from './prompts.js';
+import type { RunBudget } from '../runner/budget.js';
 import {
   agentActionSchema,
   assertJudgmentSchema,
@@ -35,7 +36,7 @@ export type GenerateObjectFn = (options: {
   schema: z.ZodTypeAny;
   system?: string;
   prompt?: string;
-}) => Promise<{ object: unknown }>;
+}) => Promise<{ object: unknown; usage?: { totalTokens?: number } }>;
 
 export class MalformedModelOutputError extends Error {
   constructor(message: string) {
@@ -44,13 +45,41 @@ export class MalformedModelOutputError extends Error {
   }
 }
 
+/**
+ * The budget (design D2) wraps this single function, not the callers: every model
+ * call in the product — agent action, assert judgment, planner (below) — is a
+ * `generate` call made here. `check()` before means an over-budget call is never
+ * issued; `record()` after means the AI SDK's `usage` (previously discarded) is
+ * what the budget counts against, so an unconfigured budget costs nothing extra
+ * and a configured one is total by construction, not by every caller remembering.
+ */
+async function countedGenerate(
+  generate: GenerateObjectFn,
+  budget: RunBudget,
+  options: Parameters<GenerateObjectFn>[0],
+): ReturnType<GenerateObjectFn> {
+  budget.check();
+  const result = await generate(options);
+  // Recorded even when the output later fails schema validation: the call was
+  // made and spent tokens regardless of whether the model's answer parses.
+  budget.record(result.usage);
+  return result;
+}
+
 export function createBrain(
   model: LanguageModel,
   generate: GenerateObjectFn = generateObject as unknown as GenerateObjectFn,
+  /**
+   * Required, not optional: `plan`'s planner brain shipped uncounted because this
+   * was optional and positional-third — exactly the shape that let it be skipped
+   * (design D2, spec run-budget). An unbounded run is still expressible; it is
+   * `new RunBudget()` with no limits, not the absence of an argument.
+   */
+  budget: RunBudget,
 ): AgentBrain {
   return {
     async nextAction(input) {
-      const result = await generate({
+      const result = await countedGenerate(generate, budget, {
         model,
         schema: agentActionSchema,
         system: agentSystemPrompt(),
@@ -66,7 +95,7 @@ export function createBrain(
     },
 
     async judge(expectation, snapshot) {
-      const result = await generate({
+      const result = await countedGenerate(generate, budget, {
         model,
         schema: assertJudgmentSchema,
         system: assertSystemPrompt(),
@@ -94,10 +123,12 @@ export interface PlannerBrain {
 export function createPlanner(
   model: LanguageModel,
   generate: GenerateObjectFn = generateObject as unknown as GenerateObjectFn,
+  /** Required for the same reason as {@link createBrain}'s: see its budget param. */
+  budget: RunBudget,
 ): PlannerBrain {
   return {
     async planTest(input) {
-      const result = await generate({
+      const result = await countedGenerate(generate, budget, {
         model,
         schema: generatedTestSchema,
         system: plannerSystemPrompt(),

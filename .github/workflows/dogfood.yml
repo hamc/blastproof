@@ -16,6 +16,14 @@ on:
     # manual dispatch re-arms them.
     - cron: '0 6 * * 1'
   workflow_dispatch:
+    inputs:
+      max_llm_calls:
+        # Left empty the run is unbounded, which is also the scheduled behaviour.
+        # `applyEnvOverrides` skips an empty variable, so passing it through
+        # unconditionally cannot make an unbounded run accidentally bounded.
+        description: 'Optional model-call ceiling for this run (empty = unbounded)'
+        required: false
+        default: ''
 
 concurrency:
   group: dogfood
@@ -35,6 +43,7 @@ jobs:
       BLASTPROOF_LLM_MODEL: anthropic/claude-haiku-4.5
       BLASTPROOF_LLM_BASE_URL: https://openrouter.ai/api/v1
       BLASTPROOF_LLM_API_KEY_ENV: OPENROUTER_API_KEY
+      BLASTPROOF_MAX_LLM_CALLS: ${{ inputs.max_llm_calls }}
 
     steps:
       - uses: actions/checkout@v7
