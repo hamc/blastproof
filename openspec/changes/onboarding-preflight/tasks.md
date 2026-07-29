@@ -37,7 +37,8 @@
 - [x] 6.1 `npm run build`, typecheck and the full vitest suite green.
 - [x] 6.2 Reproduce the original experience by hand: with the system libraries absent, confirm the output is the actionable message rather than the forty-line dump. This is the finding; a green unit test alone does not demonstrate it is fixed.
   - Reproduced on a machine with the system libraries genuinely absent: 4 lines of output, zero Chrome argv, both the browser and the dead `base_url` reported together. Was ~40 lines with the command line printed twice.
-- [ ] 6.3 Dogfood: an ordinary run still passes with score 100 and preflight prints nothing.
+- [x] 6.3 Dogfood: an ordinary run still passes with score 100 and preflight prints nothing.
+  - Verified on `fix/onboarding-preflight`, dogfood run `30495195305`: `5 passed, 0 failed, 5 total`, `Score: 100 — min-score 80: pass`, and zero preflight or unknown-key output. Preflight is silent when every prerequisite is met.
 
 ## 7. Documentation
 
