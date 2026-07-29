@@ -10,8 +10,10 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   looped for another action, and `fail` was still legal on that extra turn — so the model could, and
   measurably did, fail a step it had just proved succeeded. A passing assertion now terminates the
   step immediately, exactly as `done` does; the failing-assertion path (retry within budget, then
-  fail) is unchanged. Measured over twenty dogfood runs against an unchanged tree and app: 15% before
-  the fix (3/20, one hole across five tests) — **after: TBD, pending the twenty-run re-measurement.**
+  fail) is unchanged. Measured over twenty dogfood runs against an unchanged tree and app: **15%
+  before the fix (3/20, one hole across five tests), 0% after (0/20)**. Under the old rate, twenty
+  consecutive clean runs would occur about 3.9% of the time. The fix also removes the redundant turn
+  each step spent after its assertion, so runs make fewer model calls than before.
 
 ## [0.2.2] — 2026-07-28
 

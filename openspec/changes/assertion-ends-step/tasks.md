@@ -17,8 +17,10 @@
 ## 4. Verification
 
 - [x] 4.1 Run `npm run build`, typecheck and the full vitest suite; all 248+ tests green.
-- [ ] 4.2 Re-measure: twenty dogfood runs against an unchanged tree, recording per run the gate conclusion and the `N passed, M failed` line. Serial — the workflow's concurrency group keeps only one queued run, so firing them at once silently cancels most.
-- [ ] 4.3 State the observed rate in the change and in issue #15. A green unit test proves the branch; only the rate proves the gate.
+- [x] 4.2 Re-measure: twenty dogfood runs against an unchanged tree, recording per run the gate conclusion and the `N passed, M failed` line. Serial — the workflow's concurrency group keeps only one queued run, so firing them at once silently cancels most.
+  - Result: **20/20 clean** (score 100, 5 passed 0 failed each) on `fix/assertion-ends-step`. Ten further dispatches failed on exhausted LLM provider credits and are excluded: all ten died at the first step with `requires more credits`, none reached a passing assertion, so none carries a signal about this defect.
+- [x] 4.3 State the observed rate in the change and in issue #15. A green unit test proves the branch; only the rate proves the gate.
+  - **15% before (3/20) → 0% after (0/20).** Under the old rate, twenty consecutive clean runs has probability 0.85^20 ≈ 3.9%.
 
 ## 5. Documentation
 
