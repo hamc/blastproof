@@ -41,12 +41,14 @@
 ## 7. Verification
 
 - [x] 7.1 `npm run build`, typecheck, full vitest suite green.
-- [ ] 7.2 Dogfood with a deliberately tiny budget: the run stops, exits 1, reports incomplete, and names the limit.
-- [ ] 7.3 Dogfood with no budget configured: unchanged behaviour, score 100, exit 0. An inert default that turns out not to be inert is the worst outcome of this change.
+- [x] 7.2 Dogfood with a deliberately tiny budget: the run stops, exits 1, reports incomplete, and names the limit.
+  - Verified on `fix/run-budget-and-deadline`, run `30473778580` with `max_llm_calls=20`: 1 passed, 4 not run, `Run incomplete: model call budget exhausted: reached the configured maximum of 20 call(s)`, `Score over executed tests: 100 (not a verdict — exit code 1 regardless of --min-score)`, exit 1.
+- [x] 7.3 Dogfood with no budget configured: unchanged behaviour, score 100, exit 0. An inert default that turns out not to be inert is the worst outcome of this change.
+  - Verified on the same branch, run `30473914460` with no budget: `Score: 100 — min-score 80: pass`, 5 passed 0 failed, no incomplete or not-run output, exit 0. The default is genuinely inert.
 
 ## 8. Documentation
 
 - [x] 8.1 README: the budget section, what an incomplete run means, and that limits are counted in calls and tokens rather than currency, with the reason.
 - [x] 8.2 `AGENTS.md`: note the budget as a run-wide guarantee enforced at the brain, alongside the mask.
 - [x] 8.3 CHANGELOG entry under Unreleased.
-- [ ] 8.4 Update issue #2 to record that the budget and deadline half is done and that it stays open for worker parallelism.
+- [x] 8.4 Update issue #2 to record that the budget and deadline half is done and that it stays open for worker parallelism.
