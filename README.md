@@ -4,80 +4,47 @@
 [![Dogfood](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml/badge.svg)](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-**Open-source AI testing agent for pull requests.** Diff in, confidence out — no test scripts to write or maintain.
-
-`blastproof` is an open-source AI QA agent for pull requests: it reads your PR diff, maps the blast radius, generates end-to-end tests in plain English, executes them on a real browser with self-healing, and scores the result before merge. 100% local, MIT licensed, bring your own LLM key.
+**Open-source AI testing agent for pull requests.** Write end-to-end tests as plain English. An agent drives a real browser to run them, selects only the ones your diff can affect, and scores the result before merge.
 
 ```
 git diff → impact mapping → test generation → agentic execution → report + score
 ```
 
-## How it works
-
-1. **Reads the diff** — `blastproof test --base main` parses the branch diff and maps it to affected routes.
-2. **Maps the blast radius** — matches changed files against the `routes:` map you maintain, to select the journeys worth running. Deterministic and free; see [Closing the coverage hole](#closing-the-coverage-hole) for what that catches and what it does not.
-3. **Writes the missing tests** — drafts plain-English YAML for affected routes nothing covers. Drafts are yours to review; existing tests are never rewritten.
-4. **Executes agentically** — an LLM-driven loop over Playwright resolves elements via the accessibility tree on every step. No static selectors to rot: the agent re-resolves when the UI shifts. Being model-driven it is not deterministic, which is why the free, deterministic impact analysis is what runs on every pull request.
-5. **Reports & scores** — console, JUnit XML and HTML reports, plus a priority-weighted score that fails the run below `--min-score`.
-
-## Does this fit your application?
-
-Read this before installing. The agent drives your app the way a screen reader would, and that has consequences worth knowing in advance rather than discovering on a failing run.
-
-**Your markup has to be accessible. This is a hard requirement, not a nice-to-have.** Every element is found by role, label or visible text, resolved from the page's accessibility tree on each attempt — that is what removes selectors and what lets the agent survive a redesign. The cost is that an interface the accessibility tree cannot describe is one the agent cannot drive at all. Icon-only buttons with no accessible name, custom dropdowns and comboboxes without ARIA roles, and `div`-based controls do not degrade into something slower; they simply cannot be targeted, and there is deliberately no CSS or XPath escape hatch to fall back on. If you are unsure, run your app through any accessibility checker first — the result predicts how well blastproof will do better than anything else.
-
-**Some interactions are not supported yet:**
-
-| Not supported | Consequence |
-|---|---|
-| `iframe` content | Anything inside an embedded frame is invisible to the agent, including the page snapshot. **Hosted payment widgets such as Stripe Elements or PayPal buttons fall in here** — if your checkout embeds one, the checkout journey cannot be driven end to end today |
-| Hover, scroll-to, drag and drop | Menus that open only on hover, and content that loads only once scrolled into view, are out of reach |
-| File upload | No action exists for it |
-| Multiple tabs or windows | The agent works in one page; a flow that opens a popup loses it |
-| Native `alert` / `confirm` dialogs | Not handled |
-
-**Large pages are truncated.** The accessibility snapshot sent to the model is capped at 200 lines. A dense admin table or a long product listing will have its lower content invisible on every step.
-
-**The deterministic half stands on its own.** If none of the above fits, `blastproof run --impacted --dry-run` still works: it reads the diff, reports which routes a change touches, which files are classified by nothing, and which affected routes no test covers. That needs no API key, no browser and no model, costs nothing per pull request, and is useful purely as a coverage-gap report — see [Closing the coverage hole](#closing-the-coverage-hole).
+100% local. MIT. Bring your own LLM key.
 
 ## Quick start
 
 ```bash
-npm install -g blastproof                    # requires Node.js >= 20.19
-npx playwright install --with-deps chromium  # browser + system libraries — NEEDS SUDO
-
+npm install -g blastproof                  # Node.js >= 20.19
 cd your-project
-blastproof init                              # scaffolds .blastproof/
-# start your app, then point base_url at it in .blastproof/config.yaml
-export ANTHROPIC_API_KEY=...                 # or OPENAI_API_KEY, or a local Ollama model
-blastproof run                               # runs .blastproof/tests/**/*.yaml agentically
+blastproof init                            # scaffolds .blastproof/
 ```
 
-`init` scaffolds one smoke test that works against any app, plus a commented login template you rename and edit once it describes *your* login. Nothing is written that assumes anything about your application.
-
-**No sudo?** `--with-deps` shells out to your package manager as root, so on a locked-down machine that line fails. Install the browser alone with `npx playwright install chromium`, then get the system libraries (`libnspr4`, `libnss3`, `libnssutil3`, `libasound2`) however you can. And note that **half of blastproof needs neither a browser nor an API key** — `run --dry-run`, `--impacted`, `--fail-on-unmapped`, test validation and both report formats all work without either, so it is worth starting there:
+Point `base_url` at your running app in `.blastproof/config.yaml`, then check the setup — this needs **no API key and no browser**:
 
 ```bash
-blastproof run --impacted --fail-on-unmapped --dry-run
+blastproof run --dry-run
 ```
 
-Published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements), so the tarball is verifiably built from this repository.
-
-Try it without your own app — the demo shop lives in this repository, so clone it:
+To actually execute tests you need a browser and a model:
 
 ```bash
-git clone https://github.com/hamc/blastproof && cd blastproof
-npm install && npm run build
-node examples/demo-app/serve.mjs 4173 &   # home, login, cart, checkout, orders
-export ANTHROPIC_API_KEY=...
-node dist/cli.js run
+npx playwright install --with-deps chromium   # NEEDS SUDO — see below
+export ANTHROPIC_API_KEY=...                  # or OPENAI_API_KEY, or local Ollama
+blastproof run
 ```
 
-> **Status:** the pipeline is complete and published. `init`, `run` (including `--impacted`), `plan` and `test`, with authentication, JUnit and HTML reports, a merge gate, and a GitHub Action. Pre-1.0: the command surface may still change.
+**No sudo?** `--with-deps` installs system libraries as root. Without it, run `npx playwright install chromium` and obtain `libnspr4`, `libnss3`, `libnssutil3` and `libasound2` however you can. Note that a useful half of blastproof needs neither browser nor key — see [Without a browser or a key](#without-a-browser-or-a-key).
 
-## Test format
+## Does this fit your application?
 
-Tests live in `.blastproof/tests/` as plain-English YAML — no selectors, no framework lock-in:
+**Your markup must be accessible — a hard requirement.** Elements are found by role, label or visible text from the accessibility tree. That is what removes selectors and survives redesigns; the cost is that an interface the accessibility tree cannot describe cannot be driven at all, and there is deliberately no CSS or XPath fallback. Icon-only buttons without accessible names, `div`-based controls and ARIA-less dropdowns simply cannot be targeted. Run an accessibility checker first — the result predicts how well this will work better than anything else.
+
+**Not supported yet:** `iframe` content (so hosted payment widgets like Stripe Elements are invisible — an embedded checkout cannot be driven end to end), hover, scroll-to, drag and drop, file upload, multiple tabs, native `alert`/`confirm` dialogs. Page snapshots are capped at 200 lines, so very dense pages are truncated.
+
+## Writing tests
+
+Tests live in `.blastproof/tests/` as plain-English YAML — no selectors:
 
 ```yaml
 summary: Checkout with discount
@@ -91,182 +58,36 @@ steps:
   - complete checkout
 ```
 
-`priority` is P0–P2 (default P1); `tags`, `setup` steps and `auth` are optional (`auth: false` runs the test signed out — a login test needs it). `routes` (optional) declares the URLs a test covers: `blastproof run --impacted` runs only tests whose `routes:` intersect the routes affected by your PR diff (mapped from changed files via the `routes:` globs in `.blastproof/config.yaml`). Route strings compare by exact equality (`/cart` ≠ `/cart/` — write them consistently). Tests without `routes:` are skipped and reported under `--impacted`.
+`priority` is P0–P2 (default P1). `tags`, `setup` steps and `auth` are optional — `auth: false` runs the test signed out, which a login test needs. `routes` declares the URLs a test covers, which is what `--impacted` selects on; write route strings consistently, since they compare by exact equality (`/cart` ≠ `/cart/`).
 
-## CLI
+## Commands
 
-| Command | Description |
+```bash
+blastproof init                          # scaffold .blastproof/
+blastproof run                           # run every test
+blastproof run --impacted --base main    # run only what the diff can affect
+blastproof plan --base main              # draft tests for uncovered routes
+blastproof test --base main              # run what covers the diff, then draft the gaps
+```
+
+Common flags — `blastproof <command> --help` has the full list:
+
+| flag | |
 | --- | --- |
-| `blastproof init` | Scaffold `.blastproof/` config and sample tests (idempotent) |
-| `blastproof run [--tag smoke] [--priority P0] [--query checkout]` | Run tests only — exit 0 pass, 1 fail, 2 usage/config error |
-| `blastproof run --impacted [--base <ref>]` | Run only tests impacted by the diff vs the base ref (default `main`). Unrouted tests are skipped and reported; affected-but-uncovered routes are reported without failing the run |
-| `blastproof run --dry-run` | Print the selection plan (affected routes, unmapped files, selected/skipped tests) and exit 0 — no browser launched, no LLM key needed |
-| `blastproof run --url <url>` | Override `base_url` for this run only (e.g. a PR preview environment); the config file is never mutated |
-| `blastproof plan [--base <ref>]` | Generate plain-English tests for affected routes no test covers yet. Prints drafts; nothing is written without `--write` |
-| `blastproof plan --route <route>` | Generate for a route explicitly, skipping the diff (repeatable) — how you bootstrap coverage on an app with no suite yet |
-| `blastproof plan --write` | Persist drafts to `.blastproof/tests/<route-slug>.yaml`. Never overwrites: a colliding filename fails that route |
-| `blastproof run --impacted --fail-on-unmapped` | Fail the run when a changed file matches no `routes:` **and** no `ignore:` glob — a file whose blast radius nobody has stated. Needs no browser and no API key |
-| `blastproof run --min-score <n>` | Require a weighted score of at least `n` (0–100). **Replaces** the all-must-pass rule — see below |
-| `blastproof run --junit [path]` | Write a JUnit XML report; without a path it lands in `.blastproof/reports/<session>/junit.xml` |
-| `blastproof run --html [path]` | Write a self-contained HTML report with failure screenshots embedded inline |
-| `--max-llm-calls <n>` \| `--max-tokens <n>` \| `--max-duration <seconds>` | Bound `run`, `plan` or `test` by model calls, tokens or wall-clock time — every command that can call the model accepts these. Overrides `.blastproof/config.yaml`'s `budget:` section — see [Bounding a run](#bounding-a-run-budget-and-deadline) |
-| `blastproof test [--base <ref>]` | The full pipeline: run the tests covering the diff, then draft tests for the gaps |
+| `--dry-run` | Print the selection and exit. No browser, no API key |
+| `--tag` · `--priority` · `--query` | Select a subset of tests |
+| `--url <url>` | Override `base_url` for this run (e.g. a PR preview) |
+| `--min-score <n>` | Gate on a weighted score instead of all-must-pass |
+| `--fail-on-unmapped` | Fail when a changed file matches no `routes:` or `ignore:` glob |
+| `--junit [path]` · `--html [path]` | Write reports |
+| `--write` | `plan` only — persist drafts instead of previewing |
+| `--max-llm-calls` · `--max-tokens` · `--max-duration` | Bound what a run may spend |
 
-### The full pipeline: `blastproof test`
+Exit codes: **0** pass, **1** the gate failed, **2** usage or config error.
 
-One command for the whole loop — map the blast radius, run what covers it, draft what doesn't exist yet:
+**Generated drafts are never executed and never affect the score.** An unreviewed model-written test in the merge path fails in two directions: a hallucinated expectation blocks a correct PR, and a credulous one waves a broken change through while looking like coverage. `plan` makes the gap visible with a draft to review; it does not make an uncovered route safe.
 
-```bash
-blastproof test --base main --min-score 80 --junit junit.xml --html report.html
-```
-
-It does two things and reports them separately:
-
-1. **Verify** — executes the tests covering the affected routes, scores them, applies the gate
-2. **Draft** — generates tests for affected routes no test covers, and prints them
-
-**Generated drafts are never executed, and never affect the score.** That is deliberate. An unreviewed, model-written test in the merge path fails in two directions: a hallucinated expectation blocks a correct pull request, and a credulous one waves a broken change through while looking like coverage. Either costs more trust than the automation saves.
-
-So read the result honestly: `test` does not make an uncovered route safe. It makes the gap visible, with a draft ready for you to review, and the score keeps describing only what was actually verified. Add `--write` to persist the drafts (never overwriting an existing file) and commit them once you have read them.
-
-Exit codes: 2 usage/config/diff, 1 when the gate fails **or** a draft could not be generated, 0 otherwise.
-
-### Reports
-
-`--junit` is for CI; `--html` is for humans. The HTML report is a single self-contained file — inline CSS, screenshots embedded as data URIs, no scripts — so it opens offline, survives being moved, and uploads as one artifact. It leads with the score and gate verdict, sorts failures above passes, and expands each failure to its failing step, reason and screenshot.
-
-### Generating tests with `plan`
-
-`plan` closes the gap `run --impacted` reports. It takes the affected routes no test covers, loads each one in the browser, and asks the model to write a test from the page's real accessibility tree plus the changed files that made the route impacted — so the generated steps name controls that actually exist:
-
-```bash
-blastproof plan --base main            # preview drafts for uncovered routes
-blastproof plan --base main --write    # persist them, then review and commit
-blastproof plan --route /checkout      # bootstrap a route without a diff
-```
-
-Drafts are **previews by default** — nothing touches disk until `--write`, and `--write` never overwrites an existing file, so a regeneration can't silently replace a test you edited by hand. Each written file carries a header recording its route, base ref and generation date. Review before committing: the steps are model-written and meant to be edited.
-
-Exit codes: 0 when every route generated (or nothing needed coverage), 1 when a route failed or the budget/deadline stopped generation early, 2 on usage/config/diff errors. A route that fails to load never aborts the others; a budget or deadline stop does — see [Bounding a run](#bounding-a-run-budget-and-deadline).
-
-`plan` uses the same `auth:` recipe as `run`, so a route behind a login is drafted from the real page rather than from the login wall.
-
-### Closing the coverage hole
-
-Impact mapping has a failure mode worth understanding. A changed file that matches no `routes:` glob contributes no affected routes — so a diff touching only a shared module selects nothing, scores 100 because nothing executed, and merges green. The information is printed, but nobody reads a passing run.
-
-Each changed file is classified three ways:
-
-| a changed file | means |
-| --- | --- |
-| matches a `routes:` glob | contributes its routes |
-| matches an `ignore:` glob | knowingly irrelevant to any page |
-| matches neither | **nobody has said what this affects** |
-
-```yaml
-routes:
-  "src/cart/**": ["/cart", "/checkout"]
-ignore:
-  - "**/*.md"
-  - ".github/**"
-```
-
-```bash
-blastproof run --impacted --fail-on-unmapped
-```
-
-**Nothing is ignored by default** — the list above is one you write, not one that ships. A file nobody has classified is exactly the risk this flag exists to surface, so the choice of what cannot affect a page is yours to state rather than ours to guess.
-
-The flag fails the run on the third case only, naming the files and both ways to resolve them. `ignore:` is what makes that signal survivable — without it the flag would fire on every README edit and get switched off within a day, and a disabled gate protects nothing.
-
-Nothing is ignored by default, on purpose: a file nobody has classified is exactly the risk the flag exists to surface, and a default that guesses on your behalf would hide the first files worth thinking about. This flag is **additive** — a run can meet its `--min-score` and still be blocked here, because "the tests I ran passed" and "something changed that nobody has classified" are different claims.
-
-Be clear on its limit: it catches files that are *unclassified*, not files that are *misclassified*. A shared module mapped to one route when it can break five will still slip through. Mapping by import graph is the answer to that, and blastproof does not do it yet.
-
-### Score and merge gating
-
-Every run ends with a score: the percentage of executed test **weight** that passed, where a test weighs 3 at P0, 2 at P1 and 1 at P2. Weighting is the point — a failing checkout costs three times a failing tooltip, so a pile of trivial passes can't hide a broken critical journey.
-
-```bash
-blastproof run                      # any failure exits 1 (strict, the default)
-blastproof run --min-score 80       # passes at 80+, so one failing P2 is tolerated
-blastproof run --min-score 100      # identical to the default strict behaviour
-```
-
-`--min-score` **replaces** the all-must-pass rule rather than adding to it. Without it, any failure exits 1. With it, the score alone decides — which is what lets you say "a P2 may break, a P0 may not" in one number. Only executed tests count: tests removed by `--tag`/`--priority`/`--query`, and tests skipped as unrouted under `--impacted`, are neither numerator nor denominator. A run that executed nothing scores 100 (the output says so explicitly), so a docs-only PR is never blocked.
-
-For CI:
-
-```bash
-blastproof run --impacted --base "$BASE_REF" --min-score 80 --junit junit.xml
-```
-
-Exit 0 merge-able, 1 blocked, 2 usage/config error. The JUnit report carries the score as a `<property name="score">` so a parser can read it without scraping stdout, and tests skipped for having no `routes:` appear as `<skipped/>` cases — the coverage gap shows up in CI instead of vanishing.
-
-## Bounding a run: budget and deadline
-
-Nothing stops a run by default — a suite runs to completion or the provider refuses. `budget:` puts a ceiling on it, in `.blastproof/config.yaml`. It applies to `run`, `plan` and `test` alike: every model call any of them makes — agent action, assert judgment, or test planning — is counted, because a budget that only covered `run` would leave `plan`'s calls unbounded.
-
-```yaml
-budget:
-  max_llm_calls: 500     # stop after this many model calls
-  max_tokens: 2000000    # stop after this many tokens spent across all calls
-  max_duration_s: 900    # stop after this many seconds of wall-clock time
-```
-
-Each limit is independent and optional; a config with no `budget:` section — or a run with none of `--max-llm-calls` / `--max-tokens` / `--max-duration` — behaves exactly as before. All three are counted in **calls and tokens, not currency**: a price table keyed by model and provider goes stale the day a provider reprices, and a limit that silently stops meaning what it says is worse than no limit, because it is trusted. Calls and tokens are exact, already reported by every provider, and yours to convert to a dollar figure with your own rates if you want one.
-
-`--dry-run` reports the ceiling before you spend anything — the worst case a selection could cost, computed from step counts alone, no provider contacted:
-
-```
-Dry run: 12 test(s) selected, base_url=http://localhost:4173
-Worst case: up to 216 model call(s) for this selection (a maximum, not a prediction).
-```
-
-That number is a ceiling, not a forecast — a real run almost always finishes in a fraction of it, because most steps complete long before either cap runs out. Per step it is the iteration cap **plus** `max_retries_per_step` (read from your config, not assumed): a malformed model response is retried without spending an iteration, and a failing `assert` spends a retry *and* an iteration in the same call — so the two caps are added, not one doubled and the other ignored. If `auth.steps` is configured, the login journey's steps are counted too — it runs once before any test and spends model calls through the same loop, so a ceiling that excluded it could be exceeded by the very first run that logs in.
-
-**Exhausting a budget stops the run — it does not fail a test.** Running out of quota says nothing about the application under test, so recording it as a failure would manufacture a defect that does not exist. Tests the run never reached are reported as **not run**, a third state distinct from passed and failed, and excluded from the score's denominator entirely — counting them as failures would just be a quieter version of the same lie a false pass would have been.
-
-An interrupted run is unmistakably incomplete: the process **exits 1 unconditionally**, even when `--min-score` is given and the tests that did execute would have satisfied it. The tests that finished are whichever ones happened to run first, not a representative sample, so nothing about them is a verdict:
-
-```
-Run incomplete: model call budget exhausted: reached the configured maximum of 500 call(s)
-Score over executed tests: 92 (not a verdict — exit code 1 regardless of --min-score)
-```
-
-Both the JUnit and HTML reports carry the same signal: unexecuted tests appear as `<skipped/>` cases naming the limit, distinct from `<failure>` cases, and the HTML report leads with a banner stating the run was stopped and why.
-
-Like the LLM provider settings, every field overrides from the environment (`BLASTPROOF_MAX_LLM_CALLS`, `BLASTPROOF_MAX_TOKENS`, `BLASTPROOF_MAX_DURATION_S`), and a CLI flag beats both:
-
-```bash
-blastproof run --impacted --max-llm-calls 200 --max-duration 300
-blastproof plan --max-llm-calls 200
-```
-
-`blastproof test` composes `run` then `plan` in one process. It resolves the budget once and hands the same instance to both phases, so the pipeline stays within the configured maximum overall — not up to double it, which is what each phase resolving its own budget would silently allow.
-
-## blastproof tests itself
-
-The **Dogfood** badge above is blastproof running against the demo app in this repo: real Chromium, real LLM, plain-English tests, scored and gated. The run logs are public — the agent's reasoning, step by step, is there to read.
-
-It catches real regressions rather than diffing strings. Changing the demo app's discount from 20% to 5%, while leaving the on-screen message still claiming *"Promo code SAVE20 applied: 20% off"*, produces:
-
-```
-FAIL  P0  Promo code SAVE20 applies a 20% discount in the cart
-  failing step: verify a 20% discount of $24.00 is shown
-  reason: the discount is currently -$6.00, but a 20% discount on
-          $120.00 should be -$24.00
-Score: 50 — min-score 80: FAIL (below threshold)
-```
-
-No selector was updated and no assertion was rewritten to catch that. The agent read the rendered value, did the arithmetic, and disagreed with the page.
-
-Two workflows, split by what they cost:
-
-- **Impact** — runs on every pull request, including forks. Deterministic and keyless: it reports the blast radius of the diff and which tests cover it, before anyone spends a token.
-- **Dogfood** — runs daily and on demand. The agentic run needs an API key, so it stays out of the merge path: a non-deterministic model answer should never block a merge.
-
-## GitHub Action
+## In CI
 
 ```yaml
 name: blastproof
@@ -278,89 +99,86 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # required: the diff needs a merge-base
+          fetch-depth: 0          # required — the diff needs a merge-base
 
       - run: npm start &          # however your app boots
 
-      - uses: hamc/blastproof@v0.2.2
+      - uses: hamc/blastproof@v0.3.0
         with:
-          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          base: ${{ github.event.pull_request.base.ref }}
-          min-score: '80'
-          fail-on-unmapped: 'true'   # a change nobody classified must not pass silently
-```
-
-Exit non-zero blocks the merge. Use the score in a later step:
-
-```yaml
-      - id: bp
-        uses: hamc/blastproof@v0.2.2
-        with:
-          version: '0.2.2'          # pin both when the result gates merges
+          version: '0.3.0'        # pin both when this gates merges
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
           min-score: '80'
           fail-on-unmapped: 'true'
-          html: report.html
-
-      - if: always()
-        run: echo "scored ${{ steps.bp.outputs.score }}"
-
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with: { name: blastproof-report, path: report.html }
 ```
 
-| input | |
-| --- | --- |
-| `api-key` | Your provider key, from a secret. Not needed for ollama |
-| `provider` · `model` · `llm-base-url` | Override the committed config without editing it |
-| `command` | `test` (default), `run` or `plan` |
-| `base` | Base ref for the diff |
-| `url` | Base URL of the app under test |
-| `min-score` | Weighted score threshold — replaces the all-must-pass rule |
-| `fail-on-unmapped` | Fail on a changed file matching no `routes:` or `ignore:` glob |
-| `write` | Persist generated drafts instead of previewing |
-| `junit` · `html` | Where to write the reports |
-| `version` | Which blastproof release to install (default `latest`) |
-| `install-browser` | Set `false` if the workflow already installed Chromium |
-| `working-directory` | Directory containing `.blastproof/` |
+A non-zero exit blocks the merge. The action outputs `score` (0–100, empty when no report was produced) for later steps. Full input list: [`action.yml`](./action.yml).
 
-Output: **`score`** — 0–100, empty when no report was produced, so "no score" stays distinguishable from "scored zero".
+`fetch-depth: 0` is not optional — the default checkout is shallow and has no merge-base. The action detects this and fails immediately rather than letting it surface as a git error mid-run.
 
-**Pin both the tag and `version` when the result gates merges.** `latest` is convenient for trying it out, but a pipeline that blocks merges should not change behaviour without you changing something.
+## Impact mapping
 
-**`fetch-depth: 0` is not optional** for `test` and `plan`. The default checkout is shallow and has no merge-base; the action detects this and fails immediately rather than letting it surface as a git error mid-run.
-
-## Trust boundaries
-
-For what the agent can and cannot *drive*, see [Does this fit your application?](#does-this-fit-your-application). This section is about what it is allowed to *reach*.
-
-The application under test is not trusted input. Its page content reaches the model — that is how the agent knows what is on screen — so a page able to influence its own accessible text can try to influence the agent. Two things constrain that:
-
-**The agent cannot leave your application.** `navigate` is bounded by `base_url`'s origin. An app that legitimately spans hosts declares them:
+`--impacted` runs only the tests whose `routes:` intersect the routes your diff can affect, mapped from changed files by globs you maintain in `.blastproof/config.yaml`:
 
 ```yaml
-allowed_origins:
-  - https://auth.example.com
+routes:
+  "src/cart/**": ["/cart", "/checkout"]
+ignore:
+  - "**/*.md"
 ```
 
-This is enforced by comparison, not by asking the model nicely, so it holds regardless of what the page says.
+Every changed file lands in one of three buckets: it matches `routes:` and contributes them, matches `ignore:` and is knowingly irrelevant, or **matches neither — nobody has said what it affects**. `--fail-on-unmapped` blocks on that third case, naming the files and both ways to resolve them.
 
-**Your secrets stay out of the model's prompts.** `{{env.*}}` placeholders stay intact all the way through the prompt and are substituted at the moment of typing. Every value any test or the auth recipe references is also redacted from anything else crossing into a prompt — page snapshots included, since your app may render the credential itself — in both literal and percent-encoded form. This matters because blastproof encourages pointing `llm.base_url` at a gateway you do not run.
+**Nothing is ignored by default**, on purpose: a default that guesses on your behalf would hide the first files worth thinking about. The flag is additive — a run can meet `--min-score` and still be blocked here, because "the tests I ran passed" and "something changed that nobody classified" are different claims.
 
-Redaction matches known values, so it cannot anticipate every way a page might transform one before rendering it. Treat it as a strong default, not a guarantee against a hostile application.
+Its limit is worth knowing: it catches files that are *unclassified*, not *misclassified*. A shared module mapped to one route when it can break five still slips through. Impact by import graph is the fix, and blastproof does not do it yet.
 
-The system prompt also tells the model that page content is data under test and never an instruction to obey. That raises the cost of a casual injection and is **not** a security boundary — a determined one will get past prompt wording. The origin constraint is the boundary; treat the rest as hygiene, and do not point blastproof at an application you would not run locally.
+## Score and merge gating
+
+Each run scores the percentage of executed test **weight** that passed, weighing 3 at P0, 2 at P1, 1 at P2 — so a failing checkout costs three times a failing tooltip.
+
+```bash
+blastproof run                   # any failure exits 1 (strict, the default)
+blastproof run --min-score 80    # one failing P2 is tolerated
+```
+
+`--min-score` **replaces** the all-must-pass rule rather than adding to it. Only executed tests count: filtered and unrouted tests are neither numerator nor denominator, and a run that executed nothing scores 100, so a docs-only PR is never blocked. JUnit carries the score as a `<property name="score">`, and unrouted tests appear as `<skipped/>` so the coverage gap shows up in CI rather than vanishing.
+
+## Without a browser or a key
+
+Half of blastproof is deterministic and free. These need no model, no browser and no network:
+
+```bash
+blastproof run --dry-run                              # what would run
+blastproof run --impacted --dry-run                   # + which routes the diff touches
+blastproof run --impacted --fail-on-unmapped --dry-run # + gate on unclassified files
+```
+
+They report affected routes, files nobody has classified, and affected routes no test covers — a coverage-gap report with an exit code, useful even on a repo whose suite is Playwright or Cypress.
+
+## Bounding a run
+
+Nothing stops a run by default. `budget:` puts a ceiling on `run`, `plan` and `test` alike — every model call any of them makes is counted:
+
+```yaml
+budget:
+  max_llm_calls: 500
+  max_tokens: 2000000
+  max_duration_s: 900
+```
+
+Each limit is optional; with none set, nothing binds. They count **calls and tokens, not currency** — a price table keyed by model and provider goes stale the day a provider reprices, and a limit that quietly stops meaning what it says is worse than none, because it is trusted.
+
+Exhausting a budget **stops the run; it does not fail a test.** Running out of quota says nothing about the code under review. Unreached tests are reported as `not run`, a third state excluded from the score entirely, and the process exits 1 unconditionally — `--min-score` cannot rescue it, because the tests that finished are whichever ran first, not a representative sample.
+
+`--dry-run` reports the ceiling before you spend anything.
 
 ## Testing behind a login
 
-Most of a product lives behind authentication. Declare a recipe once and blastproof signs in a single time per run, then reuses that session for every test **and** for `plan` — so generated drafts describe the actual feature instead of the login wall.
-
-Pick exactly one strategy:
+Declare a recipe once; blastproof signs in one time per run and reuses that session for every test and for `plan`. Pick exactly one strategy:
 
 ```yaml
-# 1) A plain-English login journey — form login, or anything a person can click through
+# 1) A plain-English journey — form login, or anything a person can click through
 auth:
   steps:
     - navigate to /login
@@ -379,32 +197,13 @@ auth:
     Authorization: "Bearer {{env.API_TOKEN}}"
 ```
 
-A test that exercises the login itself must start signed out:
+**`verify` is worth the extra call.** Without it a wrong password surfaces as every test failing on a login wall — N failures, none naming the cause. Authentication failure exits 2 and never reports as failing tests, because a login you cannot complete says nothing about the code under review.
 
-```yaml
-summary: Login with valid credentials succeeds
-auth: false
-```
-
-**`verify` is worth the one extra call.** Without it, a wrong password surfaces as every test failing on a login wall — N failures, none naming the cause. With it, the run stops before the first test and says what happened. Authentication failure exits 2 and never reports as failing tests: a login you cannot complete says nothing about the code under review, so it must not produce a score.
-
-Each test still gets its own browser context; it simply starts from the shared session rather than empty, so isolation is unchanged. Set `auth.cache: true` to reuse a session across runs — off by default, because an expired session produces failures at random points with nothing pointing at the cause.
-
-**A captured session is a credential.** The file holds live cookies: whoever has it is signed in as that user. `init` git-ignores it; never commit one.
-
-> **Note on self-healing:** the executor recovers from failed steps by re-reading the page, which means it can complete a login using credentials the page itself displays — some apps show demo credentials on the sign-in form. That is the self-healing loop working as designed, but it does mean a deliberately-wrong password is not a reliable way to test your auth failure path.
+**A captured session is a credential** — the file holds live cookies. `init` git-ignores it; never commit one.
 
 ## LLM providers (BYOK)
 
-Bring your own key — runs 100% locally:
-
-- **Anthropic** (`ANTHROPIC_API_KEY`)
-- **OpenAI** (`OPENAI_API_KEY`)
-- **Ollama** (local, no key needed)
-
-### Configuring from the environment
-
-You never have to commit a provider choice just to configure a pipeline. These variables override `.blastproof/config.yaml`, and precedence is **CLI flag > environment > file**:
+**Anthropic** (`ANTHROPIC_API_KEY`), **OpenAI** (`OPENAI_API_KEY`), or **Ollama** (local, no key). Any setting can be overridden from the environment, with precedence **CLI flag > environment > file**:
 
 | variable | overrides |
 | --- | --- |
@@ -413,11 +212,9 @@ You never have to commit a provider choice just to configure a pipeline. These v
 | `BLASTPROOF_LLM_MODEL` | the model name |
 | `BLASTPROOF_LLM_BASE_URL` | the provider endpoint — *not* the app |
 | `BLASTPROOF_LLM_API_KEY_ENV` | the **name** of the variable holding your key |
-| `BLASTPROOF_MAX_LLM_CALLS` | `budget.max_llm_calls` — see [Bounding a run](#bounding-a-run-budget-and-deadline) |
-| `BLASTPROOF_MAX_TOKENS` | `budget.max_tokens` |
-| `BLASTPROOF_MAX_DURATION_S` | `budget.max_duration_s`, in seconds |
+| `BLASTPROOF_MAX_LLM_CALLS` · `BLASTPROOF_MAX_TOKENS` · `BLASTPROOF_MAX_DURATION_S` | the budget fields |
 
-Running the committed config against an OpenAI-compatible gateway, without editing a file:
+So an OpenAI-compatible gateway needs no file edit:
 
 ```bash
 export BLASTPROOF_LLM_PROVIDER=openai
@@ -427,33 +224,46 @@ export BLASTPROOF_LLM_API_KEY_ENV=OPENROUTER_API_KEY
 blastproof run --impacted --min-score 80
 ```
 
-Note the last one names *which variable* holds your key — the key itself is never read from a `BLASTPROOF_*` variable, so error messages can keep naming the variable you chose. An empty value counts as unset, so `FOO=` in a CI matrix will not blank a configured setting.
+The key itself is never read from a `BLASTPROOF_*` variable — you name *which* variable holds it, so errors can keep naming the one you chose.
 
-## Roadmap
+## Trust boundaries
 
-- [x] Repository & spec-driven development setup
-- [x] **M1** — `init` + `run`: YAML test runner with agentic LLM executor
-- [x] **M2** — diff analysis, impact mapping (`run --impacted`) and test generation (`plan`)
-- [x] **M3** — Reports (JUnit + HTML), priority-weighted score, `--min-score` gate, `blastproof test`
-- [x] **M4** — [published to npm](https://www.npmjs.com/package/blastproof) and a consumable GitHub Action
-- [ ] Next — impact by import graph, so a shared module's blast radius stops depending on hand-curated globs
-- [ ] Post-MVP — VS Code extension, session replay, worker parallelism, PR comments
+The application under test is not trusted input: its page content reaches the model, so a page that controls its own accessible text can try to influence the agent. Two things constrain that.
+
+**The agent cannot leave your application.** `navigate` is bounded by `base_url`'s origin; an app spanning hosts declares them in `allowed_origins:`. This is enforced by comparison, not by asking the model nicely.
+
+**Your secrets stay out of prompts.** `{{env.*}}` placeholders survive intact and are substituted at the moment of typing. Every value your tests or auth recipe reference is redacted from everything else crossing into a prompt — page snapshots included — in literal and percent-encoded form. Redaction matches known values, so treat it as a strong default rather than a guarantee against a hostile app.
+
+The system prompt also tells the model that page content is data, never instruction. That raises the cost of casual injection and is **not** a boundary — the origin constraint is. Do not point blastproof at an application you would not run locally.
+
+## blastproof tests itself
+
+The **Dogfood** badge is blastproof running against the demo app in this repo — real Chromium, real model, scored and gated, with public logs. It catches real regressions rather than diffing strings: change the demo discount from 20% to 5% while the page still claims *"20% off"* and it reports
+
+```
+FAIL  P0  Promo code SAVE20 applies a 20% discount in the cart
+  reason: the discount is currently -$6.00, but a 20% discount on
+          $120.00 should be -$24.00
+```
+
+No selector was updated to catch that. The agent read the value, did the arithmetic, and disagreed with the page.
+
+Try it yourself:
+
+```bash
+git clone https://github.com/hamc/blastproof && cd blastproof
+npm install && npm run build
+node examples/demo-app/serve.mjs 4173 &
+export ANTHROPIC_API_KEY=...
+node dist/cli.js run
+```
 
 ## Development
 
-Built with AI assistance, using spec-driven development throughout: every change began as a written
-proposal with its design rationale, and those documents are kept rather than discarded — `openspec/`
-holds the reasoning behind each decision, including the alternatives that were rejected and why. The
-`.claude/`, `.cursor/` and `.opencode/` directories are agent configuration for the tools used to
-build it; ignore them unless you are contributing with one.
-
-This project uses **spec-driven development** via [OpenSpec](https://github.com/Fission-AI/OpenSpec). See [`AGENTS.md`](./AGENTS.md) for architecture, conventions and the contribution workflow — every change starts with an OpenSpec proposal.
+Built with AI assistance using spec-driven development: every change began as a written proposal with its design rationale, and those documents are kept rather than discarded. `openspec/` holds the reasoning behind each decision, including the alternatives that were rejected and why — start at [`AGENTS.md`](./AGENTS.md) for architecture, conventions and the contribution workflow. Open work lives in [issues](https://github.com/hamc/blastproof/issues).
 
 ```bash
-# requires Node.js >= 20.19 (see engines in package.json)
-npm install
-npm run build
-npm test
+npm install && npm run build && npm test
 ```
 
 ## License
