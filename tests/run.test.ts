@@ -598,3 +598,84 @@ describe('runCommand --fail-on-unmapped', () => {
     expect(out()).toContain('Unclassified files');
   });
 });
+
+describe('runCommand route drift warning', () => {
+  // Declares "/cart/" with a trailing slash, which config's writeProject maps to
+  // "/cart" — so this route contributes nothing to --impacted selection (exact equality).
+  const DRIFT_TEST = `summary: Cart trailing slash
+routes: ["/cart/"]
+steps:
+  - apply a discount
+`;
+
+  it('warns on stderr in --impacted --dry-run and stays non-fatal', async () => {
+    await writeProject({ 'drift.yaml': DRIFT_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).toContain('Route drift');
+    expect(errOut()).toContain('/cart/');
+    expect(errOut()).toContain('Cart trailing slash');
+    expect(errOut()).toContain('declared by no routes: mapping');
+    expect(errOut()).toContain('contribute nothing to --impacted selection');
+    expect(errOut().match(/Route drift/g)?.length).toBe(1);
+  });
+
+  it('warns on stderr in --dry-run without --impacted (drift is diff-independent)', async () => {
+    await writeProject({ 'drift.yaml': DRIFT_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(getChangedFilesMock).not.toHaveBeenCalled();
+    expect(errOut()).toContain('Route drift');
+    expect(errOut()).toContain('/cart/');
+    expect(errOut()).toContain('declared by no routes: mapping');
+  });
+
+  it('does not warn when test routes match config exactly', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).not.toContain('Route drift');
+  });
+
+  it('does not warn when config has no routes: mappings (D4)', async () => {
+    // A suite using routes as metadata with no mappings is not flagged.
+    const config = [
+      'base_url: http://localhost:4173',
+      'llm:',
+      '  provider: anthropic',
+      '  api_key_env: BLASTPROOF_TEST_MISSING_KEY',
+      '',
+    ].join('\n');
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), config);
+    await writeFile(
+      path.join(dir, '.blastproof', 'tests', 'cart.yaml'),
+      'summary: Cart\nroutes: ["/cart"]\nsteps:\n  - do a thing\n',
+    );
+
+    const code = await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).not.toContain('Route drift');
+  });
+
+  it('includes the drift warning in the --impacted report', async () => {
+    await writeProject({ 'drift.yaml': DRIFT_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).toContain('Route drift');
+    expect(errOut()).toContain('Cart trailing slash');
+    expect(errOut()).toContain('/cart/');
+  });
+});

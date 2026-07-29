@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchesFilters, selectImpactedTests } from '../src/runner/selection.js';
+import { detectRouteDrift, matchesFilters, selectImpactedTests } from '../src/runner/selection.js';
 import type { TestFile } from '../src/runner/testfile.js';
 
 function makeTest(overrides: Partial<TestFile> & { summary: string }): TestFile {
@@ -96,5 +96,55 @@ describe('selectImpactedTests', () => {
       unroutedSkipped: [],
       uncoveredRoutes: ['/cart'],
     });
+  });
+});
+
+describe('detectRouteDrift', () => {
+  it('detects trailing-slash drift against an exactly-matching mapping', () => {
+    const cart = makeTest({ summary: 'cart', routes: ['/cart/'] });
+    const result = detectRouteDrift([cart], ['/cart']);
+    expect(result.drifted).toEqual([{ test: cart, routes: ['/cart/'] }]);
+  });
+
+  it('detects a typo drift', () => {
+    const cart = makeTest({ summary: 'cart', routes: ['/crat'] });
+    const result = detectRouteDrift([cart], ['/cart']);
+    expect(result.drifted).toEqual([{ test: cart, routes: ['/crat'] }]);
+  });
+
+  it('reports no drift when every test route is declared by a mapping', () => {
+    const cart = makeTest({ summary: 'cart', routes: ['/cart', '/login'] });
+    const result = detectRouteDrift([cart], ['/cart', '/login', '/checkout']);
+    expect(result.drifted).toEqual([]);
+  });
+
+  it('does not run when no routes mappings are declared (metadata use)', () => {
+    const cart = makeTest({ summary: 'cart', routes: ['/cart'] });
+    expect(detectRouteDrift([cart], [])).toEqual({ drifted: [] });
+  });
+
+  it('does not flag a test that declares no routes', () => {
+    const unrouted = makeTest({ summary: 'legacy' });
+    expect(detectRouteDrift([unrouted], ['/cart']).drifted).toEqual([]);
+  });
+
+  it('de-duplicates and sorts the drifted routes per test', () => {
+    const test = makeTest({ summary: 'mixed', routes: ['/x', '/x', '/a'] });
+    const result = detectRouteDrift([test], ['/y']);
+    expect(result.drifted).toEqual([{ test, routes: ['/a', '/x'] }]);
+  });
+
+  it('returns only the drifted tests, in input order', () => {
+    const ok = makeTest({ summary: 'ok', routes: ['/cart'] });
+    const drifted = makeTest({ summary: 'drifted', routes: ['/missing'] });
+    const result = detectRouteDrift([ok, drifted], ['/cart']);
+    expect(result.drifted).toEqual([{ test: drifted, routes: ['/missing'] }]);
+  });
+
+  it('does not flag a route declared by config but absent from this diff (D3)', () => {
+    // Drift compares against the full declared universe, not affectedRoutes, so a
+    // route valid but untouched by the diff is not drift.
+    const cart = makeTest({ summary: 'cart', routes: ['/cart'] });
+    expect(detectRouteDrift([cart], ['/cart']).drifted).toEqual([]);
   });
 });
