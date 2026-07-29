@@ -22,6 +22,7 @@ Pipeline: `git diff → impact mapping → test generation → agentic execution
 | CI integration | ✅ published to npm and a composite GitHub Action; PR comments still post-MVP |
 | Authentication | ✅ sign in once per run — login journey, captured session, or static headers/cookies |
 | Unclassified-change gate | ✅ `ignore:` globs + `--fail-on-unmapped` for files whose blast radius nobody declared |
+| Run budget & deadline | ✅ optional `budget:` (calls/tokens/duration) + matching flags; exhaustion stops the run as **incomplete**, never as a failed test — exits 1 regardless of `--min-score` |
 | SaaS backend, credits, dashboards | ❌ never — local-first BYOK |
 | VS Code extension, Flutter, session replay | ❌ post-MVP |
 
@@ -56,6 +57,7 @@ src/
     selection.ts    # tag/priority/query filters + impacted selection
     testfile.ts     # YAML test discovery and validation
     env.ts          # {{env.*}} substitution + secret masking
+    budget.ts       # run-wide call/token/deadline budget + dry-run ceiling
   llm/
     provider.ts     # AI SDK provider factory (anthropic|openai|ollama)
     prompts.ts      # system/user prompts for plan + execute + assert
@@ -76,6 +78,7 @@ src/
 - Secrets never enter a prompt: `{{env.*}}` placeholders survive to action time and are substituted immediately before use. Values are also masked in reports.
 - The agent may not navigate outside `base_url`'s origin plus any declared `allowed_origins`. Enforced in `actions.ts`, not by prompt wording.
 - Never log secrets; `{{env.*}}` values are masked in reports. A captured auth session is a live credential: git-ignored, never printed, never embedded in a report
+- A run's budget (calls/tokens/deadline, optional `budget:` in config) is a run-wide guarantee enforced at the single choke point every model call passes through — `createBrain`/`createPlanner` in `llm/brain.ts` — the same shape and the same reason as the secrets mask above: a guarantee implemented at a call site instead of over the whole scope is this codebase's recurring defect (it produced the secret leaks, and it produced #15). Exhausting it ends the run as **incomplete**, never as a failed test — see `openspec/changes/archive/run-budget-and-deadline` (once archived) for the reasoning
 
 ## Where the work comes from
 

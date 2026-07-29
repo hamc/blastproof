@@ -8,10 +8,16 @@ import { createBrain } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
-import { computeScore, formatScoreLine } from '../report/score.js';
+import { computeScore, formatIncompleteLine, formatScoreLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
+import { BudgetExhaustedError, estimateMaxModelCalls, RunBudget, type RunBudgetOptions } from '../runner/budget.js';
 import { MissingEnvError, SecretsMask, substituteEnv } from '../runner/env.js';
-import { executeTest, type ExecutorEvent, type TestResult } from '../runner/executor.js';
+import {
+  DEFAULT_MAX_ITERATIONS_PER_STEP,
+  executeTest,
+  type ExecutorEvent,
+  type TestResult,
+} from '../runner/executor.js';
 import {
   matchesFilters,
   selectImpactedTests,
@@ -30,7 +36,22 @@ export const EXIT_OK = 0;
 export const EXIT_FAILED = 1;
 export const EXIT_USAGE = 2;
 
-export interface RunOptions extends TestFilters {
+/**
+ * The budget flags shared by every command that can make a model call. Spec
+ * run-budget counts "agent action, assert judgment, or test planning" against one
+ * budget, so the flags that configure it cannot belong to `run` alone — `plan` and
+ * `test` (which composes both) accept the same three.
+ */
+export interface BudgetFlags {
+  /** Overrides config `budget.max_llm_calls` for this invocation (`--max-llm-calls`). */
+  maxLlmCalls?: number;
+  /** Overrides config `budget.max_tokens` for this invocation (`--max-tokens`). */
+  maxTokens?: number;
+  /** Overrides config `budget.max_duration_s`, in seconds, for this invocation (`--max-duration`). */
+  maxDuration?: number;
+}
+
+export interface RunOptions extends TestFilters, BudgetFlags {
   cwd: string;
   /** Run only tests impacted by the diff vs `base` (uses routes: mappings). */
   impacted?: boolean;
@@ -56,6 +77,28 @@ export interface RunOptions extends TestFilters {
    * selected and still be blocked by a change nobody has classified (design D4).
    */
   failOnUnmapped?: boolean;
+  /**
+   * A budget already constructed by a composing caller (`test`), so both of its
+   * phases draw against one allowance instead of each resolving and starting its
+   * own (a budget that resets between phases is two allowances, not one bound).
+   * When absent, resolved here from `flag > env > file` as usual.
+   */
+  budget?: RunBudget;
+}
+
+/**
+ * Resolves the run's budget: flag beats config (spec cli-run-command). Env already
+ * beat the file by the time `config.budget` reaches here, since `loadConfig` merges
+ * `BLASTPROOF_MAX_*` before validating (design run-budget, precedence flag > env >
+ * file). Absent everywhere, every limit is undefined and `RunBudget` never binds.
+ */
+export function resolveBudgetOptions(config: BlastproofConfig, options: BudgetFlags): RunBudgetOptions {
+  const maxDurationSeconds = options.maxDuration ?? config.budget?.max_duration_s;
+  return {
+    maxCalls: options.maxLlmCalls ?? config.budget?.max_llm_calls,
+    maxTokens: options.maxTokens ?? config.budget?.max_tokens,
+    maxDurationMs: maxDurationSeconds === undefined ? undefined : maxDurationSeconds * 1000,
+  };
 }
 
 function sessionId(): string {
@@ -111,6 +154,24 @@ function resolveSecretsAndSteps(test: TestFile): { test: TestFile } {
   return { test };
 }
 
+/**
+ * Records tests the run's budget or deadline stopped before they executed (design
+ * D3, spec run-budget): a distinct `not-run` status, never `failed` — exhaustion
+ * says nothing about the application under test.
+ */
+function notRunResults(tests: TestFile[], reason: string): TestResult[] {
+  return tests.map((test) => ({
+    file: test.path,
+    summary: test.summary,
+    priority: test.priority,
+    tags: test.tags,
+    status: 'not-run',
+    steps: [],
+    reason,
+    durationMs: 0,
+  }));
+}
+
 function printEvent(event: ExecutorEvent): void {
   switch (event.type) {
     case 'step-start':
@@ -131,13 +192,20 @@ function printEvent(event: ExecutorEvent): void {
   }
 }
 
+function statusLabel(status: TestResult['status']): string {
+  if (status === 'passed') return 'PASS';
+  if (status === 'failed') return 'FAIL';
+  return 'NOT RUN';
+}
+
 function printSummary(results: TestResult[]): void {
   const passed = results.filter((r) => r.status === 'passed');
   const failed = results.filter((r) => r.status === 'failed');
+  const notRun = results.filter((r) => r.status === 'not-run');
 
   console.log('\n--- Summary ---------------------------------------------------');
   const rows = results.map((r) => ({
-    status: r.status === 'passed' ? 'PASS' : 'FAIL',
+    status: statusLabel(r.status),
     priority: r.priority,
     summary: r.summary,
     duration: `${(r.durationMs / 1000).toFixed(1)}s`,
@@ -151,13 +219,24 @@ function printSummary(results: TestResult[]): void {
     );
   }
   console.log('---------------------------------------------------------------');
-  console.log(`${passed.length} passed, ${failed.length} failed, ${results.length} total`);
+  // The "not run" clause only appears when a budget/deadline actually stopped the
+  // run, so an ordinary run's line is unchanged (design: inert by default).
+  console.log(
+    notRun.length > 0
+      ? `${passed.length} passed, ${failed.length} failed, ${notRun.length} not run, ${results.length} total`
+      : `${passed.length} passed, ${failed.length} failed, ${results.length} total`,
+  );
 
   for (const r of failed) {
     console.log(`\nX ${r.summary} (${r.file})`);
     if (r.failedStep) console.log(`  failing step: ${r.failedStep}`);
     if (r.reason) console.log(`  reason: ${r.reason}`);
     if (r.screenshot) console.log(`  screenshot: ${r.screenshot}`);
+  }
+
+  if (notRun.length > 0) {
+    console.log(`\n${notRun.length} test(s) not run (run stopped by its budget or deadline):`);
+    for (const r of notRun) console.log(`  - ${r.summary} (${r.file})`);
   }
 }
 
@@ -168,8 +247,9 @@ async function runOne(
   sessionDir: string,
   session: AuthSession | undefined,
   runMask: SecretsMask,
+  budget: RunBudget,
 ): Promise<TestResult> {
-  const brain = createBrain(createModel(config.llm).model);
+  const brain = createBrain(createModel(config.llm).model, undefined, budget);
 
   let resolved: TestFile;
   const mask = runMask;
@@ -248,7 +328,9 @@ function printImpactReport(
 /**
  * Prints the summary tail shared by every terminating path: score line, optional
  * JUnit report, and the exit code. With `--min-score` the threshold decides the
- * outcome instead of the all-must-pass rule (design D4).
+ * outcome instead of the all-must-pass rule (design D4) — unless `incomplete` is
+ * set, in which case nothing rescues the run: a budget or deadline stop always
+ * exits non-zero (spec run-budget, design D4), whatever the executed tests scored.
  */
 async function finalize(
   results: TestResult[],
@@ -257,18 +339,26 @@ async function finalize(
   sessionDir: string,
   durationMs: number,
   impact?: ImpactResult,
+  incomplete?: BudgetExhaustedError,
 ): Promise<number> {
   if (results.length > 0) printSummary(results);
 
   const score = computeScore(results);
-  console.log(formatScoreLine(score, results, options.minScore));
+  console.log(
+    incomplete ? formatIncompleteLine(score, incomplete.message) : formatScoreLine(score, results, options.minScore),
+  );
 
   if (options.junit) {
     const target =
       typeof options.junit === 'string'
         ? path.resolve(options.cwd, options.junit)
         : path.join(sessionDir, 'junit.xml');
-    const xml = renderJUnit(results, skipped, { score, durationMs, cwd: options.cwd });
+    const xml = renderJUnit(results, skipped, {
+      score,
+      durationMs,
+      cwd: options.cwd,
+      incomplete: incomplete?.message,
+    });
     await writeJUnit(target, xml);
     console.log(`JUnit report: ${path.relative(options.cwd, target)}`);
   }
@@ -283,11 +373,16 @@ async function finalize(
       durationMs,
       minScore: options.minScore,
       cwd: options.cwd,
+      incomplete: incomplete?.message,
     });
     await writeHtml(target, html);
     console.log(`HTML report: ${path.relative(options.cwd, target)}`);
   }
 
+  // Unconditional and first (spec run-budget, design D4): an incomplete run is
+  // never a pass, whatever --min-score would have said about the tests that
+  // happened to finish before the stop.
+  if (incomplete) return EXIT_FAILED;
 
   if (reportUnclassified(options, impact)) return EXIT_FAILED;
 
@@ -318,11 +413,32 @@ function reportUnclassified(options: RunOptions, impact: ImpactResult | undefine
   return true;
 }
 
-function printDryRun(selected: TestFile[], baseUrl: string, cwd: string): void {
-  console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${baseUrl}`);
+function printDryRun(selected: TestFile[], config: BlastproofConfig, cwd: string): void {
+  console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${config.base_url}`);
   for (const test of selected) {
     console.log(`  ${test.summary} [${test.priority}] (${path.relative(cwd, test.path)})`);
   }
+  // A ceiling, not a forecast (design D5): the arithmetic is exact (see
+  // estimateMaxModelCalls for the derivation), but a real run almost always
+  // finishes in far fewer calls than this ever allows.
+  //
+  // `auth.steps` runs once before any selected test and spends model calls
+  // through the same executeTest loop (design D8) — a login recipe with static
+  // headers/cookies/storage_state does not call the model at all, but `steps`
+  // does, and a ceiling that omitted it could be exceeded by the first run that
+  // configures a login journey. Included here for that reason (DEF-001 follow-up:
+  // the number must not be exceedable by anything it claims to bound).
+  const authSteps = config.auth?.steps ?? [];
+  const withAuth = authSteps.length > 0 ? [...selected, { steps: authSteps }] : selected;
+  const ceiling = estimateMaxModelCalls(
+    withAuth,
+    DEFAULT_MAX_ITERATIONS_PER_STEP,
+    config.max_retries_per_step,
+  );
+  const authNote = authSteps.length > 0 ? ', including the login journey' : '';
+  console.log(
+    `Worst case: up to ${ceiling} model call(s) for this selection${authNote} (a maximum, not a prediction).`,
+  );
   console.log('Dry run: no browser launched, no LLM calls made.');
 }
 
@@ -419,7 +535,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
   }
 
   if (options.dryRun) {
-    printDryRun(selected, config.base_url, options.cwd);
+    printDryRun(selected, config, options.cwd);
     // A dry run is a pre-flight; reporting a clean plan while a file in the suite
     // cannot be parsed would bless a run that is about to fail and drop the score.
     if (results.length > 0) {
@@ -459,11 +575,21 @@ export async function runCommand(options: RunOptions): Promise<number> {
 
   const runMask = buildRunMask(config, parsed);
 
+  // Unconfigured (the common case) never binds: every limit inside is undefined,
+  // so check() never throws and this is a no-op wrapper (design: inert by default).
+  // A composing caller (`test`) may hand in an already-started budget so both of
+  // its phases share one allowance instead of `run` resolving a fresh one.
+  const budget = options.budget ?? new RunBudget(resolveBudgetOptions(config, options));
+
   const browser = await chromium.launch({ headless: config.browser.headless });
+  let incomplete: BudgetExhaustedError | undefined;
   try {
     // Authenticate once, before the first test (design D3). A failed login is a
     // configuration problem, not a product defect, so it aborts with exit 2 rather
-    // than surfacing as N failing tests and a meaningless score (design D6).
+    // than surfacing as N failing tests and a meaningless score (design D6). A
+    // budget/deadline stop during login is a different thing again (spec
+    // run-budget): the run is incomplete, not misconfigured, so none of the
+    // selected tests get to run.
     let session: AuthSession | undefined;
     if (config.auth) {
       try {
@@ -474,27 +600,61 @@ export async function runCommand(options: RunOptions): Promise<number> {
           baseUrl: config.base_url,
           allowedOrigins: config.allowed_origins,
           browser: browser as unknown as BrowserLike,
-          brain: createBrain(createModel(config.llm).model),
+          brain: createBrain(createModel(config.llm).model, undefined, budget),
           maxRetries: config.max_retries_per_step,
           mask: runMask,
           onEvent: printEvent,
         });
       } catch (error) {
-        if (error instanceof AuthError) {
+        if (error instanceof BudgetExhaustedError) {
+          incomplete = error;
+        } else if (error instanceof AuthError) {
           console.error(`error: ${error.message}`);
           return EXIT_USAGE;
+        } else {
+          throw error;
         }
-        throw error;
       }
     }
 
-    for (const test of selected) {
-      console.log(`\n> ${test.summary} [${test.priority}] (${path.relative(options.cwd, test.path)})`);
-      results.push(await runOne(browser, test, config, sessionDir, session, runMask));
+    if (incomplete) {
+      // The budget or deadline ran out during login: no selected test ever got
+      // to start, so every one of them is not run (design D3).
+      results.push(...notRunResults(selected, incomplete.message));
+    } else {
+      for (let i = 0; i < selected.length; i++) {
+        const test = selected[i]!;
+        console.log(`\n> ${test.summary} [${test.priority}] (${path.relative(options.cwd, test.path)})`);
+        try {
+          // Checked here too, not only inside the brain (design run-budget task
+          // 4.2): a deadline that has already passed must stop the *next test*
+          // rather than launching a fresh context only to fail on its first call.
+          budget.check();
+          results.push(await runOne(browser, test, config, sessionDir, session, runMask, budget));
+        } catch (error) {
+          if (error instanceof BudgetExhaustedError) {
+            incomplete = error;
+            // The test in progress, plus everything after it, never finished —
+            // recorded as not run rather than failed, and excluded from the
+            // score's denominator rather than counted against it (D3/D4).
+            results.push(...notRunResults(selected.slice(i), error.message));
+            break;
+          }
+          throw error;
+        }
+      }
     }
   } finally {
     await browser.close();
   }
 
-  return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt, impact);
+  return finalize(
+    results,
+    selection.unroutedSkipped,
+    options,
+    sessionDir,
+    Date.now() - startedAt,
+    impact,
+    incomplete,
+  );
 }

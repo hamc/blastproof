@@ -2,8 +2,14 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentBrain } from '../llm/brain.js';
 import type { AgentAction } from '../llm/schemas.js';
+import { BudgetExhaustedError } from './budget.js';
 import type { TestFile } from './testfile.js';
 import { performAction, type PageLike } from './actions.js';
+
+/** Hard cap on LLM actions per step, when not overridden. Also the number the
+ * dry-run ceiling (design D5, `estimateMaxModelCalls`) is derived from, so the
+ * two never drift apart. */
+export const DEFAULT_MAX_ITERATIONS_PER_STEP = 15;
 
 export interface StepResult {
   step: string;
@@ -20,7 +26,12 @@ export interface TestResult {
   summary: string;
   priority: string;
   tags: string[];
-  status: 'passed' | 'failed';
+  /**
+   * `not-run` is a run stopped by its budget or deadline before this test executed
+   * (design D3, spec run-budget) — distinct from `failed`, since exhaustion says
+   * nothing about the application under test.
+   */
+  status: 'passed' | 'failed' | 'not-run';
   steps: StepResult[];
   /** Failing step text + reason, for summary reporting. */
   failedStep?: string;
@@ -84,7 +95,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     allowedOrigins,
     resolveValue,
     maxRetries = 3,
-    maxIterationsPerStep = 15,
+    maxIterationsPerStep = DEFAULT_MAX_ITERATIONS_PER_STEP,
     mask = (s: string) => s,
     snapshot = defaultSnapshot,
     onEvent = () => {},
@@ -147,6 +158,10 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             iterationsLeft: maxIterationsPerStep - iterations,
           });
         } catch (error) {
+          // A budget/deadline stop ends the run, not this attempt (design D3): it
+          // must not be spent from the retry budget or reported as a bad model
+          // response, so it bypasses this handler entirely.
+          if (error instanceof BudgetExhaustedError) throw error;
           // Malformed model output counts as a failed attempt (spec: structured output).
           failedAttempts++;
           lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
@@ -207,6 +222,11 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         }
       }
     } catch (error) {
+      // A budget/deadline stop is not a step failure (design D3, spec
+      // agentic-execution): let it propagate out of executeTest so the caller can
+      // record this test — and the rest of the run's selection — as not run,
+      // rather than manufacturing a defect that does not exist.
+      if (error instanceof BudgetExhaustedError) throw error;
       // Mask everything that reaches logs/reports, regardless of throw site.
       stepFailedReason = mask(error instanceof Error ? error.message : String(error));
     }

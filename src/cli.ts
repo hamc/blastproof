@@ -27,6 +27,28 @@ function parseMinScore(value: string): number {
   return score;
 }
 
+/** `--max-llm-calls`/`--max-tokens`: counts, so non-positive or non-numeric is a usage error. */
+function parsePositiveInt(flag: string): (value: string) => number {
+  return (value: string) => {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new InvalidArgumentError(`${flag} must be a positive integer`);
+    }
+    return n;
+  };
+}
+
+/** `--max-duration`: seconds, so a fractional value is fine, but not zero or negative. */
+function parsePositiveNumber(flag: string): (value: string) => number {
+  return (value: string) => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new InvalidArgumentError(`${flag} must be a positive number`);
+    }
+    return n;
+  };
+}
+
 const program = new Command();
 
 program
@@ -66,6 +88,21 @@ program
   .option('--junit [path]', 'write a JUnit XML report (default: .blastproof/reports/<session>/junit.xml)')
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
+  .option(
+    '--max-llm-calls <n>',
+    'stop the run after this many model calls, reported as incomplete (overrides config)',
+    parsePositiveInt('--max-llm-calls'),
+  )
+  .option(
+    '--max-tokens <n>',
+    'stop the run after this many tokens spent across all model calls (overrides config)',
+    parsePositiveInt('--max-tokens'),
+  )
+  .option(
+    '--max-duration <seconds>',
+    'stop the run after this many seconds of wall-clock time (overrides config)',
+    parsePositiveNumber('--max-duration'),
+  )
   .action(
     async (options: {
       tag: string[];
@@ -79,6 +116,9 @@ program
       junit?: string | boolean;
       html?: string | boolean;
       failOnUnmapped?: boolean;
+      maxLlmCalls?: number;
+      maxTokens?: number;
+      maxDuration?: number;
     }) => {
       try {
         process.exitCode = await runCommand({
@@ -94,6 +134,9 @@ program
           junit: options.junit,
           html: options.html,
           failOnUnmapped: options.failOnUnmapped,
+          maxLlmCalls: options.maxLlmCalls,
+          maxTokens: options.maxTokens,
+          maxDuration: options.maxDuration,
         });
       } catch (error) {
         console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
@@ -109,20 +152,48 @@ program
   .option('--url <url>', 'override config base_url for this run only (config file untouched)')
   .option('--route <route>', 'generate for this route, bypassing the diff (repeatable)', collect, [])
   .option('--write', 'persist drafts under .blastproof/tests/ instead of previewing them')
-  .action(async (options: { base: string; url?: string; route: string[]; write?: boolean }) => {
-    try {
-      process.exitCode = await planCommand({
-        cwd: process.cwd(),
-        base: options.base,
-        url: options.url,
-        routes: options.route,
-        write: options.write,
-      });
-    } catch (error) {
-      console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
-      process.exitCode = EXIT_USAGE;
-    }
-  });
+  .option(
+    '--max-llm-calls <n>',
+    'stop after this many model calls, reported as incomplete (overrides config)',
+    parsePositiveInt('--max-llm-calls'),
+  )
+  .option(
+    '--max-tokens <n>',
+    'stop after this many tokens spent across all model calls (overrides config)',
+    parsePositiveInt('--max-tokens'),
+  )
+  .option(
+    '--max-duration <seconds>',
+    'stop after this many seconds of wall-clock time (overrides config)',
+    parsePositiveNumber('--max-duration'),
+  )
+  .action(
+    async (options: {
+      base: string;
+      url?: string;
+      route: string[];
+      write?: boolean;
+      maxLlmCalls?: number;
+      maxTokens?: number;
+      maxDuration?: number;
+    }) => {
+      try {
+        process.exitCode = await planCommand({
+          cwd: process.cwd(),
+          base: options.base,
+          url: options.url,
+          routes: options.route,
+          write: options.write,
+          maxLlmCalls: options.maxLlmCalls,
+          maxTokens: options.maxTokens,
+          maxDuration: options.maxDuration,
+        });
+      } catch (error) {
+        console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = EXIT_USAGE;
+      }
+    },
+  );
 
 program
   .command('test')
@@ -138,6 +209,21 @@ program
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .option('--write', 'persist generated drafts under .blastproof/tests/ instead of previewing them')
   .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
+  .option(
+    '--max-llm-calls <n>',
+    'stop the pipeline after this many model calls, shared by both phases (overrides config)',
+    parsePositiveInt('--max-llm-calls'),
+  )
+  .option(
+    '--max-tokens <n>',
+    'stop the pipeline after this many tokens, shared by both phases (overrides config)',
+    parsePositiveInt('--max-tokens'),
+  )
+  .option(
+    '--max-duration <seconds>',
+    'stop the pipeline after this many seconds of wall-clock time (overrides config)',
+    parsePositiveNumber('--max-duration'),
+  )
   .action(
     async (options: {
       base: string;
@@ -147,6 +233,9 @@ program
       html?: string | boolean;
       write?: boolean;
       failOnUnmapped?: boolean;
+      maxLlmCalls?: number;
+      maxTokens?: number;
+      maxDuration?: number;
     }) => {
       try {
         process.exitCode = await testCommand({
@@ -158,6 +247,9 @@ program
           html: options.html,
           write: options.write,
           failOnUnmapped: options.failOnUnmapped,
+          maxLlmCalls: options.maxLlmCalls,
+          maxTokens: options.maxTokens,
+          maxDuration: options.maxDuration,
         });
       } catch (error) {
         console.error(`error: ${error instanceof Error ? error.message : String(error)}`);

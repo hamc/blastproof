@@ -3,15 +3,23 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffError } from '../src/diff.js';
+import { BudgetExhaustedError } from '../src/runner/budget.js';
 
-const { launchMock, getChangedFilesMock, createPlannerMock, generateForRouteMock, executeTestMock } =
-  vi.hoisted(() => ({
-    launchMock: vi.fn(),
-    getChangedFilesMock: vi.fn(),
-    createPlannerMock: vi.fn(),
-    generateForRouteMock: vi.fn(),
-    executeTestMock: vi.fn(),
-  }));
+const {
+  launchMock,
+  getChangedFilesMock,
+  createBrainMock,
+  createPlannerMock,
+  generateForRouteMock,
+  executeTestMock,
+} = vi.hoisted(() => ({
+  launchMock: vi.fn(),
+  getChangedFilesMock: vi.fn(),
+  createBrainMock: vi.fn(),
+  createPlannerMock: vi.fn(),
+  generateForRouteMock: vi.fn(),
+  executeTestMock: vi.fn(),
+}));
 
 vi.mock('playwright', () => ({ chromium: { launch: launchMock } }));
 
@@ -29,7 +37,7 @@ vi.mock('../src/diff.js', async (importOriginal) => {
 
 vi.mock('../src/llm/brain.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/llm/brain.js')>();
-  return { ...original, createPlanner: createPlannerMock };
+  return { ...original, createBrain: createBrainMock, createPlanner: createPlannerMock };
 });
 
 vi.mock('../src/planner.js', async (importOriginal) => {
@@ -77,11 +85,13 @@ beforeEach(async () => {
   errors = [];
   launchMock.mockReset();
   getChangedFilesMock.mockReset();
+  createBrainMock.mockReset();
   createPlannerMock.mockReset();
   generateForRouteMock.mockReset();
   executeTestMock.mockReset();
 
   launchMock.mockResolvedValue(fakeBrowser());
+  createBrainMock.mockReturnValue({ nextAction: vi.fn(), judge: vi.fn() });
   executeTestMock.mockImplementation(async (_page: unknown, test: { path: string; summary: string; priority: string; tags: string[] }) => ({
     file: test.path,
     summary: test.summary,
@@ -239,5 +249,45 @@ describe('testCommand', () => {
     await testCommand({ cwd: dir, base: 'develop' });
 
     expect(getChangedFilesMock).toHaveBeenCalledWith('develop', dir);
+  });
+});
+
+describe('testCommand budget (spec run-budget: one budget spans both phases)', () => {
+  it('hands the run phase and the plan phase the same budget instance, not one each', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    // /cart is covered (run phase exercises it); /settings is not (plan phase drafts it).
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts', 'src/settings/flags.ts']);
+
+    const code = await testCommand({ cwd: dir, maxLlmCalls: 5 });
+
+    expect(code).toBe(EXIT_OK);
+    expect(createBrainMock).toHaveBeenCalled();
+    expect(createPlannerMock).toHaveBeenCalled();
+    const runPhaseBudget = createBrainMock.mock.calls.at(-1)?.[2];
+    const planPhaseBudget = createPlannerMock.mock.calls.at(-1)?.[2];
+    expect(runPhaseBudget).toBeDefined();
+    // Reference equality, not merely equal limits: a fresh budget with the same
+    // configured maximum would pass a looser check but still be two allowances.
+    expect(planPhaseBudget).toBe(runPhaseBudget);
+  });
+
+  it('does not grant the plan phase a fresh allowance once the run phase has spent the budget', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts', 'src/settings/flags.ts']);
+    // Stands in for what the real createBrain wrapper does on every call: spend
+    // one unit of the shared budget before the test's outcome is even decided.
+    createBrainMock.mockImplementation((_model: unknown, _generate: unknown, budget: { record: (u: unknown) => void }) => {
+      budget?.record(undefined);
+      return { nextAction: vi.fn(), judge: vi.fn() };
+    });
+
+    const code = await testCommand({ cwd: dir, maxLlmCalls: 1 });
+
+    expect(code).toBe(EXIT_OK);
+    const planPhaseBudget = createPlannerMock.mock.calls.at(-1)?.[2] as { check: () => void };
+    expect(planPhaseBudget).toBeDefined();
+    // The one call the run phase spent already exhausted the shared allowance —
+    // a fresh budget handed to `plan` would not throw here.
+    expect(() => planPhaseBudget.check()).toThrow(/model call budget exhausted/);
   });
 });

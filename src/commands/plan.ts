@@ -15,6 +15,7 @@ import {
   type TestDraft,
 } from '../planner.js';
 import type { PageLike } from '../runner/actions.js';
+import { BudgetExhaustedError, RunBudget } from '../runner/budget.js';
 import type { ExecutorEvent } from '../runner/executor.js';
 import {
   discoverTestFiles,
@@ -24,9 +25,16 @@ import {
   type TestFile,
 } from '../runner/testfile.js';
 import { SecretsMask } from '../runner/env.js';
-import { applyUrlOverride, EXIT_FAILED, EXIT_OK, EXIT_USAGE } from './run.js';
+import {
+  applyUrlOverride,
+  EXIT_FAILED,
+  EXIT_OK,
+  EXIT_USAGE,
+  resolveBudgetOptions,
+  type BudgetFlags,
+} from './run.js';
 
-export interface PlanOptions {
+export interface PlanOptions extends BudgetFlags {
   cwd: string;
   /** Base git ref for the diff (default "main"). Ignored when `routes` is given. */
   base?: string;
@@ -36,6 +44,11 @@ export interface PlanOptions {
   routes?: string[];
   /** Persist drafts under `.blastproof/tests/` instead of previewing them. */
   write?: boolean;
+  /**
+   * A budget already constructed by a composing caller (`test`), so both phases
+   * share one allowance. When absent, resolved here from `flag > env > file`.
+   */
+  budget?: RunBudget;
 }
 
 /** Prints login-journey progress, so a failing authentication is not a black box. */
@@ -115,8 +128,9 @@ async function resolveTargets(
 /**
  * `blastproof plan`: diff → impact → uncovered routes → snapshot-grounded test drafts.
  * Preview by default; `--write` persists without ever overwriting (design D7).
- * Returns the exit code: 0 all generated (or nothing to do), 1 any route failed,
- * 2 usage/config/diff error.
+ * Returns the exit code: 0 all generated (or nothing to do), 1 any route failed or
+ * the run's budget/deadline stopped it before every route was attempted (spec
+ * run-budget), 2 usage/config/diff error.
  */
 export async function planCommand(options: PlanOptions): Promise<number> {
   let config: BlastproofConfig;
@@ -167,7 +181,11 @@ export async function planCommand(options: PlanOptions): Promise<number> {
   }
 
   const { model, provider, modelId } = createModel(config.llm);
-  const brain = createPlanner(model);
+  // Unconfigured (the common case) never binds. A composing caller (`test`) may
+  // hand in an already-started budget so both phases share one allowance instead
+  // of `plan` resolving a fresh one (spec run-budget counts test planning too).
+  const budget = options.budget ?? new RunBudget(resolveBudgetOptions(config, options));
+  const brain = createPlanner(model, undefined, budget);
   const base = options.routes && options.routes.length > 0 ? undefined : (options.base ?? 'main');
   console.log(
     `blastproof plan: ${work.length} route(s), provider=${provider} model=${modelId}, base_url=${config.base_url}`,
@@ -185,6 +203,9 @@ export async function planCommand(options: PlanOptions): Promise<number> {
   const generated: string[] = [];
   const written: string[] = [];
   const failed: { route: string; reason: string }[] = [];
+  // Set only by a budget/deadline stop (design D3): a route never reaches a real
+  // failure once this is set, so `notAttempted` — not `failed` — is what remains.
+  let incomplete: BudgetExhaustedError | undefined;
 
   const browser = await chromium.launch({ headless: config.browser.headless });
   try {
@@ -200,21 +221,25 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           baseUrl: config.base_url,
           allowedOrigins: config.allowed_origins,
           browser: browser as unknown as BrowserLike,
-          brain: createBrain(createModel(config.llm).model),
+          brain: createBrain(createModel(config.llm).model, undefined, budget),
           maxRetries: config.max_retries_per_step,
           mask,
           onEvent: printAuthEvent,
         });
       } catch (error) {
-        if (error instanceof AuthError) {
+        if (error instanceof BudgetExhaustedError) {
+          incomplete = error;
+        } else if (error instanceof AuthError) {
           console.error(`error: ${error.message}`);
           return EXIT_USAGE;
+        } else {
+          throw error;
         }
-        throw error;
       }
     }
 
-    for (const { route, changedFiles } of work) {
+    // The budget or deadline ran out during login: no route was ever attempted.
+    for (const { route, changedFiles } of incomplete ? [] : work) {
       console.log(`\n> ${route}`);
       let draft: TestDraft;
       const context = await browser.newContext(contextOptions(session));
@@ -229,6 +254,13 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           mask: (text) => mask.mask(text),
         });
       } catch (error) {
+        if (error instanceof BudgetExhaustedError) {
+          // Not a route failure (design D3): the run's allowance ran out, so this
+          // route and everything after it stop here rather than being misreported
+          // as a generation defect.
+          incomplete = error;
+          break;
+        }
         // Per-route isolation (design D9): report and keep going.
         failed.push({ route, reason: error instanceof Error ? error.message : String(error) });
         console.log(`  X failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -260,6 +292,10 @@ export async function planCommand(options: PlanOptions): Promise<number> {
     await browser.close();
   }
 
+  const notAttempted = incomplete
+    ? work.map((item) => item.route).filter((route) => !generated.includes(route) && !failed.some((f) => f.route === route))
+    : [];
+
   console.log('\n--- Plan -------------------------------------------------------');
   console.log(`Generated: ${generated.length > 0 ? generated.join(', ') : 'none'}`);
   if (written.length > 0) {
@@ -273,7 +309,16 @@ export async function planCommand(options: PlanOptions): Promise<number> {
     console.log('Failed:');
     for (const { route, reason } of failed) console.log(`  ${route}: ${reason}`);
   }
+  if (incomplete) {
+    // Never a quiet success (design D4's reasoning applies here too): a budget or
+    // deadline stop is reported, not swallowed into "nothing to generate".
+    console.log(`Stopped: ${incomplete.message}`);
+    if (notAttempted.length > 0) {
+      console.log('Not attempted (run out of budget):');
+      for (const route of notAttempted) console.log(`  ${route}`);
+    }
+  }
   console.log('---------------------------------------------------------------');
 
-  return failed.length > 0 ? EXIT_FAILED : EXIT_OK;
+  return incomplete || failed.length > 0 ? EXIT_FAILED : EXIT_OK;
 }

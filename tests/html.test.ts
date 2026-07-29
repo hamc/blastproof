@@ -38,6 +38,19 @@ function failed(summary: string, screenshot?: string): TestResult {
   };
 }
 
+function notRun(summary: string, reason: string): TestResult {
+  return {
+    file: '.blastproof/tests/never.yaml',
+    summary,
+    priority: 'P0',
+    tags: [],
+    status: 'not-run',
+    steps: [],
+    reason,
+    durationMs: 0,
+  };
+}
+
 const SKIPPED: SkippedCase[] = [{ path: '.blastproof/tests/legacy.yaml', summary: 'Legacy test' }];
 
 describe('escapeHtml', () => {
@@ -139,6 +152,51 @@ describe('renderHtml', () => {
     });
     const detail = html.slice(html.indexOf('<details'));
     expect(detail.indexOf('a failure')).toBeLessThan(detail.indexOf('a pass'));
+  });
+});
+
+describe('renderHtml: incomplete runs (spec run-budget)', () => {
+  it('shows a banner naming the stop when the run is incomplete', async () => {
+    const html = await renderHtml([passed('a')], [], {
+      score: 100,
+      durationMs: 1,
+      incomplete: 'model call budget exhausted: reached the configured maximum of 5 call(s)',
+    });
+    expect(html).toContain('Run stopped:');
+    expect(html).toContain('model call budget exhausted');
+  });
+
+  it('omits the banner on a complete run', async () => {
+    const html = await renderHtml([passed('a')], [], { score: 100, durationMs: 1 });
+    expect(html).not.toContain('Run stopped');
+  });
+
+  it('distinguishes a not-run test from a failed one', async () => {
+    const html = await renderHtml([failed('a failure'), notRun('never got here', 'stopped: budget exhausted')], [], {
+      score: 100,
+      durationMs: 1,
+      incomplete: 'stopped: budget exhausted',
+    });
+    expect(html).toContain('NOT RUN');
+    expect(html).toContain('never got here');
+    // The not-run test's own table row is tagged "skip", never "fail".
+    const rowStart = html.lastIndexOf('<tr>', html.indexOf('never got here'));
+    const rowEnd = html.indexOf('</tr>', rowStart);
+    const row = html.slice(rowStart, rowEnd);
+    expect(row).toContain('tag skip');
+    expect(row).not.toContain('tag fail');
+  });
+
+  it('puts not-run tests after failures but before passes, and counts them separately', async () => {
+    const html = await renderHtml(
+      [passed('a pass'), notRun('never got here', 'stopped'), failed('a failure')],
+      [],
+      { score: 100, durationMs: 1, incomplete: 'stopped' },
+    );
+    const detail = html.slice(html.indexOf('<details'));
+    expect(detail.indexOf('a failure')).toBeLessThan(detail.indexOf('never got here'));
+    expect(detail.indexOf('never got here')).toBeLessThan(detail.indexOf('a pass'));
+    expect(html).toContain('1 not run');
   });
 });
 

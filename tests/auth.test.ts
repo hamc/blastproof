@@ -12,6 +12,7 @@ import {
 } from '../src/auth.js';
 import type { AuthConfig } from '../src/config.js';
 import type { AgentBrain } from '../src/llm/brain.js';
+import { BudgetExhaustedError } from '../src/runner/budget.js';
 import { SecretsMask } from '../src/runner/env.js';
 
 const CAPTURED: StorageState = { cookies: [{ name: 'session', value: 'abc' }], origins: [] };
@@ -149,6 +150,21 @@ describe('authenticate: steps strategy', () => {
     );
 
     expect(session.storageState).toEqual(CAPTURED);
+  });
+
+  it('propagates a budget/deadline stop as itself, not as an AuthError (spec run-budget)', async () => {
+    // A budget stop during login is a budget stop, not a broken auth recipe: the
+    // run must end incomplete, not be reported as a configuration failure.
+    const brain: AgentBrain = {
+      nextAction: async () => {
+        throw new BudgetExhaustedError('calls', 1, 1);
+      },
+      judge: async () => ({ pass: true, reason: 'n/a' }),
+    };
+
+    await expect(
+      authenticate(options({ steps: ['sign in'], cache: false }, brain)),
+    ).rejects.toThrow(BudgetExhaustedError);
   });
 
   it('keeps a substituted password out of the error message', async () => {

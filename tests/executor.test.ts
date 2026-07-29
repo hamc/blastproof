@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentBrain } from '../src/llm/brain.js';
 import type { AgentAction, AssertJudgment } from '../src/llm/schemas.js';
 import { performAction, resolveTarget, type LocatorLike, type PageLike } from '../src/runner/actions.js';
+import { BudgetExhaustedError } from '../src/runner/budget.js';
 import { executeTest, type ExecutorEvent } from '../src/runner/executor.js';
 import { trimSnapshot } from '../src/runner/snapshot.js';
 import type { TestFile } from '../src/runner/testfile.js';
@@ -361,6 +362,66 @@ describe('executeTest', () => {
     expect(serialized).toContain('***');
     // …but the real value reached the page
     expect(page.calls).toContain('fill role:textbox|Password=s3cret');
+  });
+
+  // Spec agentic-execution, scenario "Budget exhausted mid-step" (design D3): a
+  // budget/deadline stop ends the run, it does not fail the step or the test.
+  describe('budget exhaustion (design D3)', () => {
+    it('propagates BudgetExhaustedError from nextAction instead of failing the step', async () => {
+      const page = new FakePage();
+      const brain = scriptedBrain([new BudgetExhaustedError('calls', 5, 5)]);
+
+      await expect(
+        executeTest(page, makeTest(), {
+          brain,
+          sessionDir,
+          baseUrl: 'http://x.test',
+          snapshot: async () => 'snap',
+        }),
+      ).rejects.toThrow(BudgetExhaustedError);
+    });
+
+    it('propagates BudgetExhaustedError from judge instead of failing the step', async () => {
+      const page = new FakePage();
+      const brain: AgentBrain = {
+        nextAction: async () => ({ action: 'assert', reasoning: 'check', expectation: 'total is $80' }),
+        judge: async () => {
+          throw new BudgetExhaustedError('tokens', 1000, 1000);
+        },
+      };
+
+      await expect(
+        executeTest(page, makeTest(), {
+          brain,
+          sessionDir,
+          baseUrl: 'http://x.test',
+          snapshot: async () => 'snap',
+        }),
+      ).rejects.toThrow(BudgetExhaustedError);
+    });
+
+    it('does not spend it from the retry budget: a single exhaustion is never retried', async () => {
+      const page = new FakePage();
+      let calls = 0;
+      const brain: AgentBrain = {
+        nextAction: async () => {
+          calls++;
+          throw new BudgetExhaustedError('calls', 1, 1);
+        },
+        judge: async () => ({ pass: true, reason: 'n/a' }),
+      };
+
+      await expect(
+        executeTest(page, makeTest(), {
+          brain,
+          sessionDir,
+          baseUrl: 'http://x.test',
+          maxRetries: 3,
+          snapshot: async () => 'snap',
+        }),
+      ).rejects.toThrow(BudgetExhaustedError);
+      expect(calls).toBe(1);
+    });
   });
 });
 

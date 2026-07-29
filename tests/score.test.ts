@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeScore, formatScoreLine, WEIGHTS } from '../src/report/score.js';
+import { computeScore, formatIncompleteLine, formatScoreLine, WEIGHTS } from '../src/report/score.js';
 import type { TestResult } from '../src/runner/executor.js';
 
-function result(priority: string, status: 'passed' | 'failed'): TestResult {
+function result(priority: string, status: 'passed' | 'failed' | 'not-run'): TestResult {
   return {
     file: `.blastproof/tests/${priority}-${status}.yaml`,
     summary: `${priority} ${status}`,
@@ -61,6 +61,16 @@ describe('computeScore', () => {
     expect(WEIGHTS.P1).toBe(2);
     expect(computeScore([result('P9', 'passed')])).toBe(100);
   });
+
+  it('excludes not-run tests from the denominator, rather than counting them as failures (design D4)', () => {
+    // If not-run counted as a failure this would score 50 (1 of 2 weight units);
+    // excluded, it scores 100 — the one executed test's own result decides it.
+    expect(computeScore([result('P0', 'passed'), result('P0', 'not-run')])).toBe(100);
+  });
+
+  it('scores 100 when every test is not run (an empty-equivalent denominator)', () => {
+    expect(computeScore([result('P0', 'not-run'), result('P1', 'not-run')])).toBe(100);
+  });
 });
 
 describe('formatScoreLine', () => {
@@ -77,5 +87,15 @@ describe('formatScoreLine', () => {
     expect(formatScoreLine(60, results, 80)).toContain('min-score 80');
     expect(formatScoreLine(60, results, 80)).toContain('FAIL');
     expect(formatScoreLine(85, results, 80)).toContain('pass');
+  });
+});
+
+describe('formatIncompleteLine (spec run-budget, design D3/D4)', () => {
+  it('names the stop reason and states the score is not a verdict', () => {
+    const line = formatIncompleteLine(100, 'model call budget exhausted: reached the configured maximum of 5 call(s)');
+    expect(line).toContain('Run incomplete');
+    expect(line).toContain('model call budget exhausted');
+    expect(line).toContain('not a verdict');
+    expect(line).toContain('regardless of --min-score');
   });
 });

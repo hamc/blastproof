@@ -17,6 +17,19 @@ const browserSchema = z.object({
   timeout_ms: z.number().int().positive().default(30_000),
 });
 
+/**
+ * A run's budget and deadline (spec run-budget). Every field is optional and
+ * independent; an absent field never binds, so a run with no `budget:` section
+ * at all behaves exactly as it does today (design: inert by default). Coerced
+ * from strings too, since an env override (`BLASTPROOF_MAX_*`) arrives as text.
+ */
+const budgetSchema = z.object({
+  max_llm_calls: z.coerce.number().int().positive().optional(),
+  max_tokens: z.coerce.number().int().positive().optional(),
+  /** Seconds, not milliseconds, to match how a human would set a deadline. */
+  max_duration_s: z.coerce.number().positive().optional(),
+});
+
 const cookieSchema = z.object({
   name: z.string().min(1),
   value: z.string(),
@@ -79,12 +92,14 @@ const configSchema = z.object({
   allowed_origins: z.array(z.string().url()).optional(),
   auth: authSchema.optional(),
   max_retries_per_step: z.number().int().min(1).default(3),
+  budget: budgetSchema.optional(),
 });
 
 export type BlastproofConfig = z.infer<typeof configSchema>;
 export type LlmConfig = BlastproofConfig['llm'];
 export type BrowserConfig = BlastproofConfig['browser'];
 export type AuthConfig = NonNullable<BlastproofConfig['auth']>;
+export type BudgetConfig = NonNullable<BlastproofConfig['budget']>;
 
 /**
  * Environment overrides, one entry per settable field (design D2). `base_url` (the
@@ -98,6 +113,9 @@ export const ENV_OVERRIDES: Record<string, readonly [string] | readonly [string,
   BLASTPROOF_LLM_MODEL: ['llm', 'model'],
   BLASTPROOF_LLM_BASE_URL: ['llm', 'base_url'],
   BLASTPROOF_LLM_API_KEY_ENV: ['llm', 'api_key_env'],
+  BLASTPROOF_MAX_LLM_CALLS: ['budget', 'max_llm_calls'],
+  BLASTPROOF_MAX_TOKENS: ['budget', 'max_tokens'],
+  BLASTPROOF_MAX_DURATION_S: ['budget', 'max_duration_s'],
 };
 
 export interface OverrideResult {
