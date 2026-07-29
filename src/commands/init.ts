@@ -172,11 +172,19 @@ export function formatInitGuidance(result: InitResult): string {
   lines.push(
     '',
     'Next steps:',
-    '  1. Set your LLM API key:  export ANTHROPIC_API_KEY=...   (or OPENAI_API_KEY; ollama needs no key)',
-    '  2. Start your app, then point base_url at it in .blastproof/config.yaml',
-    '  3. Run your tests:        blastproof run',
+    // Deliberately keyless first. A first-time-user trial found that following
+    // the old order — key, app, run — meant hitting the missing-key error and
+    // then a browser-launch failure with nothing successful behind you, which
+    // reads as "this is broken" rather than "one leg needs setting up". Seeing
+    // real output first reframes both.
+    '  1. Point base_url at your app in .blastproof/config.yaml',
+    '  2. Check the setup:       blastproof run --dry-run    (no API key or browser needed)',
+    '  3. Set your LLM API key:  export ANTHROPIC_API_KEY=...   (or OPENAI_API_KEY; ollama needs no key)',
+    '  4. Install the browser:   npx playwright install chromium',
+    '  5. Run your tests:        blastproof run',
     '',
-    'First time with Playwright? Install the browser:  npx playwright install chromium',
+    'Without a key or a browser you can still map a diff to routes and gate on',
+    'coverage:  blastproof run --impacted --fail-on-unmapped --dry-run',
   );
   return lines.join('\n');
 }

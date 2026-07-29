@@ -44,7 +44,7 @@ Read this before installing. The agent drives your app the way a screen reader w
 
 ```bash
 npm install -g blastproof                    # requires Node.js >= 20.19
-npx playwright install --with-deps chromium  # one-time browser download
+npx playwright install --with-deps chromium  # browser + system libraries — NEEDS SUDO
 
 cd your-project
 blastproof init                              # scaffolds .blastproof/
@@ -54,6 +54,12 @@ blastproof run                               # runs .blastproof/tests/**/*.yaml 
 ```
 
 `init` scaffolds one smoke test that works against any app, plus a commented login template you rename and edit once it describes *your* login. Nothing is written that assumes anything about your application.
+
+**No sudo?** `--with-deps` shells out to your package manager as root, so on a locked-down machine that line fails. Install the browser alone with `npx playwright install chromium`, then get the system libraries (`libnspr4`, `libnss3`, `libnssutil3`, `libasound2`) however you can. And note that **half of blastproof needs neither a browser nor an API key** — `run --dry-run`, `--impacted`, `--fail-on-unmapped`, test validation and both report formats all work without either, so it is worth starting there:
+
+```bash
+blastproof run --impacted --fail-on-unmapped --dry-run
+```
 
 Published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements), so the tarball is verifiably built from this repository.
 
@@ -99,6 +105,7 @@ steps:
 | `blastproof plan [--base <ref>]` | Generate plain-English tests for affected routes no test covers yet. Prints drafts; nothing is written without `--write` |
 | `blastproof plan --route <route>` | Generate for a route explicitly, skipping the diff (repeatable) — how you bootstrap coverage on an app with no suite yet |
 | `blastproof plan --write` | Persist drafts to `.blastproof/tests/<route-slug>.yaml`. Never overwrites: a colliding filename fails that route |
+| `blastproof run --impacted --fail-on-unmapped` | Fail the run when a changed file matches no `routes:` **and** no `ignore:` glob — a file whose blast radius nobody has stated. Needs no browser and no API key |
 | `blastproof run --min-score <n>` | Require a weighted score of at least `n` (0–100). **Replaces** the all-must-pass rule — see below |
 | `blastproof run --junit [path]` | Write a JUnit XML report; without a path it lands in `.blastproof/reports/<session>/junit.xml` |
 | `blastproof run --html [path]` | Write a self-contained HTML report with failure screenshots embedded inline |
@@ -167,6 +174,8 @@ ignore:
 ```bash
 blastproof run --impacted --fail-on-unmapped
 ```
+
+**Nothing is ignored by default** — the list above is one you write, not one that ships. A file nobody has classified is exactly the risk this flag exists to surface, so the choice of what cannot affect a page is yours to state rather than ours to guess.
 
 The flag fails the run on the third case only, naming the files and both ways to resolve them. `ignore:` is what makes that signal survivable — without it the flag would fire on every README edit and get switched off within a day, and a disabled gate protects nothing.
 
