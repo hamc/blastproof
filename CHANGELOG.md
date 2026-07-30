@@ -3,7 +3,7 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
-## [Unreleased]
+## [0.5.0] — 2026-07-30
 
 ### Fixed
 - **A step could be failed for a page the action had already replaced.** An outside evaluation ran
