@@ -22,7 +22,8 @@
 - [x] 4.1 `npm run build`, typecheck and the full vitest suite green.
 - [x] 4.2 Confirm the new tests fail against the pre-fix behaviour, in a throwaway copy. A test that passes both before and after protects nothing — this check has caught real problems twice on this project.
   - Verified independently, not only by dev: removing `timeoutMs` from a production call site fails typecheck with `TS2741`; reverting `auth.ts`'s cap threading fails exactly the two DEF-003 tests, covering both the journey snapshot and the `verify` judge call. The shared options builder injects a stub `snapshot`, so the two tests exercising the real default snapshotter deliberately bypass it, with the reason left in a comment.
-- [ ] 4.3 Dogfood: an ordinary run against the demo app still passes with score 100, since the demo app is fast and nothing here should change its outcome.
+- [x] 4.3 Dogfood: an ordinary run against the demo app still passes with score 100, since the demo app is fast and nothing here should change its outcome.
+  - Verified on `fix/browser-patience`, dogfood run `30507091134`: `5 passed, 0 failed`, `Score: 100 — min-score 80: pass`. The demo app is fast, so an unchanged outcome is the point — the timeout now governs resolution without altering the common path.
 
 ## 5. Documentation
 
