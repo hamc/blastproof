@@ -5,6 +5,7 @@ import type { AgentAction } from '../llm/schemas.js';
 import { BudgetExhaustedError } from './budget.js';
 import type { TestFile } from './testfile.js';
 import { performAction, type PageLike } from './actions.js';
+import { StepRecovery, describeAction } from './recovery.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
  * dry-run ceiling (design D5, `estimateMaxModelCalls`) is derived from, so the
@@ -221,6 +222,9 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     let failedAttempts = 0;
     let lastResult: string | undefined;
     let stepFailedReason: string | undefined;
+    // One instance per step: constructing it here IS the "does not cross steps"
+    // rule (design contained-recovery, D1) — there is no reset to forget.
+    const recovery = new StepRecovery();
 
     try {
       while (true) {
@@ -247,6 +251,9 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             isSetup: setup,
             snapshot: mask(snap),
             lastResult: lastResult === undefined ? undefined : mask(lastResult),
+            // Already masked when recorded, on the same boundary as everything
+            // else crossing into a prompt (design contained-recovery, D2).
+            stepHistory: recovery.stepHistory(),
             retriesLeft: maxRetries - failedAttempts,
             iterationsLeft: maxIterationsPerStep - iterations,
           });
@@ -321,6 +328,21 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           continue;
         }
 
+        const refusal = recovery.refusalFor(action);
+        if (refusal) {
+          // Not a malformed response and not a browser failure — the executor
+          // declining. Counted as one failed attempt so a model that insists
+          // terminates on the existing retry budget rather than grinding to the
+          // per-step iteration ceiling.
+          failedAttempts++;
+          lastResult = refusal;
+          emitAction(index, action, refusal);
+          if (failedAttempts >= maxRetries) {
+            throw new StepFailure(refusal);
+          }
+          continue;
+        }
+
         try {
           const result = await performAction(page, action, {
             baseUrl,
@@ -329,6 +351,10 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             resolveTimeoutMs: timeoutMs,
           });
           lastResult = result;
+          // Masked at the point the record is built, not only where it is
+          // rendered: the value may have been substituted from `{{env.*}}`, and
+          // `select`/`navigate` embed the resolved value in their result string.
+          recovery.record(action, mask(describeAction(action)), mask(result));
           emitAction(index, action, result);
         } catch (error) {
           // Self-healing: fresh snapshot next iteration, up to the retry budget.

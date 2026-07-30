@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notes — Blastproof Demo Shop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <nav aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="login.html">Login</a>
+      <a href="cart.html">Cart</a>
+      <a href="support.html">Support</a>
+      <a href="/notes">Notes</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Order notes</h1>
+    <!--
+      The one page in this app where a mutation erases its own evidence
+      (design contained-recovery, D4). The form POSTs to the server, the
+      server appends to state it holds, and answers with a 302 back to THIS
+      page — so the form the step names comes back empty, and the snapshot
+      after a successful submit is very close to the snapshot before it.
+
+      This is deliberately NOT the support flow's shape: that one redirects to
+      support-sent.html, a different page, so its evidence survives and it
+      cannot produce the duplicate-write defect (#28). Here the note count
+      rendered below is the only durable proof a submit happened, which is why
+      it is server-rendered rather than held in the page.
+    -->
+    <form id="note-form" method="post" action="/notes/add">
+      <div class="field">
+        <label for="note">Note</label>
+        <input id="note" name="note" type="text" placeholder="Describe the note" />
+      </div>
+      <div class="err" id="note-err"></div>
+      <button type="submit">Add note</button>
+    </form>
+
+    <h2>Notes on file: <span id="note-count">__COUNT__</span></h2>
+    <ul id="note-list">__NOTES__</ul>
+  </main>
+  <script>
+    // Client-side validation: an empty note must not submit. The server rejects
+    // it too, but blocking here keeps the round trip off the happy path and
+    // gives a step an inline error to verify without a navigation — the
+    // negative case whose intended outcome is that nothing happens.
+    var noteForm = document.getElementById('note-form');
+    var note = document.getElementById('note');
+    var noteErr = document.getElementById('note-err');
+    noteForm.addEventListener('submit', function (event) {
+      noteErr.textContent = '';
+      if (note.value.trim() === '') {
+        event.preventDefault();
+        noteErr.textContent = 'Note is required.';
+        note.focus();
+      }
+    });
+  </script>
+</body>
+</html>
