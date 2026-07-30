@@ -107,9 +107,9 @@ jobs:
 
       - run: npm start &          # however your app boots
 
-      - uses: hamc/blastproof@v0.3.0
+      - uses: hamc/blastproof@v0.4.0
         with:
-          version: '0.3.0'        # pin both when this gates merges
+          version: '0.4.0'        # pin both when this gates merges
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
           min-score: '80'

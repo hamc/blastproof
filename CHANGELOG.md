@@ -3,7 +3,7 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
-## [Unreleased]
+## [0.4.0] — 2026-07-30
 
 ### Fixed
 - **`browser.timeout_ms` now governs resolving an element, and navigation — not only the
