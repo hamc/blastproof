@@ -25,6 +25,14 @@ An `assert` judgment SHALL be made against the **step** being executed, with the
 - **WHEN** an `assert` judgment returns fail
 - **THEN** the executor records the result and retries within the per-step retry budget, failing the step when the budget is exhausted
 
+#### Scenario: Placeholder resolved at action time
+- **WHEN** a fill action carries `{{env.TEST_PASSWORD}}` as its value
+- **THEN** the environment value is substituted immediately before typing
+
+#### Scenario: Navigation outside the allowed origins
+- **WHEN** a navigate action resolves to an origin that is neither the application's nor declared
+- **THEN** the action fails and the step records the rejection
+
 ## ADDED Requirements
 
 ### Requirement: A step's outcome cannot be satisfied by substituting an easier claim
