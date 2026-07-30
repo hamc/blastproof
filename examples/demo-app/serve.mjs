@@ -46,11 +46,65 @@ async function handleSupportTicket(req, res) {
   res.end();
 }
 
+// Server-held state for examples/demo-app/notes.html. In memory and reset by a
+// restart, which is what makes it usable as a reproduction: a run's effect on
+// it is observable (`GET /notes` lists what was added) and does not survive
+// into the next run.
+const notes = [];
+
+/**
+ * Renders notes.html with the notes currently on file. Server-side rather than
+ * in the page on purpose (design contained-recovery, D4): a duplicate write has
+ * to be *visible* as a second entry, and a client-side list would show the
+ * retry without showing the second write.
+ */
+async function renderNotes(res) {
+  const template = await readFile(path.join(root, 'notes.html'), 'utf8');
+  const items = notes.map((note) => `<li>${escapeHtml(note)}</li>`).join('');
+  const body = template.replace('__NOTES__', items).replace('__COUNT__', String(notes.length));
+  res.writeHead(200, { 'content-type': MIME['.html'] });
+  res.end(body);
+}
+
+function escapeHtml(text) {
+  return text.replace(
+    /[&<>"']/g,
+    (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch],
+  );
+}
+
+/**
+ * The mutation that erases its own evidence: reads the POSTed note, waits as
+ * the support flow does, appends it, then redirects back to the page the form
+ * is on — which comes back with the form empty. The POST -> [delay] -> 302 ->
+ * GET shape is the same as `handleSupportTicket`; the difference that matters
+ * is the destination (design contained-recovery, D4).
+ */
+async function handleAddNote(req, res) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const note = new URLSearchParams(Buffer.concat(chunks).toString('utf8')).get('note')?.trim() ?? '';
+
+  await new Promise((resolve) => setTimeout(resolve, SUPPORT_TICKET_DELAY_MS));
+
+  if (note !== '') notes.push(note);
+  res.writeHead(302, { location: '/notes' });
+  res.end();
+}
+
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     if (req.method === 'POST' && url.pathname === '/support/ticket') {
       await handleSupportTicket(req, res);
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/notes/add') {
+      await handleAddNote(req, res);
+      return;
+    }
+    if (req.method === 'GET' && (url.pathname === '/notes' || url.pathname === '/notes.html')) {
+      await renderNotes(res);
       return;
     }
     let file = path.normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');

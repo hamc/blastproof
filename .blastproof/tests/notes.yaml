@@ -1,0 +1,9 @@
+summary: Adding an order note lists it and updates the count
+priority: P1
+tags: [notes]
+routes: ["/notes"]
+steps:
+  - navigate to /notes
+  - fill the note field with Check the invoice
+  - submit the add-note form and verify the note "Check the invoice" appears in the notes list
+  - verify the heading shows one note on file

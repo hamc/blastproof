@@ -12,6 +12,7 @@ import { computeScore, formatIncompleteLine, formatScoreLine } from '../report/s
 import type { PageLike } from '../runner/actions.js';
 import { BudgetExhaustedError, estimateMaxModelCalls, RunBudget, type RunBudgetOptions } from '../runner/budget.js';
 import { MissingEnvError, SecretsMask, substituteEnv } from '../runner/env.js';
+import { describeAction } from '../runner/recovery.js';
 import {
   DEFAULT_MAX_ITERATIONS_PER_STEP,
   executeTest,
@@ -179,9 +180,7 @@ function printEvent(event: ExecutorEvent): void {
       break;
     case 'action': {
       const { action, result } = event;
-      const target = action.target ? ` ${action.target.role ?? ''} "${action.target.name ?? action.target.text ?? ''}"` : '';
-      const value = action.value ? ` [${action.value}]` : '';
-      console.log(`    -> ${action.action}${target}${value} :: ${result}`);
+      console.log(`    -> ${describeAction(action)} :: ${result}`);
       break;
     }
     case 'step-end':

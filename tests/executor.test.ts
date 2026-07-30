@@ -4,10 +4,12 @@ import path from 'node:path';
 import type { Page } from 'playwright';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentBrain } from '../src/llm/brain.js';
+import type { AgentIterationInput } from '../src/llm/prompts.js';
 import type { AgentAction, AssertJudgment } from '../src/llm/schemas.js';
 import { performAction, resolveTarget, type LocatorLike, type PageLike } from '../src/runner/actions.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
 import { executeTest, SETTLE_TIMEOUT_MS, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
+import { describeAction, StepRecovery } from '../src/runner/recovery.js';
 import { captureSnapshot, trimSnapshot } from '../src/runner/snapshot.js';
 import type { TestFile } from '../src/runner/testfile.js';
 
@@ -1082,6 +1084,249 @@ describe('screenshot naming', () => {
       expect(new Set(shots).size).toBe(2);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- contained recovery -------------------------------------------------------
+//
+// A failing step used to write to the application under test more than once:
+// the commit succeeded, the redirect returned the same page with the form
+// reset, the judge read that as "nothing happened", and recovery submitted
+// again — twice on Gitea, and on our own demo app with a value the model
+// invented (#28). These pin the guarantee that replaced that.
+
+describe('executeTest recovery containment', () => {
+  /** A brain whose every `nextAction` input is captured, for prompt assertions. */
+  function recordingBrain(
+    script: AgentAction[],
+    judgments: AssertJudgment[],
+  ): AgentBrain & { inputs: AgentIterationInput[] } {
+    let calls = 0;
+    let judged = 0;
+    const inputs: AgentIterationInput[] = [];
+    return {
+      inputs,
+      async nextAction(input: AgentIterationInput): Promise<AgentAction> {
+        inputs.push(input);
+        const next = script[calls++];
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(): Promise<AssertJudgment> {
+        const next = judgments[judged++];
+        if (!next) throw new Error('judgment script exhausted');
+        return next;
+      },
+    };
+  }
+
+  const assertAction = (expectation = 'the note was added'): AgentAction => ({
+    action: 'assert',
+    reasoning: 'check',
+    expectation,
+  });
+
+  it('refuses a commit already performed in this step, once a judgment has failed', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    // The reproduction, in order: the commit succeeds, the judgment fails
+    // against the reset form, and the model proposes the identical click again.
+    const brain = recordingBrain(
+      [click('Add note'), assertAction(), click('Add note'), { action: 'fail', reasoning: 'gave up' }],
+      [
+        { pass: false, reason: 'the form is empty' },
+        { pass: false, reason: 'the form is empty' },
+      ],
+    );
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { onEvent: (e) => events.push(e) }));
+
+    // The second click never reached the page — one click, not two.
+    expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(1);
+    // And the model was told, rather than the step being failed outright.
+    const refusals = events.filter((e) => e.type === 'action' && e.result.startsWith('refused:'));
+    expect(refusals).toHaveLength(1);
+    expect(result.status).toBe('failed');
+  });
+
+  it('refuses a repeated commit even when no judgment has failed', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    // The exact sequence the demo-app reproduction produced with a real model:
+    // commit, re-fill, commit again, with no assertion anywhere in between.
+    // Scoping the guarantee to "after a failed judgment" left this untouched
+    // and the duplicate note was written — hence no such condition.
+    const fill = (value: string): AgentAction => ({
+      action: 'fill',
+      target: { role: 'textbox', name: 'Note' },
+      value,
+      reasoning: 'type',
+    });
+    page.visible.add('role:textbox|Note');
+    const brain = recordingBrain(
+      [click('Add note'), fill('Test note'), click('Add note'), { action: 'fail', reasoning: 'gave up' }],
+      [],
+    );
+    const events: ExecutorEvent[] = [];
+
+    await executeTest(page, makeTest(), baseOptions(brain, { onEvent: (e) => events.push(e) }));
+
+    expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'action' && e.result.startsWith('refused:'))).toHaveLength(1);
+  });
+
+  it('does not carry the record across step boundaries', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    const brain = recordingBrain(
+      [
+        // Step one commits and closes on a passing judgment; step two must then
+        // start with no memory of it. A failing step ends the test, so the
+        // boundary can only be observed across a step that succeeded.
+        click('Add note'),
+        assertAction(),
+        { action: 'done', reasoning: 'move on' },
+      ],
+      [{ pass: true, reason: 'fine' }],
+    );
+
+    await executeTest(page, makeTest({ steps: ['one', 'two'] }), baseOptions(brain));
+
+    // Two steps ran; the second saw an empty history rather than the first's.
+    const secondStepInputs = brain.inputs.filter((i) => i.step === 'two');
+    expect(secondStepInputs).not.toHaveLength(0);
+    expect(secondStepInputs[0]?.stepHistory ?? []).toHaveLength(0);
+  });
+
+  it('still allows navigate and fill while recovering', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Note');
+    const fill = (value: string): AgentAction => ({
+      action: 'fill',
+      target: { role: 'textbox', name: 'Note' },
+      value,
+      reasoning: 'type',
+    });
+    const brain = recordingBrain(
+      [
+        fill('a note'),
+        assertAction(),
+        // Recovering: restoring preconditions must remain possible, or the
+        // model loses its only way back to a usable state (design D1).
+        { action: 'navigate', value: '/notes', reasoning: 'go back' },
+        fill('a note'),
+        { action: 'fail', reasoning: 'gave up' },
+      ],
+      [
+        { pass: false, reason: 'not yet' },
+        { pass: false, reason: 'not yet' },
+      ],
+    );
+
+    await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(page.calls.filter((c) => c.startsWith('fill'))).toHaveLength(2);
+    expect(page.calls.filter((c) => c.startsWith('goto'))).toHaveLength(2); // initial goto + the navigate
+  });
+
+  it('fails the step on the retry budget rather than the iteration ceiling when refusals repeat', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    const brain = recordingBrain(
+      [click('Add note'), assertAction(), click('Add note'), click('Add note'), click('Add note')],
+      [
+        { pass: false, reason: 'no' },
+        { pass: false, reason: 'no' },
+      ],
+    );
+
+    const result = await executeTest(
+      page,
+      makeTest(),
+      baseOptions(brain, { maxRetries: 3, maxIterationsPerStep: 15 }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.reason).toContain('refused:');
+    expect(result.reason).not.toContain('exceeded');
+    expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(1);
+  });
+
+  it('records and compares a placeholder unresolved, and never retains the substituted value', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Sign in');
+    page.visible.add('role:textbox|Password');
+    const brain = recordingBrain(
+      [
+        { action: 'fill', target: { role: 'textbox', name: 'Password' }, value: '{{env.PW}}', reasoning: 'type' },
+        click('Sign in'),
+        assertAction(),
+        click('Sign in'),
+        { action: 'fail', reasoning: 'gave up' },
+      ],
+      [
+        { pass: false, reason: 'no' },
+        { pass: false, reason: 'no' },
+      ],
+    );
+
+    await executeTest(
+      page,
+      makeTest(),
+      baseOptions(brain, {
+        resolveValue: (v) => v.replace('{{env.PW}}', 's3cret'),
+        mask: (s) => s.replaceAll('s3cret', '***'),
+      }),
+    );
+
+    // The repeat was still caught even though the value the page received was
+    // substituted: identity is the unresolved payload.
+    expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(1);
+    const history = brain.inputs.flatMap((i) => i.stepHistory ?? []);
+    expect(history.some((h) => h.action.includes('{{env.PW}}'))).toBe(true);
+    expect(JSON.stringify(history)).not.toContain('s3cret');
+  });
+
+  it('shows the model what it already did in this step, masked', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Password');
+    const brain = recordingBrain(
+      [
+        { action: 'fill', target: { role: 'textbox', name: 'Password' }, value: 's3cret', reasoning: 'type s3cret' },
+        { action: 'done', reasoning: 'typed' },
+      ],
+      [],
+    );
+
+    await executeTest(page, makeTest(), baseOptions(brain, { mask: (s) => s.replaceAll('s3cret', '***') }));
+
+    // The second turn sees the first action; the secret is redacted on the same
+    // boundary as the snapshot and lastResult.
+    const secondTurn = brain.inputs[1];
+    expect(secondTurn?.stepHistory).toHaveLength(1);
+    expect(JSON.stringify(secondTurn?.stepHistory)).not.toContain('s3cret');
+    expect(secondTurn?.stepHistory?.[0]?.action).toContain('***');
+  });
+});
+
+describe('StepRecovery commit keys', () => {
+  const perform = (action: AgentAction) => {
+    const recovery = new StepRecovery();
+    recovery.record(action, describeAction(action), 'ok');
+    return recovery.refusalFor(action);
+  };
+
+  it('guards a repeated Enter, which submits', () => {
+    expect(perform({ action: 'press', value: 'Enter', reasoning: 'submit' })).toBeDefined();
+  });
+
+  it('leaves repeated navigation keys alone', () => {
+    // Walking a page with repeated Tab is legitimate repetition; guarding every
+    // `press` broke exactly that and is why COMMIT_KEYS exists.
+    for (const key of ['Tab', 'Escape', 'ArrowDown']) {
+      expect(perform({ action: 'press', value: key, reasoning: 'move' })).toBeUndefined();
     }
   });
 });

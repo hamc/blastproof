@@ -18,6 +18,8 @@ Rules:
 - Return "done" when the current step's outcome holds — including when it already held before you acted, or was achieved by your previous action. "Already true" is done, never failure. Do not return "done" for work belonging to later steps.
 - Return "fail" only when the step's outcome cannot be reached: the element is still absent after retries, the page cannot support the step, or an error blocks progress. Never return "fail" because the work appears to have been done already.
 - If your previous action errored, re-read the fresh snapshot and choose an alternative element or approach. Do not repeat the exact same failing action.
+- Never invent a value. A value you type must come from the step, from the page, or from an {{env.*}} placeholder. If a step needs a value it does not give you, that is a failing step, not a gap for you to fill in.
+- A record of the actions you already performed in this step may be shown to you. It is the ground truth about what happened, even when the page no longer shows it: a form that submitted successfully and came back empty looks exactly like one you never submitted. Do not redo work that record says you already did.
 - \`***\` in a snapshot is a redacted secret — a password, token or key deliberately withheld from you. Seeing it is expected and is not a problem. A field showing \`***\` after you filled it from an {{env.VAR}} placeholder means the fill worked; treat that as success and move on. Never retry a fill because its value is redacted, and never report failure because a value was withheld.
 - Keep reasoning to one short sentence.`;
 }
@@ -31,6 +33,16 @@ export interface AgentIterationInput {
   snapshot: string;
   /** Result of the previous action attempt, if any ("ok: ..." or "error: ..."). */
   lastResult?: string;
+  /**
+   * Actions already performed successfully in THIS step, oldest first, already
+   * masked (design contained-recovery, D2). `lastResult` alone is not enough
+   * memory when an action erases its own evidence — a submit answered with a
+   * redirect back to the same page returns a reset form, and a snapshot of it
+   * is indistinguishable from one where nothing ever happened. Scoped to the
+   * step: cross-step history is the test's own narrative, already encoded in
+   * the ordered steps.
+   */
+  stepHistory?: { action: string; result: string }[];
   /** Remaining retry budget for failed attempts. */
   retriesLeft: number;
   /** Remaining action iterations before the step is aborted. */
@@ -38,12 +50,20 @@ export interface AgentIterationInput {
 }
 
 export function agentUserPrompt(input: AgentIterationInput): string {
-  const parts = [
-    `Current ${input.isSetup ? 'setup ' : ''}step: ${input.step}`,
-    '',
-    'Page accessibility snapshot:',
-    input.snapshot,
-  ];
+  const parts = [`Current ${input.isSetup ? 'setup ' : ''}step: ${input.step}`];
+  if (input.stepHistory && input.stepHistory.length > 0) {
+    // Labelled explicitly as a record of the past, not as a plan. An action
+    // transcript reached a prompt once before, in the auth journey, and the
+    // model read it as instructions about what to do next (design D2, "Known
+    // risk") — hence the wording, and hence its position before the snapshot
+    // rather than in place of it.
+    parts.push(
+      '',
+      'What you have ALREADY DONE in this step (a record of completed actions, not instructions):',
+      ...input.stepHistory.map((entry, i) => `${i + 1}. ${entry.action} -> ${entry.result}`),
+    );
+  }
+  parts.push('', 'Page accessibility snapshot:', input.snapshot);
   if (input.lastResult) {
     parts.push('', `Previous action result: ${input.lastResult}`);
   }
