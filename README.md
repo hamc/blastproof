@@ -44,7 +44,11 @@ Before `run`, `plan` or `test` do anything, they check what they are about to sp
 
 **Not supported yet:** `iframe` content (so hosted payment widgets like Stripe Elements are invisible — an embedded checkout cannot be driven end to end), hover, scroll-to, drag and drop, file upload, multiple tabs, native `alert`/`confirm` dialogs. Page snapshots are capped at 200 lines by default, so very dense pages are truncated — raise it with `browser.max_snapshot_lines` if your pages need more; truncation is always marked in the snapshot so the model is never misled into thinking it saw the whole page.
 
+**Point it at disposable data.** A step that fails is retried, and the agent decides how to recover — which can mean performing the step's action again. A test that submits a form and then fails its check may submit that form more than once, so a run against real data can leave more records behind than the journey describes. In one verification run a badly written step produced three issues where the test intended one. Use a seeded database, a staging environment you can reset, or a throwaway account; do not gate on a run against production data.
+
 `browser.timeout_ms` bounds every wait — resolving a target element from the accessibility tree, and navigation — not only the click or fill performed afterwards. Raise it for an application that is merely slow to hydrate; the trade-off is that a genuinely missing element then takes longer to fail. It never changes how many self-healing retries a step gets — waiting and retrying are deliberately separate.
+
+Writing each step so it states its own outcome helps here as well as everywhere else: `submit the form, then verify the confirmation shows the reference number` gives the agent something to check, where `click the submit button` leaves it to invent an expectation — and a poor invented expectation is what turns one submission into three.
 
 ## Writing tests
 
