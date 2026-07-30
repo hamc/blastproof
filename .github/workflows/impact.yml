@@ -44,8 +44,17 @@ jobs:
         # Without this the job could only ever report, never fail — and a change
         # whose blast radius nobody declared would sail through green. Separate
         # from the step above so the report is visible even when this blocks.
+        #
+        # `--dry-run` is required here, not optional. Without it this is a real
+        # agentic run in a workflow that deliberately holds no API key, and it
+        # only ever passed because it never reached that point: an unclassified
+        # file makes `--fail-on-unmapped` exit before the model is touched. The
+        # first pull request in which everything was classified took the happy
+        # path for the first time and failed on a missing key — the gate's
+        # success path had never run.
         run: |
           node dist/cli.js run \
             --impacted \
             --base "origin/${{ github.event.pull_request.base.ref }}" \
-            --fail-on-unmapped
+            --fail-on-unmapped \
+            --dry-run
