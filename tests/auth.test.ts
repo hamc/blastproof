@@ -265,6 +265,91 @@ describe('authenticate: steps strategy', () => {
     ).rejects.toThrow(/could not be verified/);
   });
 
+  // design judge-the-step, task 2.4: `auth.verify` is already written as an
+  // outcome ("a signed-in indicator is visible"), so it is passed as BOTH the
+  // step and the expectation — not paired with a manufactured transcript of
+  // the login steps. An earlier version built the step from the joined
+  // action list ("complete the login journey: navigate to /login; fill
+  // username; ..."); against a real model that inverted the fix: anchored on
+  // a step describing *actions on the login page*, the judge correctly
+  // refused to call them verified once a successful login had navigated away
+  // from that page. `auth.verify` never describes actions, so there is
+  // nothing to hold apart from it here the way an executor `assert` holds its
+  // step apart from the model's own expectation.
+  it('passes auth.verify as both the step and the expectation (task 2.4)', async () => {
+    let seenStep = '';
+    let seenExpectation = '';
+    const brain: AgentBrain = {
+      async nextAction() {
+        return { action: 'done' as const, reasoning: 'signed in' };
+      },
+      async judge(step: string, expectation: string) {
+        seenStep = step;
+        seenExpectation = expectation;
+        return { pass: true, reason: 'signed in' };
+      },
+    };
+
+    await authenticate(
+      options(
+        { steps: ['navigate to /login', 'fill username', 'submit'], verify: 'a signed-in indicator is visible', cache: false },
+        brain,
+      ),
+    );
+
+    expect(seenStep).toBe('a signed-in indicator is visible');
+    expect(seenExpectation).toBe('a signed-in indicator is visible');
+  });
+
+  // Regression for the defect above, confirmed against a real model: a judge
+  // fake that decides from the STEP (as anchoring is supposed to make
+  // possible) rather than the expectation, evaluated against a snapshot that
+  // has already navigated away from the login page — exactly what a
+  // successful login produces. The old transcript-shaped step named actions
+  // on a page the judge is no longer looking at ("navigate to /login, fill
+  // username, ...") and a step-anchored judge correctly failed it; the fixed
+  // step (`auth.verify` itself) describes the outcome that snapshot actually
+  // shows, so a step-anchored judge must pass it. This test is the one that
+  // would have caught the regression: the earlier `auth.test.ts` only ever
+  // exercised a judge deciding from the expectation, which stayed green while
+  // the real model failed.
+  it('a step-anchored judge still passes a successful login, on a post-login snapshot that no longer shows the login page', async () => {
+    const postLoginSnapshot = '- main:\n  - heading "Good afternoon, evaluser"\n  - list "Projects":\n    - listitem: Inbox';
+    const page = fakeSnapshotPage(postLoginSnapshot);
+    const browser = fakeBrowserWithPage(page);
+    const brain: AgentBrain = {
+      async nextAction() {
+        return { action: 'done' as const, reasoning: 'signed in' };
+      },
+      // Decides from the STEP, not the expectation — the anchoring the fix
+      // enables. If `step` names actions on the login page (the regression:
+      // a transcript-shaped step), it fails regardless of what the snapshot
+      // shows, exactly like the real model did — a post-login snapshot has
+      // navigated away from /login, so "navigate to /login, fill username,
+      // submit" cannot be evidenced there even though the outcome holds. Only
+      // once the step IS the outcome (the fix) can this judge pass it.
+      async judge(step: string, _expectation: string, snapshot: string) {
+        const describesActionsOnLoginPage = /navigate to \/login|fill username|submit/.test(step);
+        if (describesActionsOnLoginPage) {
+          return { pass: false, reason: `step names login-page actions not evidenced in: ${snapshot}` };
+        }
+        const outcomeShown = snapshot.includes('Good afternoon');
+        return { pass: outcomeShown, reason: outcomeShown ? 'signed-in heading visible' : 'no signed-in evidence' };
+      },
+    };
+
+    const session = await authenticate({
+      ...options(
+        { steps: ['navigate to /login', 'fill username', 'submit'], verify: 'a signed-in indicator is visible', cache: false },
+        brain,
+        browser,
+      ),
+      snapshot: undefined, // exercise the real default snapshotter against postLoginSnapshot
+    });
+
+    expect(session.storageState).toEqual(CAPTURED);
+  });
+
   it('does not abort with AuthError when the login journey ends on a passing assertion', async () => {
     // Single-step journey: if the executor still `continue`d past a passing
     // assertion, this step's second nextAction call would return `fail` and
@@ -380,7 +465,7 @@ describe('authenticate: steps strategy', () => {
       async nextAction() {
         return { action: 'done', reasoning: 'ok' };
       },
-      async judge(_expectation, snapshot) {
+      async judge(_step, _expectation, snapshot) {
         judgeSnapshot = snapshot;
         return { pass: true, reason: 'ok' };
       },

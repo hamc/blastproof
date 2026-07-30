@@ -689,6 +689,266 @@ describe('a failed judgment re-observes before the model re-decides (task group 
   });
 });
 
+// --- judge-the-step: the step is the question, the expectation is the claim
+// offered in support (design D1); an entered value is not a committed one
+// (design D2) --------------------------------------------------------------
+
+/**
+ * A judge fake that decides from the STEP's own quoted target rather than
+ * from whatever the model's expectation claims — the anchoring the fix is
+ * supposed to make possible. `expectation` is only echoed into the reason,
+ * mirroring design D1: useful context, not the question. A match only counts
+ * if it sits outside a line naming an editable, unsubmitted control (design
+ * D2) — a plain heuristic stand-in for "entered is not committed".
+ */
+function stepAnchoredJudge(step: string, expectation: string, snapshot: string): AssertJudgment {
+  const target = /"([^"]+)"/.exec(step)?.[1] ?? '';
+  const committedLine = snapshot
+    .split('\n')
+    .find((line) => target.length > 0 && line.includes(target) && !/textbox|dialog/i.test(line));
+  return committedLine
+    ? { pass: true, reason: `"${target}" is committed: ${committedLine.trim()} (offered: ${expectation})` }
+    : { pass: false, reason: `"${target}" is not committed outside an editable control (offered: ${expectation})` };
+}
+
+describe('judge-the-step: the step is the question (task group 2/3, #31)', () => {
+  it(
+    'fails the step when the offered expectation is true of the page but does not establish the step ' +
+      '(task 4.1 — the "Show Archived checkbox" substitution)',
+    async () => {
+      const page = new FakePage();
+      const step = 'verify "Eval Gamma Project" is visible in the projects list';
+      // The snapshot genuinely lacks the project; it does contain something
+      // else that is true — exactly the shape of the observed defect.
+      const snapshot = [
+        '- main:',
+        '  - list "Projects":',
+        '    - listitem: Inbox',
+        '    - listitem: My Open Tasks',
+        '  - checkbox "Show Archived"',
+      ].join('\n');
+      const receivedSteps: string[] = [];
+      const brain: AgentBrain = {
+        async nextAction() {
+          // True of the snapshot, and unrelated to what the step asks —
+          // the claim that closed the step in the observed defect.
+          return { action: 'assert', reasoning: 'checking', expectation: 'the Show Archived checkbox is visible' };
+        },
+        async judge(receivedStep, expectation, snap) {
+          receivedSteps.push(receivedStep);
+          return stepAnchoredJudge(receivedStep, expectation, snap);
+        },
+      };
+
+      const result = await executeTest(
+        page,
+        makeTest({ steps: [step] }),
+        baseOptions(brain, { snapshot: async () => snapshot, maxRetries: 1 }),
+      );
+
+      // Fails against current code (task 4.6): `judge()` never receives the
+      // step there, so this capture would hold the *expectation* text instead.
+      expect(receivedSteps[0]).toBe(step);
+      expect(result.status).toBe('failed');
+      expect(result.steps[0]?.status).toBe('failed');
+    },
+  );
+
+  it(
+    'fails the step when a claim is satisfied only by a value sitting in an uncommitted control ' +
+      '(task 4.2 — the unsubmitted "New project" dialog)',
+    async () => {
+      const page = new FakePage();
+      const step = 'verify "Eval Gamma Project" is visible in the projects list';
+      // The title exists on the page, but only inside the unsubmitted dialog's
+      // own textbox — never committed to the list itself.
+      const snapshot = [
+        '- main:',
+        '  - list "Projects":',
+        '    - listitem: Inbox',
+        '  - dialog "New project":',
+        '    - textbox "Title": Eval Gamma Project',
+      ].join('\n');
+      const receivedSteps: string[] = [];
+      const brain: AgentBrain = {
+        async nextAction() {
+          return {
+            action: 'assert',
+            reasoning: 'checking',
+            expectation: 'the Title textbox shows "Eval Gamma Project"',
+          };
+        },
+        async judge(receivedStep, expectation, snap) {
+          receivedSteps.push(receivedStep);
+          return stepAnchoredJudge(receivedStep, expectation, snap);
+        },
+      };
+
+      const result = await executeTest(
+        page,
+        makeTest({ steps: [step] }),
+        baseOptions(brain, { snapshot: async () => snapshot, maxRetries: 1 }),
+      );
+
+      expect(receivedSteps[0]).toBe(step);
+      expect(result.status).toBe('failed');
+      expect(result.steps[0]?.reason).toContain('not committed outside an editable control');
+    },
+  );
+
+  it(
+    "a legitimate second attempt still passes once the step's own outcome holds — re-observation " +
+      '(trustworthy-verdicts) is not undone by anchoring on the step (task 4.3)',
+    async () => {
+      const page = new FakePage();
+      const step = 'verify "Eval Gamma Project" is visible in the projects list';
+      const staleSnapshot = ['- main:', '  - list "Projects":', '    - listitem: Inbox'].join('\n');
+      const settledSnapshot = [
+        '- main:',
+        '  - list "Projects":',
+        '    - listitem: Inbox',
+        '    - listitem: Eval Gamma Project',
+      ].join('\n');
+      let snapshotCalls = 0;
+      const receivedSteps: string[] = [];
+      const brain: AgentBrain = {
+        async nextAction() {
+          return {
+            action: 'assert',
+            reasoning: 'checking',
+            expectation: '"Eval Gamma Project" appears in the projects list',
+          };
+        },
+        async judge(receivedStep, expectation, snap) {
+          receivedSteps.push(receivedStep);
+          return stepAnchoredJudge(receivedStep, expectation, snap);
+        },
+      };
+
+      const result = await executeTest(
+        page,
+        makeTest({ steps: [step] }),
+        baseOptions(brain, {
+          snapshot: async () => {
+            snapshotCalls++;
+            return snapshotCalls === 1 ? staleSnapshot : settledSnapshot;
+          },
+        }),
+      );
+
+      expect(result.status).toBe('passed');
+      expect(result.steps[0]?.status).toBe('passed');
+      // Both the primary judgment and the re-observation received the SAME
+      // step — anchoring on the step is not a one-shot check.
+      expect(receivedSteps).toHaveLength(2);
+      expect(receivedSteps[0]).toBe(step);
+      expect(receivedSteps[1]).toBe(step);
+    },
+  );
+
+  it("the model's expectation and the judge's reason are still recorded and reported (task 4.5)", async () => {
+    const page = new FakePage();
+    const brain = scriptedBrain(
+      [{ action: 'assert', reasoning: 'checking totals', expectation: 'total shows $80' }],
+      [{ pass: true, reason: 'a $80 total line is visible' }],
+    );
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { onEvent: (e) => events.push(e) }));
+
+    expect(result.status).toBe('passed');
+    const actionEvent = events.find((e) => e.type === 'action');
+    expect(actionEvent?.type).toBe('action');
+    if (actionEvent?.type === 'action') {
+      // The model's own expectation is still on the emitted action...
+      expect(actionEvent.action.expectation).toBe('total shows $80');
+      // ...and the judge's reason still ends up in the reported result string.
+      expect(actionEvent.result).toContain('a $80 total line is visible');
+    }
+  });
+
+  // Regression #2, found only against a real model after the first two unit
+  // suites went green (the auth.verify fix above was regression #1): anchoring
+  // on the step made an ACTION-shaped step ("submit the login form") fail
+  // exactly when it succeeded, because succeeding is what makes the form the
+  // step names disappear. `stepAnchoredJudge` above models entered-vs-committed
+  // (design D2) but not this — it would have found nothing to match once the
+  // login form's own controls were gone, and failed here too. This one models
+  // the added clause instead: an action-shaped step is satisfied by the
+  // absence of a failure signal, not by the continued presence of its own
+  // named control.
+  function actionOutcomeJudge(step: string, expectation: string, snapshot: string): AssertJudgment {
+    const failureSignal = /error|invalid|validation/i.test(snapshot);
+    return failureSignal
+      ? { pass: false, reason: `snapshot shows a failure signal for "${step}" (offered: ${expectation})` }
+      : { pass: true, reason: `no failure signal; "${step}" is treated as having taken effect (offered: ${expectation})` };
+  }
+
+  it(
+    'passes an action-shaped step once its own named control is gone from a page showing no failure signal ' +
+      '(the "submit the login form" regression — a successful action, not an unverifiable one)',
+    async () => {
+      const page = new FakePage();
+      const step = 'submit the login form';
+      // The login form is gone; the page has moved on to a signed-in
+      // dashboard — exactly what a successful submission produces, and
+      // exactly the shape that failed against a real model when the judge
+      // required the form's own controls to still be present.
+      const snapshot = [
+        '- main:',
+        '  - heading "Good afternoon, ***"',
+        '  - list "Projects":',
+        '    - listitem: Inbox',
+      ].join('\n');
+      const receivedSteps: string[] = [];
+      const brain: AgentBrain = {
+        async nextAction() {
+          return { action: 'assert', reasoning: 'checking', expectation: 'the login form has been submitted' };
+        },
+        async judge(receivedStep, expectation, snap) {
+          receivedSteps.push(receivedStep);
+          return actionOutcomeJudge(receivedStep, expectation, snap);
+        },
+      };
+
+      const result = await executeTest(page, makeTest({ steps: [step] }), baseOptions(brain, { snapshot: async () => snapshot }));
+
+      expect(receivedSteps[0]).toBe(step);
+      expect(result.status).toBe('passed');
+    },
+  );
+
+  it('still fails an action-shaped step when the page shows an explicit failure signal, not merely a changed one', async () => {
+    // Kept narrow (task 3.2-style guard, applied to this third clause too):
+    // a real failure signal must still fail the step — this must not become
+    // "any page change (or none) means the step passed".
+    const page = new FakePage();
+    const step = 'submit the login form';
+    const snapshot = [
+      '- main:',
+      '  - alert "Invalid username or password"',
+      '  - textbox "Username Or Email Address"',
+      '  - textbox "Password"',
+    ].join('\n');
+    const brain: AgentBrain = {
+      async nextAction() {
+        return { action: 'assert', reasoning: 'checking', expectation: 'the login form has been submitted' };
+      },
+      async judge(step, expectation, snap) {
+        return actionOutcomeJudge(step, expectation, snap);
+      },
+    };
+
+    const result = await executeTest(page, makeTest({ steps: [step] }), baseOptions(brain, {
+      snapshot: async () => snapshot,
+      maxRetries: 1,
+    }));
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]?.reason).toContain('failure signal');
+  });
+});
+
 // --- browser-patience: the snapshot cap is configurable (task 3.1/3.2/3.3) -------
 
 describe('the accessibility snapshot cap is configurable', () => {

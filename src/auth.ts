@@ -222,8 +222,24 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
 
     // Optional post-login check: turns N mysterious test failures into one message (D5).
     if (auth.verify) {
-      // The login page is the one most likely to be rendering a credential.
-      const judgment = await brain.judge(auth.verify, mask.mask(await takeSnapshot(page)));
+      // `auth.verify` is passed as BOTH the step and the expectation here — this
+      // is deliberate, not a copy-paste mistake (design judge-the-step, task 2.4).
+      //
+      // An earlier version built the step from the login journey's own action
+      // list ("complete the login journey: navigate to /login; fill username;
+      // fill password; submit"), keeping `auth.verify` as the expectation. Against
+      // a real model that inverted the fix: anchored on that step, the judge went
+      // looking for evidence the *actions* had happened — but a successful login
+      // navigates away from /login, so the very steps ("navigate to /login, fill
+      // username, ...") describe a page the judge is no longer looking at, and it
+      // correctly (by its new instructions) refused to call unverifiable actions
+      // verified. `auth.verify` is not a transcript of actions; it is already
+      // written as the outcome to check ("a signed-in indicator is visible") —
+      // exactly what the step is supposed to be everywhere else in this design.
+      // There is no separate model-generated claim here the way an executor
+      // `assert` has one, so there is nothing to hold apart from it: the
+      // configured text is both the question and the claim offered for it.
+      const judgment = await brain.judge(auth.verify, auth.verify, mask.mask(await takeSnapshot(page)));
       if (!judgment.pass) {
         throw new AuthError(`Authentication could not be verified: ${mask.mask(judgment.reason)}`);
       }

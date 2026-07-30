@@ -277,13 +277,17 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
 
         if (action.action === 'assert') {
           const expectation = action.expectation ?? action.reasoning;
-          // Same boundary: the judge is a prompt too.
-          let judgment = await brain.judge(mask(expectation), mask(snap));
+          // The step is the question; the expectation is only the claim
+          // offered in support of it (design judge-the-step, D1) — a passing
+          // expectation that does not establish the step's own outcome must
+          // not close the step. Same masking boundary as everything else that
+          // crosses into a prompt: the step text too (design D1, task 2.5).
+          let judgment = await brain.judge(mask(step), mask(expectation), mask(snap));
           if (!judgment.pass) {
             // Re-observe before handing control back to the model (design D3):
             // the settle wait above is bounded and can time out silently, so a
             // failed judgment can still land on a page mid-navigation. Look
-            // again — a fresh settle wait, a fresh snapshot, the SAME
+            // again — a fresh settle wait, a fresh snapshot, the SAME step and
             // expectation re-judged — before concluding it really failed. This
             // is the loop doing what its own comment used to only claim: the
             // old code said a failed judgment "may just mean the page hasn't
@@ -291,7 +295,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             // is what let the model invent an action instead of looking again.
             await waitForSettled(page);
             const freshSnap = await takeSnapshot(page);
-            judgment = await brain.judge(mask(expectation), mask(freshSnap));
+            judgment = await brain.judge(mask(step), mask(expectation), mask(freshSnap));
           }
           const result = judgment.pass
             ? `ok: assertion passed: ${judgment.reason}`

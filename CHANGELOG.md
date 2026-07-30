@@ -3,6 +3,30 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [Unreleased]
+
+### Fixed
+- **A wrong PASS.** An outside evaluation ran blastproof against a real Vikunja instance with a test
+  that created a project and verified it appeared in the projects list, and got `Score: 100` twice —
+  while Vikunja's own database, checked directly, showed the project was never created either time.
+  The judge deciding an `assert` never saw the step it belonged to, only the model's own expectation
+  for that turn, so a claim that was true and irrelevant could close a step whose real assertion had
+  already failed. Two distinct malfunctions were observed against the same test: once, a step failed
+  correctly and the model's next turn offered an unrelated true claim ("the 'Show Archived' checkbox
+  is visible") that the judge passed, ending the step; separately, a project title sitting in an
+  unsubmitted "New project" dialog's own textbox satisfied a paraphrase of "visible in the projects
+  list". The judge is now given the step as the question it must answer, with the model's expectation
+  offered alongside it as the claim in support — a claim that is true of the page but does not
+  establish the step's own outcome no longer passes it, and a value present only in an uncommitted
+  control (typed, not yet submitted) is not accepted as the committed outcome a step describes.
+  `auth.verify`'s judgment now anchors on the login journey the same way.
+
+  **This is a behavioural change, not only a bugfix.** A test whose steps do not state their own
+  outcome had less for the old, unanchored judge to get wrong, and gets less benefit of the doubt now:
+  a vague step ("check it worked") may start failing where it previously passed. That is the intended
+  direction — a step that names the outcome it expects was already the recommended shape, and is now
+  load-bearing rather than merely advisable.
+
 ## [0.5.0] — 2026-07-30
 
 ### Fixed
