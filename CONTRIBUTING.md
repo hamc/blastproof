@@ -19,6 +19,8 @@ Specs use `SHALL` requirements, each with at least one `WHEN`/`THEN` scenario. S
 
 For small, obvious fixes — a typo, a broken link, a wrong error message — open a pull request directly and say so. Judgment is welcome; the rule exists to keep behaviour and specification from drifting, not to add ceremony.
 
+**Do not edit `CHANGELOG.md`.** It is written at release time by whoever cuts the release. Every pull request that touches it edits the same top section, so it conflicts with every other pull request that does — two open ones already did. Describe the change in the pull request instead; that is what the entry gets written from.
+
 ## Getting set up
 
 ```bash

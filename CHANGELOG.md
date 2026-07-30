@@ -3,6 +3,35 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.7.0] — 2026-07-30
+
+### Fixed
+- **A failing step could write to the application under test more than once, and could write data
+  nobody wrote a test for.** The shape behind it: a form is submitted, the server answers with a
+  redirect back to the same page, and the form comes back reset. The state that proves the submit
+  succeeded is exactly the state the submit destroys, so the snapshot after a successful submit is
+  indistinguishable from one where nothing happened. The agent, which sees only the page and its own
+  last result, submits again — and, observed twice, invents a value to type first. Reproduced on
+  three applications with two models: Gitea (three issues where the test intended one), an external
+  task manager, and a page added to this repository's demo app for the purpose, where a *negative*
+  test whose intended outcome was that nothing happens left a record behind called
+  `This is a test note`, a string in no test file, no page and no config.
+
+  Within a step, an action that commits — a click, or pressing a key that activates a control — is
+  no longer performed twice. The runner refuses the repeat and returns the refusal to the agent as
+  that action's result. The agent is also shown the actions it has already performed in the current
+  step, which is the underlying cause: it was being asked to act on a state whose history it could
+  not see. Verified against the demo app's own state rather than the tool's report: the negative
+  test now leaves zero records (was one), the positive test one (was two), and a well-written
+  version of the same test passes with a single record.
+
+  **This is not a guarantee of zero duplicate writes.** An agent that reaches the same effect
+  through a genuinely different control is still not caught, and a legitimate retry — a commit that
+  landed but had no effect — is refused as well, because from the accessibility tree that case is
+  indistinguishable from a commit whose evidence a redirect erased. A refused retry costs a visible
+  failed step; an allowed duplicate costs a silent row in someone's database. Keep pointing runs at
+  disposable data.
+
 ## [0.6.0] — 2026-07-30
 
 ### Fixed
