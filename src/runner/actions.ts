@@ -21,6 +21,24 @@ export interface PageLike {
   keyboard: { press(key: string): Promise<void> };
   screenshot(options: { path: string; fullPage?: boolean }): Promise<unknown>;
   url(): string;
+  /**
+   * Waits for the page to reach the given load state, bounded by `timeout`
+   * (design D1/D2, trustworthy-verdicts). Signature matches Playwright's own
+   * `page.waitForLoadState`, so a real `Page` satisfies this with no adapter.
+   *
+   * Required, not optional (design D2): `PageLike` is *implemented* by every
+   * test double rather than passed as options, so an optional method here is
+   * exactly the shape that let `timeoutMs` and `budget` go silently unset at
+   * one call site while every other one set them — a no-op fake is at least
+   * visible in that fake; an absent method is invisible everywhere. A page
+   * double that cannot say when it settled cannot support a trustworthy
+   * verdict.
+   *
+   * Rejects on timeout, exactly like Playwright — this primitive stays
+   * honest about what happened. `executor.ts`'s settling helper is what
+   * decides that exceeding the budget is normal and silent, not this method.
+   */
+  waitForLoadState(state: 'networkidle', options?: { timeout?: number }): Promise<void>;
 }
 
 export class ActionError extends Error {

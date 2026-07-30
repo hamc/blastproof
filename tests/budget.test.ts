@@ -89,16 +89,16 @@ function getError(fn: () => void): BudgetExhaustedError {
 }
 
 describe('estimateMaxModelCalls', () => {
-  it('is steps times (the iteration ceiling plus the retry budget)', () => {
-    // One test, 3 steps, N=15, R=3: 3 * (15 + 3) = 54.
+  it('is steps times (the iteration ceiling, the retry budget, and the lesser of the two)', () => {
+    // One test, 3 steps, N=15, R=3: 3 * (15 + 3 + min(15,3)) = 3 * 21 = 63.
     const ceiling = estimateMaxModelCalls([{ steps: ['a', 'b', 'c'] }], 15, 3);
-    expect(ceiling).toBe(54);
+    expect(ceiling).toBe(63);
   });
 
   it('counts setup steps alongside main steps', () => {
     const ceiling = estimateMaxModelCalls([{ setup: ['sign in'], steps: ['a', 'b'] }], 10, 3);
-    // 3 total steps * (10 + 3) = 39.
-    expect(ceiling).toBe(39);
+    // 3 total steps * (10 + 3 + min(10,3)) = 3 * 16 = 48.
+    expect(ceiling).toBe(48);
   });
 
   it('sums across every test in the selection', () => {
@@ -107,8 +107,8 @@ describe('estimateMaxModelCalls', () => {
       5,
       2,
     );
-    // 3 total steps * (5 + 2) = 21.
-    expect(ceiling).toBe(21);
+    // 3 total steps * (5 + 2 + min(5,2)) = 3 * 9 = 27.
+    expect(ceiling).toBe(27);
   });
 
   it('is zero for an empty selection', () => {
@@ -120,7 +120,9 @@ describe('estimateMaxModelCalls', () => {
     const low = estimateMaxModelCalls([{ steps: ['a'] }], 15, 1);
     const high = estimateMaxModelCalls([{ steps: ['a'] }], 15, 20);
     expect(high).toBeGreaterThan(low);
-    expect(high - low).toBe(19);
+    // N=15: low = 15+1+1 = 17, high = 15+20+15 = 50. The gap widened from 19 to
+    // 33 when a failing assert began costing a re-judgment too (design D3).
+    expect(high - low).toBe(33);
   });
 });
 
@@ -170,7 +172,18 @@ describe('estimateMaxModelCalls bounds the real executor (DEF-001 regression)', 
       tags: [],
     };
 
-    const fakePage = { goto: async () => {}, screenshot: async () => {} } as unknown as PageLike;
+    const fakePage = {
+      goto: async () => {},
+      screenshot: async () => {},
+      // Settles immediately: this file's tests are about budget accounting,
+      // not settling timing (trustworthy-verdicts design D2 — required, not
+      // optional, so every PageLike double must still provide it).
+      waitForLoadState: async () => {},
+      // `waitForSettled` reads the URL before and after settling to decide
+      // whether a navigation started; a double without it fails the step
+      // before the brain is ever called, which reads as "zero calls made".
+      url: () => 'http://localhost:4173/',
+    } as unknown as PageLike;
 
     const result = await executeTest(fakePage, test, {
       brain: adversarialBrain,
@@ -188,9 +201,14 @@ describe('estimateMaxModelCalls bounds the real executor (DEF-001 regression)', 
     const ceiling = estimateMaxModelCalls([test], N, R);
 
     expect(ceiling).toBeGreaterThanOrEqual(actualCalls);
-    // Tight, not just sufficient: this is exactly N + R for one step, matching
-    // the derivation and DEF-001's own measurement (15 + 20 = 35).
-    expect(actualCalls).toBe(N + R);
-    expect(ceiling).toBe(N + R);
+    // Tight, not just sufficient: exactly N + R + min(N, R) for one step.
+    // The third term is the re-judgment a failed assertion now triggers before
+    // control returns to the model (design D3, trustworthy-verdicts), so each
+    // failing assert costs three calls rather than two:
+    //   2 malformed nextAction calls (R - N, spending retries only)
+    // + 3 iterations x (1 nextAction + 2 judge)
+    // = 11, which is 3 + 5 + min(3, 5).
+    expect(actualCalls).toBe(N + R + Math.min(N, R));
+    expect(ceiling).toBe(N + R + Math.min(N, R));
   });
 });

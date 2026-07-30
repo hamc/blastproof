@@ -87,6 +87,31 @@
     });
   }
 
+  // --- support ------------------------------------------------------------------
+  // The one flow with a genuine server round trip in this app (see
+  // examples/demo-app/serve.mjs). The form POST is intercepted here rather than
+  // left as a plain top-level navigation on purpose: Playwright's click() waits
+  // out any navigation *it* directly triggers (confirmed empirically — a plain
+  // <form method="post"> submit here would make click() itself absorb the
+  // server delay, so the very next snapshot would already be settled and could
+  // never reproduce the false-FAIL class from #25). Deferring the navigation to
+  // a fetch().then() callback — the same shape login already uses via
+  // `window.location.href`, but now with real network latency instead of an
+  // instant synchronous check — is what makes the window observable: the click
+  // returns immediately, and the redirect lands only once the delayed response
+  // arrives, exactly like Gitea's POST -> [delay] -> 302 -> GET.
+  var supportForm = document.getElementById('support-form');
+  if (supportForm) {
+    supportForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      fetch(supportForm.action, { method: 'POST', body: new FormData(supportForm) }).then(
+        function (response) {
+          window.location.href = response.url; // fetch follows the 302; response.url is the final page
+        },
+      );
+    });
+  }
+
   // --- cart -------------------------------------------------------------------
   var cartList = document.getElementById('cart-items');
   if (cartList) {

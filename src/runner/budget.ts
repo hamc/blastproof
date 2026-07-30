@@ -178,5 +178,20 @@ export function estimateMaxModelCalls(
     (sum, test) => sum + (test.setup?.length ?? 0) + test.steps.length,
     0,
   );
-  return totalSteps * (maxIterationsPerStep + maxRetriesPerStep);
+  // N + R + min(N, R), not N + R. A failing `assert` now costs three calls, not
+  // two: `nextAction`, the judgment, and the re-judgment the executor performs
+  // before handing control back to the model (design D3, trustworthy-verdicts).
+  //
+  // Maximising calls against the two independent budgets — iterations (N) and
+  // retries (R) — with a failing assert spending one of each for three calls, a
+  // malformed response spending a retry alone for one, and a plain action
+  // spending an iteration alone for one:
+  //   R >= N: N failing asserts (3N) + (R - N) malformed  = 2N + R
+  //   R <  N: R failing asserts (3R) + (N - R) actions     = N + 2R
+  // which is N + R + min(N, R) in both regimes.
+  //
+  // This must be kept in step with the executor: DEF-001 was an estimate that
+  // undershot, and an estimate that undershoots is worse than none, because a
+  // budget gets sized from it.
+  return totalSteps * (maxIterationsPerStep + maxRetriesPerStep + Math.min(maxIterationsPerStep, maxRetriesPerStep));
 }

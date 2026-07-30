@@ -16,9 +16,43 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
+// examples/demo-app/support.html POSTs here (via app.js's fetch, see the
+// comment there for why it is fetch-mediated rather than a plain form submit).
+// This is a genuine server round trip: request body read fully, a real
+// server-side delay, then a 302 redirect — the POST -> [delay] -> 302 -> GET
+// shape the rest of the app cannot produce, because its only other mutation
+// (login) redirects client-side via `window.location.href` after a
+// synchronous, instant check. 600ms is chosen because it is an order of
+// magnitude above the noise floor of a single `ariaSnapshot()` round trip over
+// CDP (single-digit to low-tens of milliseconds locally, confirmed while
+// building this), so the window opens reliably even under CI jitter, while
+// adding well under a second to one dogfood run.
+const SUPPORT_TICKET_DELAY_MS = 600;
+
+/**
+ * Handles the one server-side mutation in the demo app: reads the POSTed
+ * body (a genuine request, not a stub), waits `SUPPORT_TICKET_DELAY_MS` as a
+ * stand-in for real backend work, then redirects — reproducing the
+ * POST -> [delay] -> 302 -> GET shape from the Gitea false-FAIL report (#25).
+ */
+async function handleSupportTicket(req, res) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  void Buffer.concat(chunks).toString('utf8'); // read fully; body itself is unused by this demo
+
+  await new Promise((resolve) => setTimeout(resolve, SUPPORT_TICKET_DELAY_MS));
+
+  res.writeHead(302, { location: '/support-sent.html' });
+  res.end();
+}
+
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    if (req.method === 'POST' && url.pathname === '/support/ticket') {
+      await handleSupportTicket(req, res);
+      return;
+    }
     let file = path.normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
     if (file === '' || file.endsWith(path.sep)) file = path.join(file, 'index.html');
     let full = path.join(root, file);

@@ -32,12 +32,16 @@ routes:
   "examples/demo-app/checkout.html": ["/checkout"]
   "examples/demo-app/orders.html": ["/orders"]
   "examples/demo-app/account.html": ["/account"]
+  # The one flow with a genuine server-side round trip (POST -> delay -> 302),
+  # added to reproduce the false-FAIL class from #25 in our own dogfooding.
+  "examples/demo-app/support.html": ["/support"]
+  "examples/demo-app/support-sent.html": ["/support"]
   # Shared across every page: app.js holds all the business logic, style.css the
   # layout, serve.mjs the routing. A change to any of them can break any journey,
   # so each maps to the whole surface rather than to one page.
-  "examples/demo-app/app.js": ["/", "/login", "/cart", "/checkout", "/orders", "/account"]
-  "examples/demo-app/style.css": ["/", "/login", "/cart", "/checkout", "/orders", "/account"]
-  "examples/demo-app/serve.mjs": ["/", "/login", "/cart", "/checkout", "/orders", "/account"]
+  "examples/demo-app/app.js": ["/", "/login", "/cart", "/checkout", "/orders", "/account", "/support"]
+  "examples/demo-app/style.css": ["/", "/login", "/cart", "/checkout", "/orders", "/account", "/support"]
+  "examples/demo-app/serve.mjs": ["/", "/login", "/cart", "/checkout", "/orders", "/account", "/support"]
 
 # Files that cannot affect any page in the demo app.
 ignore:
