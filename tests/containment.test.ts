@@ -210,7 +210,7 @@ describe('secret boundary', () => {
         nextActionCalls++;
         return { action: 'assert' as const, reasoning: 'check', expectation: 'signed in' };
       },
-      async judge(_expectation, snapshot) {
+      async judge(_step, _expectation, snapshot) {
         judgedSnapshots.push(snapshot);
         // Fails on the first (stale) look only, forcing the internal
         // re-observation — the model is never asked a second time.
@@ -242,6 +242,60 @@ describe('secret boundary', () => {
     expect(judgedSnapshots).toHaveLength(2);
     expect(judgedSnapshots.join('\n')).not.toContain('reobserve-secret-777');
     delete process.env.CONTAINMENT_REOBSERVE_SECRET;
+  });
+
+  it('masks the step passed to judge() at both call sites, primary and re-observed (design judge-the-step, task 2.5/4.4)', async () => {
+    // judge() now receives the step alongside the expectation and snapshot
+    // (design D1): this must cross the same masking boundary as everything
+    // else that reaches a prompt, including on the internal re-observation
+    // that a failed judgment triggers (trustworthy-verdicts) — not only on
+    // the first look.
+    process.env.CONTAINMENT_STEP_SECRET = 'step-secret-4242';
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.CONTAINMENT_STEP_SECRET}}');
+    const { page } = fakePage();
+
+    const judgedSteps: string[] = [];
+    const brain: AgentBrain = {
+      async nextAction() {
+        return { action: 'assert' as const, reasoning: 'check', expectation: 'signed in' };
+      },
+      async judge(step: string) {
+        judgedSteps.push(step);
+        // Fails on the first (stale) look only, forcing the internal re-observation.
+        return { pass: judgedSteps.length > 1, reason: 'n/a' };
+      },
+    };
+
+    await executeTest(
+      page,
+      {
+        path: 't.yaml',
+        summary: 'x',
+        // The step text itself carries the raw secret value here (not a
+        // placeholder) to prove the boundary strips it regardless of how it
+        // got there — mirrors the sibling snapshot-masking test above.
+        steps: ['check that step-secret-4242 is shown'],
+        priority: 'P1',
+        tags: [],
+        routes: [],
+        auth: true,
+      },
+      {
+        brain,
+        sessionDir: '/tmp/none',
+        baseUrl: BASE,
+        mask: (t) => mask.mask(t),
+        timeoutMs: 30_000,
+        snapshot: async () => '- text "loading"',
+      },
+    );
+
+    expect(judgedSteps).toHaveLength(2); // primary + re-observation, both masked
+    expect(judgedSteps[0]).not.toContain('step-secret-4242');
+    expect(judgedSteps[1]).not.toContain('step-secret-4242');
+    expect(judgedSteps[0]).toContain('***');
+    delete process.env.CONTAINMENT_STEP_SECRET;
   });
 });
 

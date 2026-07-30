@@ -62,19 +62,47 @@ export function assertSystemPrompt(): string {
   // unverifiable field and failed expectations that were in fact satisfied,
   // costing two to three model calls per credential field on every
   // authenticated test (#26).
-  return `You are a QA judge. You receive a page accessibility snapshot and an expectation. Decide whether the snapshot satisfies the expectation. Be strict: only pass when the expectation is clearly met by the snapshot content. Answer with pass=true/false and a one-sentence reason.
+  //
+  // design (judge-the-step, D1/D2): the judge used to be asked only whether an
+  // expectation was true of a snapshot — a question with no memory of what was
+  // being tested. That let a true-but-irrelevant claim ("the Show Archived
+  // checkbox is visible") close a step whose real assertion had just failed,
+  // and let a project title sitting in an unsubmitted dialog's textbox satisfy
+  // "visible in the projects list". Both are fixed the same way: the step is
+  // the question, the expectation is only the argument offered for it.
+  //
+  // A third clause, added after anchoring on the step surfaced a symmetric
+  // failure against a real model: a step naming an ACTION ("submit the login
+  // form") was failed once the action succeeded, because succeeding is
+  // exactly what makes the form the step names disappear — the judge
+  // concluded the outcome "cannot be established" on the very page a
+  // successful submission produces. The same model passed an
+  // identically-shaped step minutes earlier ("submit the support form"),
+  // reasoning the confirmation page WAS the outcome — the ambiguity this
+  // clause removes is real, not hypothetical, and the instability (not a
+  // consistent wrong answer) is why it needs to be said explicitly rather
+  // than left for the model to resolve case by case.
+  return `You are a QA judge. You receive a test step, the model's expectation for the current page, and a page accessibility snapshot. Decide whether the STEP's own outcome holds — the expectation is the claim the model is offering in support of that, not a substitute question of its own. A claim can be true of the snapshot and still fail the step, if it does not establish what the step actually describes: only pass when the snapshot itself shows the step's outcome, never merely because the expectation offered happens to be true of something else on the page.
 
-\`***\` marks a secret deliberately withheld from you — a password, token or key. Seeing it is expected. A field holding \`***\` is filled, not empty, so do not fail an expectation on the grounds that a value was redacted. This applies only to the redaction itself: everything else the expectation asks for must still be visibly satisfied by the snapshot, and an expectation you genuinely cannot check against what you were shown still fails.`;
+A value sitting in a control that was just typed into — an open dialog's textbox, an unsubmitted form field — is not the same as a committed outcome. When the step describes an outcome (something now appears in a list, is saved, is confirmed, is created), text visible only inside an editable, not-yet-submitted control does not satisfy it; look for the outcome committed outside that control (the dialog closed, the item is listed on its own, a confirmation appeared). This is specifically about that confusion, not a license to fail anything you are merely unsure about — if the snapshot plainly shows the step's outcome, pass it.
+
+A step that names an ACTION (submit, click, create, add, ...) is satisfied by evidence the action took effect, not by the action's own control still being on the page. A successful action ordinarily replaces or moves past exactly the form, button or field the step names, so that control's absence is normal evidence of success, not evidence the step is unverifiable — do not fail such a step only because you can no longer see the thing it names. Fail it instead when the snapshot shows the action did NOT take effect: an error message, a validation warning, or the very same pre-action page still in front of you with nothing changed. A different page, a new state, or the result the action was meant to produce counts as evidence it worked.
+
+Be strict about what the step asks, not about withholding a pass you can plainly see is earned. Answer with pass=true/false and a one-sentence reason.
+
+\`***\` marks a secret deliberately withheld from you — a password, token or key. Seeing it is expected. A field holding \`***\` is filled, not empty, so do not fail a step on the grounds that a value was redacted. This applies only to the redaction itself: everything else the step asks for must still be visibly satisfied by the snapshot, and a step you genuinely cannot check against what you were shown still fails.`;
 }
 
-export function assertUserPrompt(expectation: string, snapshot: string): string {
+export function assertUserPrompt(step: string, expectation: string, snapshot: string): string {
   return [
-    `Expectation: ${expectation}`,
+    `Step under test: ${step}`,
+    '',
+    `Model's expectation (the claim offered in support of the step, not the question itself): ${expectation}`,
     '',
     'Page accessibility snapshot:',
     snapshot,
     '',
-    'Does the snapshot satisfy the expectation?',
+    "Does the snapshot establish that the step's own outcome holds?",
   ].join('\n');
 }
 

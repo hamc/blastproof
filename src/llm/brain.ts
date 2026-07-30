@@ -26,8 +26,15 @@ import {
 export interface AgentBrain {
   /** Decides the single next action for the current step. Throws on malformed model output. */
   nextAction(input: AgentIterationInput): Promise<AgentAction>;
-  /** Judges whether the snapshot satisfies an assert expectation. */
-  judge(expectation: string, snapshot: string): Promise<AssertJudgment>;
+  /**
+   * Judges whether the snapshot establishes the STEP's own outcome (design
+   * judge-the-step, D1). `expectation` is the model's claim offered in
+   * support of the step, not a substitute question — a claim that is true of
+   * the snapshot but does not establish what the step describes must not
+   * pass. Kept alongside the step because it is still useful: it says which
+   * reading of the step the model is checking, and it belongs in reports.
+   */
+  judge(step: string, expectation: string, snapshot: string): Promise<AssertJudgment>;
 }
 
 /** Narrowed signature of `generateObject` so tests can inject a stub. */
@@ -94,12 +101,12 @@ export function createBrain(
       return parsed.data;
     },
 
-    async judge(expectation, snapshot) {
+    async judge(step, expectation, snapshot) {
       const result = await countedGenerate(generate, budget, {
         model,
         schema: assertJudgmentSchema,
         system: assertSystemPrompt(),
-        prompt: assertUserPrompt(expectation, snapshot),
+        prompt: assertUserPrompt(step, expectation, snapshot),
       });
       const parsed = assertJudgmentSchema.safeParse(result.object);
       if (!parsed.success) {

@@ -9,6 +9,7 @@ import {
 import {
   agentSystemPrompt,
   agentUserPrompt,
+  assertSystemPrompt,
   assertUserPrompt,
   plannerSystemPrompt,
   plannerUserPrompt,
@@ -53,10 +54,53 @@ describe('prompts', () => {
     expect(prompt).toContain('2 failed attempts left');
   });
 
-  it('assert user prompt includes expectation and snapshot', () => {
-    const prompt = assertUserPrompt('discount applied', '- text "SAVE20"');
+  it('assert user prompt includes the step, the expectation and the snapshot', () => {
+    const prompt = assertUserPrompt('verify the discount is applied', 'discount applied', '- text "SAVE20"');
+    expect(prompt).toContain('verify the discount is applied');
     expect(prompt).toContain('discount applied');
     expect(prompt).toContain('- text "SAVE20"');
+  });
+
+  it('assert user prompt presents the step as the question and the expectation as a claim offered in support (design D1)', () => {
+    const prompt = assertUserPrompt('verify X', 'my claim', '- snap');
+    expect(prompt).toContain('Step under test: verify X');
+    expect(prompt).toContain('claim offered in support of the step');
+    expect(prompt).toContain('my claim');
+  });
+
+  it("assert system prompt says a true-but-irrelevant claim does not establish the step (task 2.2)", () => {
+    // Regression for the substitution defect (#31): "the 'Show Archived'
+    // checkbox is visible" was true and closed a step whose real assertion
+    // had just failed one turn earlier.
+    const prompt = assertSystemPrompt();
+    expect(prompt).toContain('outcome holds');
+    expect(prompt).toMatch(/true.*(irrelevant|not (a substitute|establish)|does not establish)/i);
+  });
+
+  it('assert system prompt distinguishes an entered value from a committed one, narrowly (task 3.1/3.2)', () => {
+    // Regression for the second observed defect (#31): a project title typed
+    // into an unsubmitted "New project" dialog satisfied "visible in the
+    // projects list".
+    const prompt = assertSystemPrompt();
+    expect(prompt).toMatch(/unsubmitted|not-?yet-?submitted|committed/i);
+    // Kept narrow (task 3.2): must not become "fail anything uncertain".
+    expect(prompt).toMatch(/plainly shows.*pass it|pass it.*plainly/i);
+  });
+
+  it("assert system prompt says an action-shaped step is not failed merely because its own named control is gone (the \"submit the login form\" regression)", () => {
+    // A third defect, found only against a real model after the first two
+    // unit suites went green: anchoring on the step made "submit the login
+    // form" unjudgeable exactly when the login succeeded, because succeeding
+    // navigates away from the very form the step names. The same model
+    // passed an identically-shaped step ("submit the support form") in the
+    // same session — the instability this clause is meant to remove.
+    const prompt = assertSystemPrompt();
+    expect(prompt).toMatch(/names an action|naming an action/i);
+    expect(prompt).toMatch(/absence.*normal evidence of success|not evidence the step is unverifiable/i);
+    // Kept narrow, symmetric with task 3.2: this must not become "any page
+    // change means the step passed" — it still requires a real failure
+    // signal to fail, and it does not license passing everything else.
+    expect(prompt).toMatch(/error message|validation warning/i);
   });
 });
 
@@ -93,9 +137,18 @@ describe('createBrain', () => {
       stubGenerate({ pass: false, reason: 'no discount line' }),
       new RunBudget(),
     );
-    const judgment = await brain.judge('discount applied', '- main: cart');
+    const judgment = await brain.judge('verify the discount applied', 'discount applied', '- main: cart');
     expect(judgment.pass).toBe(false);
     expect(judgment.reason).toContain('no discount');
+  });
+
+  it('judge sends the step, the expectation and the snapshot into the prompt (design D1, task 2.1)', async () => {
+    const captured: { options?: { prompt?: string } } = {};
+    const brain = createBrain(fakeModel, stubGenerate({ pass: true, reason: 'ok' }, captured), new RunBudget());
+    await brain.judge('verify the cart total is $80', 'total shows $80', '- text "$80"');
+    expect(captured.options?.prompt).toContain('verify the cart total is $80');
+    expect(captured.options?.prompt).toContain('total shows $80');
+    expect(captured.options?.prompt).toContain('- text "$80"');
   });
 });
 
@@ -117,7 +170,7 @@ describe('createBrain budget enforcement (design D2)', () => {
   it('counts a judge call against the budget', async () => {
     const budget = new RunBudget({ maxCalls: 1 });
     const brain = createBrain(fakeModel, stubGenerate({ pass: true, reason: 'ok' }), budget);
-    await brain.judge('expectation', 'snapshot');
+    await brain.judge('step', 'expectation', 'snapshot');
     expect(budget.callCount).toBe(1);
   });
 

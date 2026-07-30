@@ -50,6 +50,8 @@ Before `run`, `plan` or `test` do anything, they check what they are about to sp
 
 Writing each step so it states its own outcome helps here as well as everywhere else: `submit the form, then verify the confirmation shows the reference number` gives the agent something to check, where `click the submit button` leaves it to invent an expectation — and a poor invented expectation is what turns one submission into three.
 
+**This is now load-bearing, not just advisable.** The judge decides whether a step's own outcome holds, using the model's expectation only as the claim offered in support of it — a step that never says what its outcome is gives the judge nothing to anchor on beyond whatever the model happened to check that turn. `verify the confirmation shows the reference number` gives the judge a real question; `verify it worked` does not, and may now fail where a looser judge previously let a true-but-unrelated claim pass it.
+
 ## Writing tests
 
 Tests live in `.blastproof/tests/` as plain-English YAML — no selectors:
