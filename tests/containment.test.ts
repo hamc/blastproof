@@ -27,6 +27,9 @@ function fakePage(): { page: PageLike; visited: string[]; filled: string[] } {
     keyboard: { press: async () => {} },
     screenshot: async () => undefined,
     url: () => visited[visited.length - 1] ?? BASE,
+    // Settles immediately: none of this file's tests care about timing, only
+    // about masking (trustworthy-verdicts design D2 — required, not optional).
+    waitForLoadState: async () => undefined,
   } as unknown as PageLike;
   return { page, visited, filled };
 }
@@ -186,6 +189,59 @@ describe('secret boundary', () => {
       { baseUrl: BASE, resolveValue: (v) => substituteEnv(v) },
     );
     expect(filled).toEqual(['a@b.test']);
+  });
+
+  it('masks a secret rendered on the re-observed snapshot too, not just the original one (task 5.6, trustworthy-verdicts group 3)', async () => {
+    // A failed judgment now re-observes internally (design D3) before handing
+    // control back to the model — a second `judge()` call, fed a second,
+    // freshly captured snapshot, that this codebase's own recurring defect
+    // (a guarantee enforced at one call site instead of over the whole scope)
+    // could easily have left unmasked. Pinned so it cannot happen quietly.
+    process.env.CONTAINMENT_REOBSERVE_SECRET = 'reobserve-secret-777';
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.CONTAINMENT_REOBSERVE_SECRET}}');
+    const { page } = fakePage();
+
+    let nextActionCalls = 0;
+    let snapshotCalls = 0;
+    const judgedSnapshots: string[] = [];
+    const brain: AgentBrain = {
+      async nextAction() {
+        nextActionCalls++;
+        return { action: 'assert' as const, reasoning: 'check', expectation: 'signed in' };
+      },
+      async judge(_expectation, snapshot) {
+        judgedSnapshots.push(snapshot);
+        // Fails on the first (stale) look only, forcing the internal
+        // re-observation — the model is never asked a second time.
+        return { pass: judgedSnapshots.length > 1, reason: 'n/a' };
+      },
+    };
+
+    await executeTest(
+      page,
+      { path: 't.yaml', summary: 'x', steps: ['check'], priority: 'P1', tags: [], routes: [], auth: true },
+      {
+        brain,
+        sessionDir: '/tmp/none',
+        baseUrl: BASE,
+        mask: (t) => mask.mask(t),
+        timeoutMs: 30_000,
+        // The second (re-observed) snapshot is the one that would echo a
+        // credential a real authenticated page might render.
+        snapshot: async () => {
+          snapshotCalls++;
+          return snapshotCalls === 1 ? '- text "loading"' : '- text "Signed in as reobserve-secret-777"';
+        },
+      },
+    );
+
+    // Exactly one nextAction call: the second judge call can only be the
+    // internal re-observation, not a second model turn asking for `assert` again.
+    expect(nextActionCalls).toBe(1);
+    expect(judgedSnapshots).toHaveLength(2);
+    expect(judgedSnapshots.join('\n')).not.toContain('reobserve-secret-777');
+    delete process.env.CONTAINMENT_REOBSERVE_SECRET;
   });
 });
 

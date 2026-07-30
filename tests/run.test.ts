@@ -167,7 +167,7 @@ describe('runCommand --dry-run', () => {
     // Spec run-budget: the ceiling for the selection, labelled a maximum (design
     // D5) — CART_TEST has one step; default iteration cap 15 plus default retry
     // budget 3 (config `max_retries_per_step`, not assumed): 1 * (15 + 3) = 18.
-    expect(out()).toContain('Worst case: up to 18 model call(s)');
+    expect(out()).toContain('Worst case: up to 21 model call(s)');
     expect(out()).toContain('a maximum, not a prediction');
   });
 
@@ -207,7 +207,7 @@ describe('runCommand --dry-run', () => {
 
     expect(code).toBe(EXIT_OK);
     // CART_TEST's 1 step plus auth's 2 steps = 3 * (15 + 3) = 54.
-    expect(out()).toContain('Worst case: up to 54 model call(s)');
+    expect(out()).toContain('Worst case: up to 63 model call(s)');
     expect(out()).toContain('including the login journey');
   });
 

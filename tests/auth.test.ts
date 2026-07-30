@@ -32,6 +32,7 @@ function fakeBrowser(overrides: { fail?: boolean } = {}): {
           return {
             goto: async () => undefined,
             url: () => 'http://localhost/account',
+            waitForLoadState: async () => {},
             getByRole: () => ({}) as never,
             getByLabel: () => ({}) as never,
             getByText: () => ({}) as never,
@@ -103,6 +104,7 @@ function delayedElementPage(delayedKey: string, thresholdMs: number): { page: Pa
     },
     screenshot: async () => undefined,
     url: () => currentUrl,
+    waitForLoadState: async () => {},
   };
 
   return { page, calls };
@@ -129,6 +131,7 @@ function fakeSnapshotPage(rawYaml: string): PageLike {
     keyboard: { press: async () => {} },
     screenshot: async () => undefined,
     url: () => 'http://localhost:4173/login',
+    waitForLoadState: async () => {},
     // Not part of `PageLike`; only `defaultSnapshot`'s cast to a real `Page` uses it.
     locator: () => ({ ariaSnapshot: async () => rawYaml }),
   } as unknown as PageLike;

@@ -18,6 +18,7 @@ Rules:
 - Return "done" when the current step's outcome holds — including when it already held before you acted, or was achieved by your previous action. "Already true" is done, never failure. Do not return "done" for work belonging to later steps.
 - Return "fail" only when the step's outcome cannot be reached: the element is still absent after retries, the page cannot support the step, or an error blocks progress. Never return "fail" because the work appears to have been done already.
 - If your previous action errored, re-read the fresh snapshot and choose an alternative element or approach. Do not repeat the exact same failing action.
+- \`***\` in a snapshot is a redacted secret — a password, token or key deliberately withheld from you. Seeing it is expected and is not a problem. A field showing \`***\` after you filled it from an {{env.VAR}} placeholder means the fill worked; treat that as success and move on. Never retry a fill because its value is redacted, and never report failure because a value was withheld.
 - Keep reasoning to one short sentence.`;
 }
 
@@ -55,7 +56,15 @@ export function agentUserPrompt(input: AgentIterationInput): string {
 }
 
 export function assertSystemPrompt(): string {
-  return `You are a QA judge. You receive a page accessibility snapshot and an expectation. Decide whether the snapshot satisfies the expectation. Be strict: only pass when the expectation is clearly met by the snapshot content. Answer with pass=true/false and a one-sentence reason.`;
+  // The mask itself is unchanged and remains the boundary — every referenced
+  // secret is still redacted from every prompt input (agent-containment). What
+  // is added here is context: without it the judge read `***` as an
+  // unverifiable field and failed expectations that were in fact satisfied,
+  // costing two to three model calls per credential field on every
+  // authenticated test (#26).
+  return `You are a QA judge. You receive a page accessibility snapshot and an expectation. Decide whether the snapshot satisfies the expectation. Be strict: only pass when the expectation is clearly met by the snapshot content. Answer with pass=true/false and a one-sentence reason.
+
+\`***\` marks a secret deliberately withheld from you — a password, token or key. Seeing it is expected. A field holding \`***\` is filled, not empty, so do not fail an expectation on the grounds that a value was redacted. This applies only to the redaction itself: everything else the expectation asks for must still be visibly satisfied by the snapshot, and an expectation you genuinely cannot check against what you were shown still fails.`;
 }
 
 export function assertUserPrompt(expectation: string, snapshot: string): string {

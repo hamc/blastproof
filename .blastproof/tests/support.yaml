@@ -1,0 +1,17 @@
+summary: Submitting a support ticket redirects to a confirmation page
+priority: P0
+tags: [support, server-redirect]
+routes: ["/support"]
+# This is the one flow in the demo app with a genuine server round trip: the
+# form POST is answered with a real delay before the redirect (see
+# examples/demo-app/serve.mjs and app.js). Every other mutation in this app
+# redirects client-side too, but instantly; this one waits on a real network
+# round trip, which is what exposes the false-FAIL class from #25 (a snapshot
+# taken before a redirect settles) in our own dogfooding.
+steps:
+  - navigate to /support
+  - fill the subject field with Order never arrived
+  - fill the message field with My order has been stuck in transit for a week.
+  - submit the support form
+  - verify the page shows a heading that says "Support ticket received"
+  - verify the ticket number "#ST-4471" is shown in the confirmation message

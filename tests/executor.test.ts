@@ -7,7 +7,7 @@ import type { AgentBrain } from '../src/llm/brain.js';
 import type { AgentAction, AssertJudgment } from '../src/llm/schemas.js';
 import { performAction, resolveTarget, type LocatorLike, type PageLike } from '../src/runner/actions.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
-import { executeTest, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
+import { executeTest, SETTLE_TIMEOUT_MS, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
 import { captureSnapshot, trimSnapshot } from '../src/runner/snapshot.js';
 import type { TestFile } from '../src/runner/testfile.js';
 
@@ -87,6 +87,18 @@ class FakePage implements PageLike {
   currentUrl = 'about:blank';
   /** Every `timeout` passed to `goto`, in call order (browser-patience task 2.4). */
   gotoTimeouts: (number | undefined)[] = [];
+  /**
+   * Simulated ms this page would need to reach network idle
+   * (trustworthy-verdicts design D1, tasks 5.1/5.2/5.5). Threshold-based, like
+   * `delayedVisible` above: `waitForLoadState` resolves immediately once the
+   * requested `timeout` is at least this value, and rejects immediately —
+   * mirroring Playwright's own timeout error, not a real wait — when it is
+   * not. `undefined` (default) settles immediately regardless of the
+   * requested timeout, so it doesn't disturb any test that doesn't care.
+   */
+  settleThresholdMs: number | undefined = undefined;
+  /** Every `waitForLoadState` call's requested timeout, in call order (task 5.2). */
+  settleTimeouts: (number | undefined)[] = [];
   /** Raw aria snapshot returned by `locator('body').ariaSnapshot()`, for exercising
    *  the real `defaultSnapshot`/`captureSnapshot` cap-threading path (task 3.2/3.3). */
   snapshotYaml = '';
@@ -123,6 +135,14 @@ class FakePage implements PageLike {
     return this.currentUrl;
   }
 
+  async waitForLoadState(_state: 'networkidle', options?: { timeout?: number }): Promise<void> {
+    this.calls.push('waitForLoadState');
+    this.settleTimeouts.push(options?.timeout);
+    if (this.settleThresholdMs !== undefined && (options?.timeout ?? 0) < this.settleThresholdMs) {
+      throw new Error(`waitForLoadState: Timeout ${options?.timeout ?? 0}ms exceeded.`);
+    }
+  }
+
   /** Not part of `PageLike`; only `defaultSnapshot`'s cast to a real `Page` uses it. */
   locator(_selector: string): { ariaSnapshot(): Promise<string> } {
     return { ariaSnapshot: async () => this.snapshotYaml };
@@ -131,12 +151,19 @@ class FakePage implements PageLike {
 
 function scriptedBrain(script: Array<AgentAction | Error>, judgments?: AssertJudgment[]): AgentBrain & {
   calls: number;
+  judgeCalls: number;
 } {
   let calls = 0;
   let judgmentCalls = 0;
   return {
     get calls() {
       return calls;
+    },
+    // Exposed so a test can pin how many judgments a step spent: re-observation
+    // (design D3) makes a failed assertion cost two, and DEF-004 was filed
+    // because widening a scripted judgment list hid that rather than asserting it.
+    get judgeCalls() {
+      return judgmentCalls;
     },
     async nextAction(): Promise<AgentAction> {
       const next = script[calls++];
@@ -330,7 +357,10 @@ describe('executeTest', () => {
     const page = new FakePage();
     const failing = scriptedBrain(
       Array(3).fill({ action: 'assert', reasoning: 'check', expectation: 'total is $80' }),
-      Array(3).fill({ pass: false, reason: 'no total rendered' }),
+      // Six, not three: each failed judgment is now re-judged against a freshly
+      // settled page before control returns to the model (design D3), so three
+      // failing attempts consume two judgments apiece.
+      Array(6).fill({ pass: false, reason: 'no total rendered' }),
     );
 
     const failResult = await executeTest(page, makeTest(), baseOptions(failing, { maxRetries: 3 }));
@@ -338,6 +368,12 @@ describe('executeTest', () => {
     expect(failResult.status).toBe('failed');
     expect(failResult.reason).toContain('no total rendered');
     expect(failResult.steps[0]?.failedAttempts).toBe(3);
+    // Widening the scripted judgments from 3 to 6 was not bookkeeping: each
+    // failed judgment is re-judged against a freshly settled page before the
+    // model is asked again (design D3). Assert that, or this test would keep
+    // passing if re-observation were reverted (DEF-004).
+    expect(failing.judgeCalls).toBe(6);
+    expect(failing.calls).toBe(3);
   });
 
   it('aborts a step that exceeds the iteration cap', async () => {
@@ -532,6 +568,124 @@ describe('executeTest threads the configured browser timeout into resolution (de
     // number of attempts (design D3).
     expect(result.steps[0]?.failedAttempts).toBe(3);
     expect(brain.calls).toBe(3);
+  });
+});
+
+// --- trustworthy-verdicts: snapshots describe a settled page (design D1/D2/D3,
+// task group 2/3/5) -----------------------------------------------------------
+
+describe('snapshots are captured only after the page settles (task group 2)', () => {
+  it('waits for the page to settle before every snapshot, in order — not merely that a wait method exists (task 5.1)', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add to cart');
+    const brain = scriptedBrain([click('Add to cart'), { action: 'done', reasoning: 'done' }]);
+
+    // The injected snapshot function logs into the same ordered call list as
+    // `waitForLoadState`, so the assertion below is about interleaving, not
+    // merely that both were called some number of times.
+    await executeTest(
+      page,
+      makeTest(),
+      baseOptions(brain, {
+        snapshot: async () => {
+          page.calls.push('snapshot');
+          return 'snap';
+        },
+      }),
+    );
+
+    // Two iterations happened (click, then done): each snapshot must be
+    // immediately preceded by a settle wait, every time, not just once.
+    const settleAndSnapshotCalls = page.calls.filter((c) => c === 'waitForLoadState' || c === 'snapshot');
+    expect(settleAndSnapshotCalls).toEqual(['waitForLoadState', 'snapshot', 'waitForLoadState', 'snapshot']);
+  });
+
+  it('bounds settling by its own short budget, not `browser.timeout_ms` — exceeding it is silent and the loop proceeds (task 5.2, design D1)', async () => {
+    const page = new FakePage();
+    page.settleThresholdMs = Infinity; // never settles, however long it is given
+    const brain = scriptedBrain([{ action: 'done', reasoning: 'moved on anyway' }]);
+
+    // timeoutMs (browser.timeout_ms) is deliberately much larger than the settle
+    // budget, so a settle call bounded by timeoutMs would never time out here —
+    // this is what proves the bound used is SETTLE_TIMEOUT_MS, not timeoutMs.
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { timeoutMs: 60_000 }));
+
+    expect(result.status).toBe('passed'); // a page that never settles does not fail the run
+    expect(page.settleTimeouts).toEqual([SETTLE_TIMEOUT_MS]);
+  });
+});
+
+describe('a failed judgment re-observes before the model re-decides (task group 3)', () => {
+  it('an expectation that fails on a stale snapshot and holds on a settled one passes without asking the model again — the false FAIL, in unit form (task 5.3)', async () => {
+    const page = new FakePage();
+    const brain = scriptedBrain(
+      [{ action: 'assert', reasoning: 'check', expectation: 'ticket confirmed' }],
+      [
+        { pass: false, reason: 'stale: still shows the form' },
+        { pass: true, reason: 'settled: confirmation shown' },
+      ],
+    );
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(result.status).toBe('passed');
+    expect(result.steps[0]?.status).toBe('passed');
+    // The model was asked for an action exactly once: re-observation resolved
+    // the false FAIL internally, without a second `nextAction` turn.
+    expect(brain.calls).toBe(1);
+  });
+
+  it('an expectation that still fails on a fresh, settled snapshot returns control to the model, unchanged (task 5.4)', async () => {
+    const page = new FakePage();
+    let nextActionCalls = 0;
+    let judgeCalls = 0;
+    const brain: AgentBrain = {
+      async nextAction() {
+        nextActionCalls++;
+        return nextActionCalls === 1
+          ? { action: 'assert', reasoning: 'check', expectation: 'ticket confirmed' }
+          : { action: 'done', reasoning: 'moving on' };
+      },
+      async judge() {
+        judgeCalls++;
+        return { pass: false, reason: `attempt ${judgeCalls}` };
+      },
+    };
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 3 }));
+
+    expect(result.status).toBe('passed'); // the second nextAction call chose `done`
+    // Both the primary judgment and the re-observation failed — this is the
+    // signal that distinguishes "control returned to the model" from a lucky
+    // re-observation: two judge calls happened before nextAction was asked again.
+    expect(judgeCalls).toBe(2);
+    expect(nextActionCalls).toBe(2);
+  });
+
+  it('re-observation is bounded by the existing retry budget, not a budget of its own (task 5.5)', async () => {
+    const page = new FakePage();
+    let nextActionCalls = 0;
+    let judgeCalls = 0;
+    const brain: AgentBrain = {
+      async nextAction() {
+        nextActionCalls++;
+        return { action: 'assert', reasoning: 'check', expectation: 'ticket confirmed' };
+      },
+      async judge() {
+        judgeCalls++;
+        return { pass: false, reason: 'never settles' };
+      },
+    };
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 2 }));
+
+    expect(result.status).toBe('failed');
+    // Exactly the retry budget's worth of turns handed to the model...
+    expect(nextActionCalls).toBe(2);
+    // ...even though each of those turns cost two judge calls (primary +
+    // re-observation): re-observation never grows the retry budget itself,
+    // so the step still fails at exactly maxRetries and cannot loop past it.
+    expect(judgeCalls).toBe(4);
   });
 });
 

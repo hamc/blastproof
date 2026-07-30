@@ -3,6 +3,44 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [Unreleased]
+
+### Fixed
+- **A step could be failed for a page the action had already replaced.** An outside evaluation ran
+  blastproof against Gitea, filed an issue through the UI, and got a FAIL — while Gitea's own API
+  confirmed the issue existed and blastproof's own failure screenshot showed it on screen. The
+  executor snapshotted immediately after each action, so a click answered by a server round-trip and
+  a redirect left the next snapshot showing the page being replaced; the judge then evaluated stale
+  evidence and correctly concluded, about the wrong page, that nothing had happened. Compounding it,
+  a failed judgment returned straight to the model rather than looking again, and in both observed
+  runs the model invented a navigation instead — once fabricating an `{{env.*}}` variable that
+  appeared nowhere in the test or config. Snapshots now wait for the page to settle first, and a
+  failed judgment re-observes the same expectation against a freshly settled page before control
+  returns to the model.
+
+  Only network idle narrows that window: `domcontentloaded` and `load` were measured returning in
+  about a millisecond on the page still being replaced. Because network idle is also the state most
+  likely never to arrive, settling has a short budget of its own (2s) rather than using
+  `browser.timeout_ms` — exceeding it is normal and silent, so this fails toward previous behaviour
+  rather than toward a hang. An application holding a websocket or a poll therefore gets no
+  protection from this fix; that limit is known and recorded.
+- **A redaction read as a verification failure.** Every referenced secret becomes `***` in anything
+  crossing into a prompt, and nothing told the model what that meant — so it filled a credential
+  field, saw `***`, concluded the field was unverifiable and refilled it, two to three times on every
+  authenticated test. In one run bounded at 8 model calls, this consumed nearly the whole budget on
+  the first field. Both prompts now describe what a redaction is. **The mask itself is unchanged**
+  and remains the boundary: every referenced secret is still redacted from every prompt input.
+- The `--dry-run` ceiling now accounts for the re-judgment, as `N + R + min(N, R)` per step rather
+  than `N + R`. A failing assertion costs three model calls where it used to cost two, and an
+  estimate that undershoots is worse than none, because a budget gets sized from it.
+
+### Added
+- The demo app gains a support-ticket flow that answers a form POST with real server latency before
+  redirecting, and a test covering it. Our previous flows redirected via `window.location.href` after
+  a synchronous check — settling in microseconds — which is why twenty clean dogfood runs measuring
+  the earlier flake fix were honest and unrepresentative at the same time. This class of defect is
+  now reproducible in our own dogfooding instead of requiring someone else's application.
+
 ## [0.4.0] — 2026-07-30
 
 ### Fixed

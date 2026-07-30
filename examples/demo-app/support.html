@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Contact support — Blastproof Demo Shop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <nav aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="login.html">Login</a>
+      <a href="cart.html">Cart</a>
+      <a href="support.html">Support</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Contact support</h1>
+    <p>
+      Tell us what went wrong and we will open a ticket. Submitting posts to
+      the server, which takes a moment before confirming.
+    </p>
+    <!--
+      A real <form> POSTing to the server (progressive enhancement), intercepted
+      by app.js so the redirect happens after the fetch settles rather than as
+      part of the browser's own top-level navigation. That distinction is load
+      bearing: Playwright's click() waits out a navigation *it* triggers, so a
+      plain unintercepted form submit here would already be immune to the
+      defect group 1 exists to reproduce (see the design note in app.js).
+    -->
+    <form id="support-form" method="post" action="/support/ticket">
+      <div class="field">
+        <label for="subject">Subject</label>
+        <input id="subject" name="subject" type="text" required />
+      </div>
+      <div class="field">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="4" required></textarea>
+      </div>
+      <button type="submit">Send message</button>
+    </form>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
