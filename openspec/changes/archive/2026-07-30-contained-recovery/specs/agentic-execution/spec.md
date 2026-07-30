@@ -80,8 +80,8 @@ The value carried by an action SHALL come from the step, from the page, or from 
 - **THEN** the environment value is substituted immediately before typing
 
 #### Scenario: Navigation outside the allowed origins
-- **WHEN** a navigate action targets an origin that is neither the base URL's nor in the allowed list
-- **THEN** the action fails with an explanatory error instead of navigating
+- **WHEN** a navigate action resolves to an origin that is neither the application's nor declared
+- **THEN** the action fails and the step records the rejection
 
 #### Scenario: A value the step never supplied
 - **WHEN** a step requires a field to be filled and names no value for it
