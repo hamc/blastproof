@@ -113,7 +113,7 @@ jobs:
 
       - run: npm start &          # however your app boots
 
-      - uses: hamc/blastproof@v0.6.0
+      - uses: hamc/blastproof@v0.7.0
         with:
           version: '0.6.0'        # pin both when this gates merges
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
