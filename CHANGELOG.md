@@ -5,7 +5,30 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Fixed
+- **`browser.timeout_ms` now governs resolving an element, and navigation — not only the
+  action performed afterwards. This is a behavioural change for anyone who already set
+  `timeout_ms`, not a quiet bugfix.** `resolveTarget`'s wait for a candidate element to
+  become visible was hardcoded at two seconds, and `navigate` at thirty, regardless of
+  configuration: Playwright lets an explicit per-call timeout win over
+  `page.setDefaultTimeout(config.browser.timeout_ms)`, so the configured value reached only
+  `click`/`fill`/`press`/`select`, never the resolution or the navigation before them. An
+  application that hydrates a button in three seconds burned the self-healing retry budget
+  on a slow paint instead of a defect, and raising `timeout_ms` — the obvious remedy —
+  changed nothing. If your config already sets `timeout_ms`, resolution and navigation now
+  wait up to that value where they previously waited two seconds and thirty seconds
+  respectively; a genuinely missing element takes longer to fail as a result, which is the
+  right trade (a false failure is worse than a slow one). Raising the timeout does not
+  change the number of self-healing retries a step gets — waiting and retrying stay
+  separate budgets. This covers the login journey (`auth.steps`) and `plan`'s initial route
+  load too, not only `run`'s tests: a slow-hydrating login page used to fail authentication
+  outright, which aborts the whole run, not one test.
+
 ### Added
+- **The accessibility snapshot cap is configurable.** `browser.max_snapshot_lines` raises
+  (or lowers) how many lines of the page's accessibility tree reach the model per
+  snapshot, previously a fixed 200. Unset, behaviour is unchanged; truncation always stays
+  visibly marked in the snapshot at whatever cap applies.
 - **Preflight: every unmet prerequisite is reported together, before anything is spent on.**
   `run`, `plan` and `test` now verify — in one pass, not one crash per invocation — that the
   browser can launch, that the configured model provider is reachable, and that `base_url`

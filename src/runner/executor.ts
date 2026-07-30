@@ -58,17 +58,42 @@ export interface ExecutorOptions {
   maxRetries?: number;
   /** Hard cap on LLM actions per step. Default 15. */
   maxIterationsPerStep?: number;
+  /**
+   * The configured `browser.timeout_ms` (design D1/D2): threaded into the
+   * `ActionContext` built for every `performAction` call, so it bounds resolving a
+   * target element and navigating, not only the click/fill that follows a
+   * successful resolution.
+   *
+   * Required, not optional. There is no legitimate production reason to run
+   * without it — both real callers (`run`, `auth`'s login journey) always have the
+   * configured value on hand — and an unset value has no sensible "don't care"
+   * meaning here the way an unbounded `RunBudget` does for `budget`: it would
+   * silently fall back to `performAction`/`resolveTarget`'s own fixed defaults (2s
+   * resolution, 30s navigation), quietly reinstating the exact defect this option
+   * exists to close. This is the second time an optional field meant to close a
+   * gap discovered at one call site was silently left unset at another (`budget`
+   * missed `plan`, this once missed `auth`); making it required turns that class
+   * of omission into a compile error instead of a silent regression.
+   */
+  timeoutMs: number;
   /** Masks secrets from every emitted/logged string. */
   mask?: (text: string) => string;
   /** Injectable snapshotter (defaults to live ariaSnapshot via {@link defaultSnapshot}). */
   snapshot?: (page: PageLike) => Promise<string>;
+  /**
+   * Caps accessibility-tree lines sent to the model per snapshot (design: the
+   * snapshot cap is configurable). Only applies to the default snapshotter above;
+   * an injected `snapshot` fully replaces it. Undefined keeps `captureSnapshot`'s
+   * own default (200 lines).
+   */
+  maxSnapshotLines?: number;
   onEvent?: (event: ExecutorEvent) => void;
 }
 
 /** Live snapshot via Playwright ariaSnapshot; kept here so tests can inject a fake. */
-export async function defaultSnapshot(page: PageLike): Promise<string> {
+export async function defaultSnapshot(page: PageLike, maxLines?: number): Promise<string> {
   const { captureSnapshot } = await import('./snapshot.js');
-  return captureSnapshot(page as never);
+  return captureSnapshot(page as never, { maxLines });
 }
 
 function slugify(text: string): string {
@@ -96,10 +121,15 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     resolveValue,
     maxRetries = 3,
     maxIterationsPerStep = DEFAULT_MAX_ITERATIONS_PER_STEP,
+    timeoutMs,
     mask = (s: string) => s,
-    snapshot = defaultSnapshot,
+    snapshot,
+    maxSnapshotLines,
     onEvent = () => {},
   } = options;
+  // The default snapshotter alone honours `maxSnapshotLines`; an injected fake
+  // (every unit test) fully replaces it and ignores the cap, as before.
+  const takeSnapshot = snapshot ?? ((page: PageLike) => defaultSnapshot(page, maxSnapshotLines));
 
   const startedAt = Date.now();
   const stepResults: StepResult[] = [];
@@ -140,7 +170,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           throw new StepFailure(`step exceeded ${maxIterationsPerStep} actions without completing`);
         }
 
-        const snap = await snapshot(page);
+        const snap = await takeSnapshot(page);
 
         let action: AgentAction;
         try {
@@ -208,7 +238,12 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         }
 
         try {
-          const result = await performAction(page, action, { baseUrl, allowedOrigins, resolveValue });
+          const result = await performAction(page, action, {
+            baseUrl,
+            allowedOrigins,
+            resolveValue,
+            resolveTimeoutMs: timeoutMs,
+          });
           lastResult = result;
           emitAction(index, action, result);
         } catch (error) {

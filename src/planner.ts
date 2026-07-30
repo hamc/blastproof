@@ -32,6 +32,24 @@ export interface GenerateOptions {
   mask: (text: string) => string;
   /** Injectable snapshotter (defaults to live ariaSnapshot), mirroring the executor. */
   snapshot?: (page: PageLike) => Promise<string>;
+  /**
+   * Caps accessibility-tree lines sent to the model (mirrors the executor's
+   * option of the same name). Only applies to the default snapshotter; an
+   * injected `snapshot` fully replaces it.
+   */
+  maxSnapshotLines?: number;
+  /**
+   * The configured `browser.timeout_ms` (design D1, browser-patience): bounds how
+   * long the route's initial load waits, mirroring the executor's `navigate`
+   * action.
+   *
+   * Required, not optional — same reasoning as `ExecutorOptions.timeoutMs`
+   * (runner/executor.ts): the one real caller (`plan`) always has the configured
+   * value on hand, and an unset value has no legitimate "don't care" meaning here
+   * — it would silently reinstate the fixed 30s this change exists to make
+   * configurable.
+   */
+  timeoutMs: number;
 }
 
 /** Steps naming a credential alongside a quoted literal, with no `{{env.*}}` placeholder. */
@@ -97,11 +115,14 @@ export function renderTestYaml(draft: TestDraft, meta: ProvenanceMeta): string {
  * coverage gap that triggered it (design D6).
  */
 export async function generateForRoute(page: PageLike, options: GenerateOptions): Promise<TestDraft> {
-  const { route, baseUrl, changedFiles, brain, mask, snapshot = defaultSnapshot } = options;
+  const { route, baseUrl, changedFiles, brain, mask, snapshot, maxSnapshotLines, timeoutMs } = options;
+  const takeSnapshot = snapshot ?? ((p: PageLike) => defaultSnapshot(p, maxSnapshotLines));
 
   const url = new URL(route, baseUrl).toString();
   try {
-    await page.goto(url, { timeout: 30_000 });
+    // Same knob as the executor's `navigate` action (design D1): a slow app is
+    // waited for at the configured timeout, not a value fixed in the code.
+    await page.goto(url, { timeout: timeoutMs });
   } catch (error) {
     throw new PlannerError(
       `Cannot load ${url}: ${error instanceof Error ? error.message : String(error)}`,
@@ -110,7 +131,7 @@ export async function generateForRoute(page: PageLike, options: GenerateOptions)
 
   const generated = await brain.planTest({
     route,
-    snapshot: mask(await snapshot(page)),
+    snapshot: mask(await takeSnapshot(page)),
     changedFiles,
   });
 

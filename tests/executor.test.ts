@@ -1,13 +1,14 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { Page } from 'playwright';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentBrain } from '../src/llm/brain.js';
 import type { AgentAction, AssertJudgment } from '../src/llm/schemas.js';
 import { performAction, resolveTarget, type LocatorLike, type PageLike } from '../src/runner/actions.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
-import { executeTest, type ExecutorEvent } from '../src/runner/executor.js';
-import { trimSnapshot } from '../src/runner/snapshot.js';
+import { executeTest, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
+import { captureSnapshot, trimSnapshot } from '../src/runner/snapshot.js';
 import type { TestFile } from '../src/runner/testfile.js';
 
 // --- fakes -----------------------------------------------------------------
@@ -24,13 +25,34 @@ class FakeLocator implements LocatorLike {
   }
 
   private resolve(): void {
-    if (!this.page.visible.has(`${this.kind}:${this.query}`)) {
-      throw new Error(`not visible: ${this.kind}:${this.query}`);
+    const key = `${this.kind}:${this.query}`;
+    // A key registered in `delayedVisible` is treated as visible for click/fill/etc:
+    // by the time one of those runs, `waitFor` (below) has already blocked until it
+    // appeared — this only matters for the browser-patience regression tests, which
+    // always resolve through `waitFor` first.
+    if (!this.page.visible.has(key) && !this.page.delayedVisible.has(key)) {
+      throw new Error(`not visible: ${key}`);
     }
   }
 
-  async waitFor(): Promise<void> {
-    this.resolve();
+  /**
+   * `waitFor` alone honours a delayed appearance (browser-patience regression
+   * tests, design D1/D2/D3): a key registered in `page.delayedVisible` only
+   * resolves once the requested `timeout` is at least its threshold, simulating
+   * an element that becomes visible after some real wait. This is a logical
+   * stand-in for elapsed time — it asserts that the configured timeout value
+   * actually reaches Playwright's wait, not that timing itself is accurate
+   * (Playwright's own concern, not this codebase's).
+   */
+  async waitFor(options?: { timeout?: number }): Promise<void> {
+    const key = `${this.kind}:${this.query}`;
+    if (this.page.visible.has(key)) return;
+    const threshold = this.page.delayedVisible.get(key);
+    if (threshold !== undefined) {
+      if ((options?.timeout ?? 0) >= threshold) return;
+      throw new Error(`not visible within ${options?.timeout ?? 0}ms (appears after ${threshold}ms): ${key}`);
+    }
+    throw new Error(`not visible: ${key}`);
   }
 
   async click(): Promise<void> {
@@ -58,8 +80,16 @@ class FakeLocator implements LocatorLike {
 class FakePage implements PageLike {
   calls: string[] = [];
   visible = new Set<string>();
+  /** key ("role:button|Checkout") → ms the requested `waitFor` timeout must meet
+   *  or exceed to resolve (browser-patience regression tests). */
+  delayedVisible = new Map<string, number>();
   screenshots: string[] = [];
   currentUrl = 'about:blank';
+  /** Every `timeout` passed to `goto`, in call order (browser-patience task 2.4). */
+  gotoTimeouts: (number | undefined)[] = [];
+  /** Raw aria snapshot returned by `locator('body').ariaSnapshot()`, for exercising
+   *  the real `defaultSnapshot`/`captureSnapshot` cap-threading path (task 3.2/3.3). */
+  snapshotYaml = '';
 
   keyboard = {
     press: async (key: string) => {
@@ -67,9 +97,10 @@ class FakePage implements PageLike {
     },
   };
 
-  async goto(url: string): Promise<void> {
+  async goto(url: string, options?: { timeout?: number }): Promise<void> {
     this.calls.push(`goto ${url}`);
     this.currentUrl = url;
+    this.gotoTimeouts.push(options?.timeout);
   }
 
   getByRole(role: string, options?: { name?: string }): LocatorLike {
@@ -90,6 +121,11 @@ class FakePage implements PageLike {
 
   url(): string {
     return this.currentUrl;
+  }
+
+  /** Not part of `PageLike`; only `defaultSnapshot`'s cast to a real `Page` uses it. */
+  locator(_selector: string): { ariaSnapshot(): Promise<string> } {
+    return { ariaSnapshot: async () => this.snapshotYaml };
   }
 }
 
@@ -143,6 +179,30 @@ afterEach(async () => {
   await rm(sessionDir, { recursive: true, force: true });
 });
 
+/** Mirrors config `browser.timeout_ms`'s own schema default (src/config.ts). */
+const DEFAULT_TEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Base `ExecutorOptions` for tests that don't care about the specific timeout
+ * value. `timeoutMs` is required on the real type (browser-patience design:
+ * there is no legitimate production reason to run without it — an unset value
+ * would silently reinstate the two-second wait this change exists to fix), so
+ * every call site in this file must supply one. Centralising the default here,
+ * rather than at each of this file's ~30 `executeTest` calls, is what keeps that
+ * requirement cheap instead of scattering an arbitrary placeholder number
+ * everywhere (mirrors `auth.test.ts`'s `options()`).
+ */
+function baseOptions(brain: AgentBrain, overrides: Partial<ExecutorOptions> = {}): ExecutorOptions {
+  return {
+    brain,
+    sessionDir,
+    baseUrl: 'http://x.test',
+    timeoutMs: DEFAULT_TEST_TIMEOUT_MS,
+    snapshot: async () => 'snap',
+    ...overrides,
+  };
+}
+
 // --- executor loop ----------------------------------------------------------
 
 describe('executeTest', () => {
@@ -151,12 +211,7 @@ describe('executeTest', () => {
     page.visible.add('role:button|Add to cart');
     const brain = scriptedBrain([click('Add to cart'), { action: 'done', reasoning: 'item added' }]);
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://localhost:4173',
-      snapshot: async () => 'snap',
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { baseUrl: 'http://localhost:4173' }));
 
     expect(result.status).toBe('passed');
     expect(result.steps).toHaveLength(1);
@@ -173,7 +228,7 @@ describe('executeTest', () => {
     const result = await executeTest(
       page,
       makeTest({ setup: ['log in first'], steps: ['main step'] }),
-      { brain, sessionDir, baseUrl: 'http://x.test', snapshot: async () => 's', onEvent: (e) => events.push(e) },
+      baseOptions(brain, { snapshot: async () => 's', onEvent: (e) => events.push(e) }),
     );
 
     expect(result.status).toBe('passed');
@@ -193,12 +248,7 @@ describe('executeTest', () => {
     ]);
     page.visible.add('role:button|New label');
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      snapshot: async () => 'fresh snap',
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { snapshot: async () => 'fresh snap' }));
 
     expect(result.status).toBe('passed');
     expect(result.steps[0]?.failedAttempts).toBe(1);
@@ -209,12 +259,7 @@ describe('executeTest', () => {
     const page = new FakePage();
     const brain = scriptedBrain([{ action: 'fail', reasoning: 'login button is gone' }]);
 
-    const result = await executeTest(page, makeTest({ steps: ['do a', 'do b'] }), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      snapshot: async () => 'snap',
-    });
+    const result = await executeTest(page, makeTest({ steps: ['do a', 'do b'] }), baseOptions(brain));
 
     expect(result.status).toBe('failed');
     expect(result.steps).toHaveLength(1);
@@ -229,13 +274,7 @@ describe('executeTest', () => {
     const page = new FakePage(); // nothing visible
     const brain = scriptedBrain([click('Nope'), click('Nope'), click('Nope')]);
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      maxRetries: 3,
-      snapshot: async () => 'snap',
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 3 }));
 
     expect(result.status).toBe('failed');
     expect(result.reason).toContain('Element not found');
@@ -249,12 +288,7 @@ describe('executeTest', () => {
       { action: 'done', reasoning: 'recovered' },
     ]);
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      snapshot: async () => 'snap',
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
 
     expect(result.status).toBe('passed');
     expect(result.steps[0]?.failedAttempts).toBe(1);
@@ -273,12 +307,7 @@ describe('executeTest', () => {
       [{ pass: true, reason: 'total shows $80' }],
     );
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      snapshot: async () => 'snap',
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
 
     expect(result.status).toBe('passed');
     expect(result.steps[0]?.status).toBe('passed');
@@ -291,12 +320,7 @@ describe('executeTest', () => {
       [{ pass: true, reason: 'total shows $80' }],
     );
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      snapshot: async () => 'snap',
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
 
     expect(result.status).toBe('passed');
     expect(brain.calls).toBe(1);
@@ -309,13 +333,7 @@ describe('executeTest', () => {
       Array(3).fill({ pass: false, reason: 'no total rendered' }),
     );
 
-    const failResult = await executeTest(page, makeTest(), {
-      brain: failing,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      maxRetries: 3,
-      snapshot: async () => 'snap',
-    });
+    const failResult = await executeTest(page, makeTest(), baseOptions(failing, { maxRetries: 3 }));
 
     expect(failResult.status).toBe('failed');
     expect(failResult.reason).toContain('no total rendered');
@@ -326,13 +344,7 @@ describe('executeTest', () => {
     const page = new FakePage();
     const brain = scriptedBrain(Array(6).fill({ action: 'press', value: 'Tab', reasoning: 'wander' }));
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      maxIterationsPerStep: 5,
-      snapshot: async () => 'snap',
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { maxIterationsPerStep: 5 }));
 
     expect(result.status).toBe('failed');
     expect(result.reason).toContain('exceeded 5 actions');
@@ -348,14 +360,7 @@ describe('executeTest', () => {
     const events: ExecutorEvent[] = [];
     const mask = (s: string) => s.replaceAll('s3cret', '***');
 
-    const result = await executeTest(page, makeTest(), {
-      brain,
-      sessionDir,
-      baseUrl: 'http://x.test',
-      mask,
-      snapshot: async () => 'snap',
-      onEvent: (e) => events.push(e),
-    });
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { mask, onEvent: (e) => events.push(e) }));
 
     const serialized = JSON.stringify(events) + JSON.stringify(result);
     expect(serialized).not.toContain('s3cret');
@@ -371,14 +376,7 @@ describe('executeTest', () => {
       const page = new FakePage();
       const brain = scriptedBrain([new BudgetExhaustedError('calls', 5, 5)]);
 
-      await expect(
-        executeTest(page, makeTest(), {
-          brain,
-          sessionDir,
-          baseUrl: 'http://x.test',
-          snapshot: async () => 'snap',
-        }),
-      ).rejects.toThrow(BudgetExhaustedError);
+      await expect(executeTest(page, makeTest(), baseOptions(brain))).rejects.toThrow(BudgetExhaustedError);
     });
 
     it('propagates BudgetExhaustedError from judge instead of failing the step', async () => {
@@ -390,14 +388,7 @@ describe('executeTest', () => {
         },
       };
 
-      await expect(
-        executeTest(page, makeTest(), {
-          brain,
-          sessionDir,
-          baseUrl: 'http://x.test',
-          snapshot: async () => 'snap',
-        }),
-      ).rejects.toThrow(BudgetExhaustedError);
+      await expect(executeTest(page, makeTest(), baseOptions(brain))).rejects.toThrow(BudgetExhaustedError);
     });
 
     it('does not spend it from the retry budget: a single exhaustion is never retried', async () => {
@@ -411,15 +402,9 @@ describe('executeTest', () => {
         judge: async () => ({ pass: true, reason: 'n/a' }),
       };
 
-      await expect(
-        executeTest(page, makeTest(), {
-          brain,
-          sessionDir,
-          baseUrl: 'http://x.test',
-          maxRetries: 3,
-          snapshot: async () => 'snap',
-        }),
-      ).rejects.toThrow(BudgetExhaustedError);
+      await expect(executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 3 }))).rejects.toThrow(
+        BudgetExhaustedError,
+      );
       expect(calls).toBe(1);
     });
   });
@@ -478,6 +463,149 @@ describe('performAction / resolveTarget', () => {
   });
 });
 
+// --- browser-patience: resolution and navigation honour the configured timeout ---
+// Regression tests for the defect: `ActionContext.resolveTimeoutMs` was never set by
+// any caller, so `resolveTarget` always fell back to a fixed 2s and `navigate` to a
+// hardcoded 30s, regardless of `browser.timeout_ms` (design D1/D2/D3).
+
+describe('navigate honours the configured timeout, not a fixed value (task 2.4)', () => {
+  it('passes the context timeout to page.goto', async () => {
+    const page = new FakePage();
+    await performAction(
+      page,
+      { action: 'navigate', value: '/checkout', reasoning: 'go' },
+      { baseUrl: 'http://localhost:4173', resolveTimeoutMs: 5_000 },
+    );
+    expect(page.gotoTimeouts).toEqual([5_000]);
+  });
+
+  it('falls back to 30s when no timeout is configured, unchanged from before', async () => {
+    const page = new FakePage();
+    await performAction(
+      page,
+      { action: 'navigate', value: '/checkout', reasoning: 'go' },
+      { baseUrl: 'http://localhost:4173' },
+    );
+    expect(page.gotoTimeouts).toEqual([30_000]);
+  });
+});
+
+describe('executeTest threads the configured browser timeout into resolution (design D1/D2/D3)', () => {
+  it('resolves an element visible only after the old fixed 2s once given a longer configured timeout, consuming no retry', async () => {
+    const page = new FakePage();
+    // Needs a wait of at least 4s to resolve — longer than the old hardcoded 2s
+    // default that `resolveTarget` fell back to before this fix, since no caller
+    // ever set `ActionContext.resolveTimeoutMs`. Before the fix, `executeTest` had
+    // no `timeoutMs` option at all, so this element could never resolve regardless
+    // of what a user set in `browser.timeout_ms`.
+    page.delayedVisible.set('role:button|Checkout', 4_000);
+    const brain = scriptedBrain([click('Checkout'), { action: 'done', reasoning: 'clicked' }]);
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { timeoutMs: 10_000 }));
+
+    expect(result.status).toBe('passed');
+    expect(page.calls).toContain('click role:button|Checkout');
+    // Waiting is not retrying (design D3): the slow element cost nothing from the
+    // self-healing retry budget.
+    expect(result.steps[0]?.failedAttempts).toBe(0);
+  });
+
+  it('fails the same resolution when the configured timeout does not cover the wait (would also fail pre-fix, for the same reason)', async () => {
+    const page = new FakePage();
+    page.delayedVisible.set('role:button|Checkout', 4_000);
+    const brain = scriptedBrain([click('Checkout'), click('Checkout'), click('Checkout')]);
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { timeoutMs: 1_000, maxRetries: 3 }));
+
+    expect(result.status).toBe('failed');
+    expect(result.reason).toContain('Element not found');
+  });
+
+  it('an element that never appears still fails and never consumes more than one retry per attempt, however large the configured timeout (task 2.3)', async () => {
+    const page = new FakePage(); // nothing ever becomes visible, however long resolution waits
+    const brain = scriptedBrain([click('Ghost'), click('Ghost'), click('Ghost')]);
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { timeoutMs: 60_000, maxRetries: 3 }));
+
+    expect(result.status).toBe('failed');
+    // Exactly the retry budget, not more: raising the timeout never increases the
+    // number of attempts (design D3).
+    expect(result.steps[0]?.failedAttempts).toBe(3);
+    expect(brain.calls).toBe(3);
+  });
+});
+
+// --- browser-patience: the snapshot cap is configurable (task 3.1/3.2/3.3) -------
+
+describe('the accessibility snapshot cap is configurable', () => {
+  it('captureSnapshot defaults to 200 lines when no cap is given', async () => {
+    const raw = Array.from({ length: 250 }, (_, i) => `- text "line ${i}"`).join('\n');
+    const fakePage = { locator: () => ({ ariaSnapshot: async () => raw }), url: () => 'http://x.test/' };
+    const snap = await captureSnapshot(fakePage as unknown as Page);
+    const lines = snap.split('\n');
+    expect(lines).toHaveLength(1 + 200 + 1); // url line + 200 kept + truncation note
+    expect(snap).toContain('truncated after 200 lines');
+  });
+
+  it('a raised cap admits more lines than the default', async () => {
+    const raw = Array.from({ length: 250 }, (_, i) => `- text "line ${i}"`).join('\n');
+    const fakePage = { locator: () => ({ ariaSnapshot: async () => raw }), url: () => 'http://x.test/' };
+    const snap = await captureSnapshot(fakePage as unknown as Page, { maxLines: 300 });
+    const lines = snap.split('\n');
+    expect(lines).toHaveLength(1 + 250); // every line admitted, no truncation
+    expect(snap).not.toContain('truncated');
+  });
+
+  it("executeTest's default snapshotter honours maxSnapshotLines, unset behaves exactly as before", async () => {
+    const page = new FakePage();
+    page.snapshotYaml = Array.from({ length: 50 }, (_, i) => `- text "line ${i}"`).join('\n');
+    let seenSnapshot = '';
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        seenSnapshot = input.snapshot;
+        return { action: 'done', reasoning: 'ok' };
+      },
+      async judge() {
+        return { pass: true, reason: 'n/a' };
+      },
+    };
+
+    // Deliberately not `baseOptions`: that injects a stub `snapshot`, which would
+    // bypass the real default-snapshotter path (`defaultSnapshot`/`captureSnapshot`)
+    // this test exercises via `page.snapshotYaml`/`page.locator()`.
+    await executeTest(page, makeTest(), { brain, sessionDir, baseUrl: 'http://x.test', timeoutMs: DEFAULT_TEST_TIMEOUT_MS });
+
+    expect(seenSnapshot).not.toContain('truncated'); // default preserved, well under 200
+  });
+
+  it("executeTest's default snapshotter truncates at a lowered maxSnapshotLines, visibly marked", async () => {
+    const page = new FakePage();
+    page.snapshotYaml = Array.from({ length: 50 }, (_, i) => `- text "line ${i}"`).join('\n');
+    let seenSnapshot = '';
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        seenSnapshot = input.snapshot;
+        return { action: 'done', reasoning: 'ok' };
+      },
+      async judge() {
+        return { pass: true, reason: 'n/a' };
+      },
+    };
+
+    // Same reason as above: no `baseOptions` here, so the real default snapshotter
+    // (and therefore `maxSnapshotLines`) is actually exercised.
+    await executeTest(page, makeTest(), {
+      brain,
+      sessionDir,
+      baseUrl: 'http://x.test',
+      timeoutMs: DEFAULT_TEST_TIMEOUT_MS,
+      maxSnapshotLines: 10,
+    });
+
+    expect(seenSnapshot).toContain('truncated after 10 lines');
+  });
+});
+
 // --- snapshot trimming ------------------------------------------------------
 
 describe('trimSnapshot', () => {
@@ -532,12 +660,7 @@ describe('screenshot naming', () => {
             routes: [],
             auth: true,
           },
-          {
-            brain: failing,
-            sessionDir: dir,
-            baseUrl: 'http://localhost:4173',
-            snapshot: async () => '- main',
-          },
+          baseOptions(failing, { sessionDir: dir, baseUrl: 'http://localhost:4173', snapshot: async () => '- main' }),
         );
         shots.push(...page.screenshots);
       }

@@ -12,6 +12,7 @@ import {
   renderTestYaml,
   routeToSlug,
   writeDraft,
+  type GenerateOptions,
   type TestDraft,
 } from '../src/planner.js';
 import type { PageLike } from '../src/runner/actions.js';
@@ -33,17 +34,21 @@ function stubBrain(draft: GeneratedTest = DRAFT, captured?: { input?: unknown })
   };
 }
 
-function fakePage(overrides: Partial<PageLike> = {}): { page: PageLike; visited: string[] } {
+function fakePage(
+  overrides: Partial<PageLike> = {},
+): { page: PageLike; visited: string[]; gotoTimeouts: (number | undefined)[] } {
   const visited: string[] = [];
+  const gotoTimeouts: (number | undefined)[] = [];
   const page = {
-    goto: async (url: string) => {
+    goto: async (url: string, options?: { timeout?: number }) => {
       visited.push(url);
+      gotoTimeouts.push(options?.timeout);
       return undefined;
     },
     url: () => visited[visited.length - 1] ?? '',
     ...overrides,
   } as unknown as PageLike;
-  return { page, visited };
+  return { page, visited, gotoTimeouts };
 }
 
 describe('routeToSlug', () => {
@@ -105,19 +110,46 @@ describe('renderTestYaml', () => {
   });
 });
 
+/** Mirrors config `browser.timeout_ms`'s own schema default (src/config.ts). */
+const DEFAULT_TEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Base `GenerateOptions` for tests that don't care about the specific timeout
+ * value. `timeoutMs` is required on the real type (browser-patience, same
+ * reasoning as `ExecutorOptions.timeoutMs`: the one real caller, `plan`, always
+ * has the configured value on hand, and an unset value has no legitimate
+ * "don't care" meaning — it would silently reinstate a fixed 30s). Centralising
+ * the default here, rather than at each of this file's `generateForRoute`
+ * calls, is what keeps that requirement cheap (mirrors `auth.test.ts`'s
+ * `options()` and `executor.test.ts`'s `baseOptions`).
+ */
+function baseGenerateOptions(
+  overrides: Partial<GenerateOptions> & Pick<GenerateOptions, 'route' | 'brain'>,
+): GenerateOptions {
+  return {
+    baseUrl: 'http://localhost:4173',
+    changedFiles: [],
+    mask: (t: string) => t,
+    snapshot: async () => '- main',
+    timeoutMs: DEFAULT_TEST_TIMEOUT_MS,
+    ...overrides,
+  };
+}
+
 describe('generateForRoute', () => {
   it('loads the route, snapshots it and sets routes to exactly that route', async () => {
     const captured: { input?: { route?: string; snapshot?: string; changedFiles?: string[] } } = {};
     const { page, visited } = fakePage();
 
-    const draft = await generateForRoute(page, {
-      route: '/cart',
-      baseUrl: 'http://localhost:4173',
-      changedFiles: ['src/cart/discount.ts'],
-      brain: stubBrain(DRAFT, captured),
-      mask: (t: string) => t,
-      snapshot: async () => '- button "Apply discount"',
-    });
+    const draft = await generateForRoute(
+      page,
+      baseGenerateOptions({
+        route: '/cart',
+        changedFiles: ['src/cart/discount.ts'],
+        brain: stubBrain(DRAFT, captured),
+        snapshot: async () => '- button "Apply discount"',
+      }),
+    );
 
     expect(visited).toEqual(['http://localhost:4173/cart']);
     expect(captured.input?.route).toBe('/cart');
@@ -127,18 +159,19 @@ describe('generateForRoute', () => {
     expect(draft.routes).toEqual(['/cart']);
   });
 
+  it('uses the configured browser.timeout_ms for the route load, not a fixed value (browser-patience)', async () => {
+    const { page, gotoTimeouts } = fakePage();
+
+    await generateForRoute(page, baseGenerateOptions({ route: '/cart', brain: stubBrain(), timeoutMs: 45_000 }));
+
+    expect(gotoTimeouts).toEqual([45_000]);
+  });
+
   it('ignores any routes the model tries to return', async () => {
     const { page } = fakePage();
     const rogue = { ...DRAFT, routes: ['/somewhere-else'] } as unknown as GeneratedTest;
 
-    const draft = await generateForRoute(page, {
-      route: '/settings',
-      baseUrl: 'http://localhost:4173',
-      changedFiles: [],
-      brain: stubBrain(rogue),
-      mask: (t: string) => t,
-      snapshot: async () => '- main',
-    });
+    const draft = await generateForRoute(page, baseGenerateOptions({ route: '/settings', brain: stubBrain(rogue) }));
 
     expect(draft.routes).toEqual(['/settings']);
   });
@@ -151,14 +184,7 @@ describe('generateForRoute', () => {
     });
 
     await expect(
-      generateForRoute(page, {
-        route: '/cart',
-        baseUrl: 'http://localhost:4173',
-        changedFiles: [],
-        brain: stubBrain(),
-        mask: (t: string) => t,
-        snapshot: async () => '',
-      }),
+      generateForRoute(page, baseGenerateOptions({ route: '/cart', brain: stubBrain(), snapshot: async () => '' })),
     ).rejects.toThrow(/Cannot load http:\/\/localhost:4173\/cart/);
   });
 
@@ -170,14 +196,10 @@ describe('generateForRoute', () => {
     };
 
     await expect(
-      generateForRoute(page, {
-        route: '/login',
-        baseUrl: 'http://localhost:4173',
-        changedFiles: [],
-        brain: stubBrain(leaky),
-        mask: (t: string) => t,
-        snapshot: async () => '- textbox "Password"',
-      }),
+      generateForRoute(
+        page,
+        baseGenerateOptions({ route: '/login', brain: stubBrain(leaky), snapshot: async () => '- textbox "Password"' }),
+      ),
     ).rejects.toThrow(PlannerError);
   });
 });
@@ -190,14 +212,15 @@ describe('the planner masks too', () => {
     const captured: { input?: { snapshot?: string } } = {};
     const { page } = fakePage();
 
-    await generateForRoute(page, {
-      route: '/account',
-      baseUrl: 'http://localhost:4173',
-      changedFiles: [],
-      brain: stubBrain(DRAFT, captured),
-      mask: (t) => t.replace(/LIVE-SECRET-abc123/g, '***'),
-      snapshot: async () => '- text "Authenticated with token: LIVE-SECRET-abc123"',
-    });
+    await generateForRoute(
+      page,
+      baseGenerateOptions({
+        route: '/account',
+        brain: stubBrain(DRAFT, captured),
+        mask: (t) => t.replace(/LIVE-SECRET-abc123/g, '***'),
+        snapshot: async () => '- text "Authenticated with token: LIVE-SECRET-abc123"',
+      }),
+    );
 
     expect(captured.input?.snapshot).not.toContain('LIVE-SECRET-abc123');
   });

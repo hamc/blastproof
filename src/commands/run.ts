@@ -286,6 +286,8 @@ async function runOne(
       allowedOrigins: config.allowed_origins,
       resolveValue: (value) => substituteEnv(value),
       maxRetries: config.max_retries_per_step,
+      timeoutMs: config.browser.timeout_ms,
+      maxSnapshotLines: config.browser.max_snapshot_lines,
       mask: (text) => mask.mask(text),
       onEvent: printEvent,
     });
@@ -611,6 +613,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
           browser: browser as unknown as BrowserLike,
           brain: createBrain(createModel(config.llm).model, undefined, budget),
           maxRetries: config.max_retries_per_step,
+          timeoutMs: config.browser.timeout_ms,
+          maxSnapshotLines: config.browser.max_snapshot_lines,
           mask: runMask,
           onEvent: printEvent,
         });

@@ -102,7 +102,10 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function writeProject(tests: Record<string, string> = {}): Promise<void> {
+async function writeProject(
+  tests: Record<string, string> = {},
+  extraConfig = '',
+): Promise<void> {
   const config = [
     'base_url: http://localhost:4173',
     'llm:',
@@ -111,6 +114,7 @@ async function writeProject(tests: Record<string, string> = {}): Promise<void> {
     'routes:',
     '  "src/cart/**": ["/cart"]',
     '  "src/settings/**": ["/settings"]',
+    extraConfig,
     '',
   ].join('\n');
   await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
@@ -137,6 +141,22 @@ describe('planCommand route selection', () => {
     });
     expect(out()).toContain('Already covered (skipped)');
     expect(out()).toContain('/cart');
+  });
+
+  it('supplies the configured browser.max_snapshot_lines to generateForRoute (browser-patience task 3.2)', async () => {
+    await writeProject(
+      { 'cart.yaml': CART_TEST },
+      ['browser:', '  max_snapshot_lines: 400'].join('\n'),
+    );
+    getChangedFilesMock.mockResolvedValue(['src/settings/flags.ts']);
+
+    const code = await planCommand({ cwd: dir });
+
+    expect(code).toBe(EXIT_OK);
+    expect(generateForRouteMock).toHaveBeenCalledTimes(1);
+    expect(generateForRouteMock.mock.calls[0]?.[1]).toMatchObject({
+      maxSnapshotLines: 400,
+    });
   });
 
   it('exits 0 without browser or LLM when everything is covered', async () => {

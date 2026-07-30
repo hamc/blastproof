@@ -61,6 +61,27 @@ export interface AuthenticateOptions {
   /** Injectable snapshotter, mirroring the executor, so tests need no browser. */
   snapshot?: (page: PageLike) => Promise<string>;
   /**
+   * The configured `browser.timeout_ms` (design D1/D2, browser-patience): bounds
+   * resolving a target element and navigation during the login journey, exactly as
+   * for any other test. A login page is the worst place for this gap to survive —
+   * a slow hydration here fails the whole run (exit 2), not one test.
+   *
+   * Required, not optional — same reasoning as {@link AuthenticateOptions.mask}
+   * and as `budget` on `createBrain`/`createPlanner` (spec run-budget): this is
+   * the second time an optional field meant to close a gap discovered at one call
+   * site was silently left unset at another (`plan`'s budget, then here). Unlike
+   * `budget`, there is no meaningful "unset" value for a wait — every real caller
+   * already has one (`config.browser.timeout_ms`, itself always defaulted), so
+   * nothing is lost by the compiler requiring it.
+   */
+  timeoutMs: number;
+  /**
+   * Caps accessibility-tree lines sent to the model during the login journey
+   * (mirrors the executor's option of the same name). Only applies to the default
+   * snapshotter; an injected `snapshot` fully replaces it.
+   */
+  maxSnapshotLines?: number;
+  /**
    * Progress reporter for the login journey. Without it authentication is a black
    * box, and a failing login is the moment you most need to see what happened.
    */
@@ -151,8 +172,16 @@ async function runJourney(
  * exactly the same plain English as a test.
  */
 async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
-  const { auth, baseUrl, browser, brain, maxRetries, snapshot = defaultSnapshot, onEvent, mask } = options;
+  const { auth, baseUrl, browser, brain, maxRetries, snapshot, timeoutMs, maxSnapshotLines, onEvent, mask } =
+    options;
   const steps = auth.steps!;
+  // Same wiring as the executor (browser-patience design D1/D2): defaulting
+  // `snapshot` straight to `defaultSnapshot` — as this used to — bypasses
+  // `maxSnapshotLines` entirely, since an already-defined `snapshot` short-circuits
+  // executeTest's own cap-aware default. Building the fallback here instead means
+  // the cap actually reaches the page render; an injected `snapshot` (tests) still
+  // fully replaces it, same contract as the executor.
+  const takeSnapshot = snapshot ?? ((page: PageLike) => defaultSnapshot(page, maxSnapshotLines));
 
   const context = await browser.newContext();
   try {
@@ -178,8 +207,9 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
         allowedOrigins: options.allowedOrigins,
         resolveValue: (value) => substituteEnv(value),
         maxRetries,
+        timeoutMs,
         mask: (text) => mask.mask(text),
-        snapshot,
+        snapshot: takeSnapshot,
         onEvent,
       },
     );
@@ -193,7 +223,7 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
     // Optional post-login check: turns N mysterious test failures into one message (D5).
     if (auth.verify) {
       // The login page is the one most likely to be rendering a credential.
-      const judgment = await brain.judge(auth.verify, mask.mask(await snapshot(page)));
+      const judgment = await brain.judge(auth.verify, mask.mask(await takeSnapshot(page)));
       if (!judgment.pass) {
         throw new AuthError(`Authentication could not be verified: ${mask.mask(judgment.reason)}`);
       }

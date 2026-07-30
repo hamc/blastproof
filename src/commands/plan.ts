@@ -253,6 +253,8 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           browser: browser as unknown as BrowserLike,
           brain: createBrain(createModel(config.llm).model, undefined, budget),
           maxRetries: config.max_retries_per_step,
+          timeoutMs: config.browser.timeout_ms,
+          maxSnapshotLines: config.browser.max_snapshot_lines,
           mask,
           onEvent: printAuthEvent,
         });
@@ -282,6 +284,8 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           changedFiles,
           brain,
           mask: (text) => mask.mask(text),
+          maxSnapshotLines: config.browser.max_snapshot_lines,
+          timeoutMs: config.browser.timeout_ms,
         });
       } catch (error) {
         if (error instanceof BudgetExhaustedError) {

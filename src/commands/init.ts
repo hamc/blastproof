@@ -21,6 +21,9 @@ llm:
 
 browser:
   headless: true
+  # How long to wait for an element to appear (self-healing resolution) as well as
+  # for the action performed on it and for navigation. Raising it makes a slow app
+  # wait longer to succeed, and a genuinely missing element take longer to fail.
   timeout_ms: 30000
 
 # Budget of self-healing retries per step (element re-resolution via accessibility tree).

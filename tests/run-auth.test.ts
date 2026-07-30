@@ -161,6 +161,37 @@ describe('runCommand authentication', () => {
     expect(out()).not.toContain('Score:');
   });
 
+  it('threads the configured browser.timeout_ms into the login journey too, not only the tests that follow (browser-patience)', async () => {
+    // The defect: `runJourney`'s call in auth.ts passed everything but `timeoutMs`
+    // (and `maxSnapshotLines`), so a slow login element was bound by a fixed 2s
+    // regardless of config — the worst place for this gap, since a failed login
+    // aborts the whole run, not one test.
+    const config = [
+      'base_url: http://localhost:4173',
+      'llm:',
+      '  provider: anthropic',
+      '  api_key_env: BLASTPROOF_AUTH_TEST_KEY',
+      'browser:',
+      '  timeout_ms: 45000',
+      'auth:',
+      '  steps:',
+      '    - sign in',
+      '',
+    ].join('\n');
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), config);
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'a.yaml'), AUTHED);
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_OK);
+    const loginCall = executeTestMock.mock.calls.find(
+      (call) => (call[1] as { path?: string }).path === '<auth>',
+    );
+    expect(loginCall).toBeDefined();
+    expect((loginCall?.[2] as { timeoutMs?: number }).timeoutMs).toBe(45_000);
+  });
+
   it('does nothing extra when no recipe is configured', async () => {
     await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
     await writeFile(

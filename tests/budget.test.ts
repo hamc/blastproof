@@ -178,6 +178,7 @@ describe('estimateMaxModelCalls bounds the real executor (DEF-001 regression)', 
       baseUrl: 'http://localhost:4173',
       maxRetries: R,
       maxIterationsPerStep: N,
+      timeoutMs: 30_000,
       snapshot: async () => 'snapshot',
     });
 
