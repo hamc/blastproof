@@ -26,3 +26,8 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+
+# Scratch space for the qa role (see .claude/agents/qa.md). Verification files
+# written here are throwaway; an agent interrupted mid-run cannot clean up after
+# itself, and `git add -A` would otherwise sweep its scratch into a commit.
+e2e/
