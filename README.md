@@ -42,7 +42,9 @@ Before `run`, `plan` or `test` do anything, they check what they are about to sp
 
 **Your markup must be accessible — a hard requirement.** Elements are found by role, label or visible text from the accessibility tree. That is what removes selectors and survives redesigns; the cost is that an interface the accessibility tree cannot describe cannot be driven at all, and there is deliberately no CSS or XPath fallback. Icon-only buttons without accessible names, `div`-based controls and ARIA-less dropdowns simply cannot be targeted. Run an accessibility checker first — the result predicts how well this will work better than anything else.
 
-**Not supported yet:** `iframe` content (so hosted payment widgets like Stripe Elements are invisible — an embedded checkout cannot be driven end to end), hover, scroll-to, drag and drop, file upload, multiple tabs, native `alert`/`confirm` dialogs. Page snapshots are capped at 200 lines, so very dense pages are truncated.
+**Not supported yet:** `iframe` content (so hosted payment widgets like Stripe Elements are invisible — an embedded checkout cannot be driven end to end), hover, scroll-to, drag and drop, file upload, multiple tabs, native `alert`/`confirm` dialogs. Page snapshots are capped at 200 lines by default, so very dense pages are truncated — raise it with `browser.max_snapshot_lines` if your pages need more; truncation is always marked in the snapshot so the model is never misled into thinking it saw the whole page.
+
+`browser.timeout_ms` bounds every wait — resolving a target element from the accessibility tree, and navigation — not only the click or fill performed afterwards. Raise it for an application that is merely slow to hydrate; the trade-off is that a genuinely missing element then takes longer to fail. It never changes how many self-healing retries a step gets — waiting and retrying are deliberately separate.
 
 ## Writing tests
 

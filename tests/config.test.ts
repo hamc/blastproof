@@ -28,6 +28,16 @@ describe('loadConfig', () => {
     expect(config.browser.headless).toBe(true);
     expect(config.browser.timeout_ms).toBe(30_000);
     expect(config.max_retries_per_step).toBe(3);
+    // Unset: runner/snapshot.ts's own default (200) applies, unchanged (task 3.2).
+    expect(config.browser.max_snapshot_lines).toBeUndefined();
+  });
+
+  it('accepts an explicit browser.max_snapshot_lines', async () => {
+    await writeConfig(
+      ['base_url: http://localhost:3000', 'browser:', '  max_snapshot_lines: 400', ''].join('\n'),
+    );
+    const config = await loadConfig(dir);
+    expect(config.browser.max_snapshot_lines).toBe(400);
   });
 
   it('loads a full config', async () => {

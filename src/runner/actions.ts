@@ -32,7 +32,15 @@ export class ActionError extends Error {
 
 export interface ActionContext {
   baseUrl: string;
-  /** Per-resolution wait budget in ms (each fallback candidate gets a short wait). */
+  /**
+   * The configured `browser.timeout_ms` (design D1: one knob, not two): bounds how
+   * long resolution waits for each candidate element to become visible, and how
+   * long `navigate` waits to load. Must be populated by the caller — a Playwright
+   * locator's explicit per-call timeout always overrides `page.setDefaultTimeout()`,
+   * so leaving this `undefined` silently reinstates a fixed two-second wait for
+   * resolution (and thirty seconds for navigation) regardless of what
+   * `browser.timeout_ms` says, which is exactly the defect this field once was.
+   */
   resolveTimeoutMs?: number;
   /** Extra origins the agent may reach; `baseUrl`'s own is always allowed. */
   allowedOrigins?: string[];
@@ -69,7 +77,11 @@ function describeTarget(target: AgentTarget): string {
 
 /**
  * Resolves an element from the live accessibility tree only (self-healing, design D4):
- * getByRole → getByLabel → getByText, each with a short visibility wait.
+ * getByRole → getByLabel → getByText, each with a visibility wait bounded by
+ * `resolveTimeoutMs` — the configured `browser.timeout_ms`, threaded here via
+ * {@link ActionContext.resolveTimeoutMs} by every real caller. The `2_000` default
+ * only applies to a caller that resolves a target without going through
+ * `performAction`'s context (e.g. a direct unit test).
  */
 export async function resolveTarget(
   page: PageLike,
@@ -134,7 +146,9 @@ export async function performAction(
       const value = resolve(requireValue(action), ctx);
       const url = new URL(value, ctx.baseUrl);
       assertAllowedOrigin(url, ctx);
-      await page.goto(url.toString(), { timeout: 30_000 });
+      // Same knob as resolution (design D1): a slow app is waited for, not just
+      // the elements on the page it eventually renders.
+      await page.goto(url.toString(), { timeout: ctx.resolveTimeoutMs ?? 30_000 });
       return `ok: navigated to ${url.toString()}`;
     }
     case 'click': {

@@ -14,7 +14,19 @@ const llmSchema = z.object({
 
 const browserSchema = z.object({
   headless: z.boolean().default(true),
+  /**
+   * Bounds every wait: resolving a target element on the accessibility tree, and
+   * navigating. An explicit per-call Playwright timeout always overrides
+   * `page.setDefaultTimeout()`, so this must be threaded through the action
+   * context rather than relied on ambiently (design D2, runner/actions.ts).
+   */
   timeout_ms: z.number().int().positive().default(30_000),
+  /**
+   * Caps accessibility-tree lines sent to the model per snapshot. Optional:
+   * undefined lets `runner/snapshot.ts`'s own default (200) apply, so a config
+   * that never mentions this behaves exactly as before it existed.
+   */
+  max_snapshot_lines: z.number().int().positive().optional(),
 });
 
 /**

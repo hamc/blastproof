@@ -12,6 +12,7 @@ import {
 } from '../src/auth.js';
 import type { AuthConfig } from '../src/config.js';
 import type { AgentBrain } from '../src/llm/brain.js';
+import type { LocatorLike, PageLike } from '../src/runner/actions.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
 import { SecretsMask } from '../src/runner/env.js';
 
@@ -49,6 +50,107 @@ function fakeBrowser(overrides: { fail?: boolean } = {}): {
   return { browser, contexts };
 }
 
+/**
+ * A page whose one named element resolves only if the requested `waitFor` timeout
+ * meets or exceeds `thresholdMs` — a logical stand-in for a real wait, used to
+ * prove the configured `browser.timeout_ms` actually reaches the login journey's
+ * element resolution (browser-patience), not just that `authenticate()` accepts
+ * the option. Mirrors the fakes in `executor.test.ts`.
+ */
+function delayedElementPage(delayedKey: string, thresholdMs: number): { page: PageLike; calls: string[] } {
+  const calls: string[] = [];
+  let currentUrl = 'about:blank';
+
+  const locatorFor = (kind: string, query: string): LocatorLike => {
+    const key = `${kind}:${query}`;
+    const locator: LocatorLike = {
+      first: () => locator,
+      async waitFor(options?: { timeout?: number }) {
+        if (key !== delayedKey || (options?.timeout ?? 0) < thresholdMs) {
+          throw new Error(`not visible: ${key}`);
+        }
+      },
+      async click() {
+        calls.push(`click ${key}`);
+      },
+      async fill(value: string) {
+        calls.push(`fill ${key}=${value}`);
+      },
+      async press(k: string) {
+        calls.push(`press ${k} on ${key}`);
+      },
+      async selectOption(option: { label: string }) {
+        calls.push(`select ${key}=${option.label}`);
+        return [option.label];
+      },
+    };
+    return locator;
+  };
+
+  const page: PageLike = {
+    async goto(url: string) {
+      calls.push(`goto ${url}`);
+      currentUrl = url;
+      return undefined;
+    },
+    getByRole: (role: string, opts?: { name?: string }) => locatorFor('role', `${role}|${opts?.name ?? ''}`),
+    getByLabel: (text: string) => locatorFor('label', text),
+    getByText: (text: string) => locatorFor('text', text),
+    keyboard: {
+      press: async (k: string) => {
+        calls.push(`keyboard ${k}`);
+      },
+    },
+    screenshot: async () => undefined,
+    url: () => currentUrl,
+  };
+
+  return { page, calls };
+}
+
+/**
+ * A page whose accessibility tree is `rawYaml`, reachable only through the real
+ * `defaultSnapshot`/`captureSnapshot` path (`page.locator('body').ariaSnapshot()`)
+ * — used to prove `maxSnapshotLines` actually reaches the login journey's own
+ * snapshot and the `auth.verify` judge call (DEF-003), not just that
+ * `AuthenticateOptions` accepts the field. `fakeBrowser`'s page (and every other
+ * fake in this file) always injects an explicit `snapshot` override, which
+ * bypasses the default snapshotter entirely — exactly the gap that let the cap
+ * silently do nothing here in the first place.
+ */
+function fakeSnapshotPage(rawYaml: string): PageLike {
+  return {
+    async goto() {
+      return undefined;
+    },
+    getByRole: () => ({}) as never,
+    getByLabel: () => ({}) as never,
+    getByText: () => ({}) as never,
+    keyboard: { press: async () => {} },
+    screenshot: async () => undefined,
+    url: () => 'http://localhost:4173/login',
+    // Not part of `PageLike`; only `defaultSnapshot`'s cast to a real `Page` uses it.
+    locator: () => ({ ariaSnapshot: async () => rawYaml }),
+  } as unknown as PageLike;
+}
+
+/** Wraps a single already-built page in the minimal browser double `authenticate` needs. */
+function fakeBrowserWithPage(page: PageLike): BrowserLike {
+  return {
+    async newContext() {
+      return {
+        async newPage() {
+          return page;
+        },
+        async storageState() {
+          return CAPTURED;
+        },
+        async close() {},
+      };
+    },
+  };
+}
+
 /** Brain that drives the login journey to completion, or fails it. */
 function stubBrain(opts: { succeed?: boolean; verifyPasses?: boolean } = {}): AgentBrain {
   const { succeed = true, verifyPasses = true } = opts;
@@ -83,6 +185,21 @@ function assertThenFailBrain(): AgentBrain {
   };
 }
 
+/** Clicks the named target once, then completes the step. */
+function clickThenDoneBrain(name: string): AgentBrain {
+  let calls = 0;
+  return {
+    async nextAction() {
+      calls++;
+      if (calls === 1) return { action: 'click' as const, target: { role: 'button', name }, reasoning: 'click' };
+      return { action: 'done' as const, reasoning: 'signed in' };
+    },
+    async judge() {
+      return { pass: true, reason: 'n/a' };
+    },
+  };
+}
+
 let dir: string;
 
 beforeEach(async () => {
@@ -109,6 +226,11 @@ function options(auth: AuthConfig, brain: AgentBrain = stubBrain(), browser?: Br
     // The run's mask: the credential typed here stays live for the whole run.
     mask: new SecretsMask(),
     snapshot: async () => '- heading "Welcome"',
+    // `timeoutMs` is required on `AuthenticateOptions` (browser-patience): centralising
+    // the default here, rather than at each of the ~15 call sites below, is exactly
+    // what keeps that requirement cheap. Tests that care about a specific value
+    // override it by spreading `...options(...)` and setting `timeoutMs` after.
+    timeoutMs: 30_000,
   };
 }
 
@@ -177,6 +299,101 @@ describe('authenticate: steps strategy', () => {
 
     expect(error).toBeInstanceOf(AuthError);
     expect(error.message).not.toContain('hunter2');
+  });
+
+  // Regression for the defect: `runJourney`'s call at auth.ts passed `brain`,
+  // `sessionDir`, `baseUrl`, `allowedOrigins`, `resolveValue`, `maxRetries`, `mask`,
+  // `snapshot` and `onEvent` — never `timeoutMs` — so a login page's own slow
+  // element was bound by the old fixed 2s regardless of `browser.timeout_ms`. This
+  // is the worst place for the gap to survive: a failed login aborts the whole run
+  // with exit 2, not one test.
+  it('resolves a login element visible only after the old fixed 2s once given the configured timeout, without needing a retry', async () => {
+    const { page } = delayedElementPage('role:button|Sign in', 4_000);
+    const browser = fakeBrowserWithPage(page);
+    const brain = clickThenDoneBrain('Sign in');
+
+    const session = await authenticate({
+      ...options({ steps: ['click sign in'], cache: false }, brain, browser),
+      // maxRetries: 1 means a single failed resolution attempt would already abort
+      // the whole login — so succeeding here proves the element resolved on the
+      // first attempt, not merely "eventually, within some retry budget".
+      maxRetries: 1,
+      timeoutMs: 10_000,
+    });
+
+    expect(session.storageState).toEqual(CAPTURED);
+  });
+
+  it('fails the same login element when the configured timeout does not cover its wait', async () => {
+    const { page } = delayedElementPage('role:button|Sign in', 4_000);
+    const browser = fakeBrowserWithPage(page);
+    const brain = clickThenDoneBrain('Sign in');
+
+    await expect(
+      authenticate({
+        ...options({ steps: ['click sign in'], cache: false }, brain, browser),
+        maxRetries: 1,
+        timeoutMs: 1_000,
+      }),
+    ).rejects.toThrow(AuthError);
+  });
+
+  // DEF-003: `fromSteps` used to default its own `snapshot` variable straight to
+  // `defaultSnapshot`, so an already-defined value reached `executeTest` — which
+  // meant its own `snapshot ?? defaultSnapshot(page, maxSnapshotLines)` fallback
+  // never ran, and the cap silently never reached the page render. A test
+  // asserting only that `AuthenticateOptions` accepts `maxSnapshotLines` would
+  // pass against that bypass; these exercise the real default snapshotter.
+  it('caps the login journey\'s own snapshot at the configured max_snapshot_lines (DEF-003)', async () => {
+    const rawYaml = Array.from({ length: 50 }, (_, i) => `- text "line ${i}"`).join('\n');
+    const page = fakeSnapshotPage(rawYaml);
+    const browser = fakeBrowserWithPage(page);
+    let seenSnapshot = '';
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        seenSnapshot = input.snapshot;
+        return { action: 'done', reasoning: 'ok' };
+      },
+      async judge() {
+        return { pass: true, reason: 'n/a' };
+      },
+    };
+
+    await authenticate({
+      ...options({ steps: ['check something'], cache: false }, brain, browser),
+      snapshot: undefined, // let the real default snapshotter run, not the helper's stub
+      maxSnapshotLines: 10,
+    });
+
+    expect(seenSnapshot).toContain('truncated after 10 lines');
+  });
+
+  it('caps the snapshot passed to auth.verify\'s judge call too (DEF-003)', async () => {
+    const rawYaml = Array.from({ length: 50 }, (_, i) => `- text "line ${i}"`).join('\n');
+    const page = fakeSnapshotPage(rawYaml);
+    const browser = fakeBrowserWithPage(page);
+    let judgeSnapshot = '';
+    const brain: AgentBrain = {
+      async nextAction() {
+        return { action: 'done', reasoning: 'ok' };
+      },
+      async judge(_expectation, snapshot) {
+        judgeSnapshot = snapshot;
+        return { pass: true, reason: 'ok' };
+      },
+    };
+
+    await authenticate({
+      ...options(
+        { steps: ['check something'], verify: 'a signed-in indicator is visible', cache: false },
+        brain,
+        browser,
+      ),
+      snapshot: undefined,
+      maxSnapshotLines: 10,
+    });
+
+    expect(judgeSnapshot).toContain('truncated after 10 lines');
   });
 });
 

@@ -112,6 +112,7 @@ describe('secret boundary', () => {
       sessionDir: '/tmp/none',
       baseUrl: BASE,
       resolveValue: (v) => substituteEnv(v),
+      timeoutMs: 30_000,
       snapshot: async () => '- textbox "Password"',
     });
 
@@ -166,6 +167,7 @@ describe('secret boundary', () => {
           baseUrl: BASE,
           resolveValue: (v) => substituteEnv(v),
           mask: (t) => mask.mask(t),
+          timeoutMs: 30_000,
           // The page itself may render the secret; that is a prompt input too.
           snapshot: async () => '- combobox "Plan" value="sk-supersecret-123"',
         },
@@ -232,6 +234,7 @@ describe('the mask covers the whole run, not one test', () => {
         sessionDir: '/tmp/none',
         baseUrl: BASE,
         mask: (t) => runMask.mask(t),
+        timeoutMs: 30_000,
         // The authenticated page echoes the credential back.
         snapshot: async () => '- text "Signed in with auth-token-999"',
       },
