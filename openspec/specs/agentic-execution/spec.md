@@ -59,6 +59,8 @@ The executor SHALL resolve target elements exclusively from the current accessib
 ### Requirement: Supported actions
 The executor SHALL support the actions `navigate`, `click`, `fill`, `press`, `select`, `assert`, `done`, and `fail`, mapping them to Playwright operations resolved via `getByRole`/`getByLabel`/`getByText`. Action payloads SHALL have `{{env.*}}` placeholders substituted at the moment the action is performed, and `navigate` SHALL be bounded by the allowed origins.
 
+A `navigate` SHALL report where it landed when the browser ends up at a URL other than the one requested, so that a redirect is visible in the result rather than reported as arrival at the requested URL.
+
 An `assert` judgment SHALL be made against the **step** being executed, with the model's expectation supplied as the claim offered in support of it. The judgment SHALL pass only when the step's own outcome holds. A claim that is true but does not establish the step's outcome SHALL NOT pass.
 
 The value carried by an action SHALL come from the step, from the page, or from an `{{env.*}}` placeholder. The model SHALL NOT be invited to supply a value of its own devising for a field the step does not specify; a step that needs a value it never gives is a failing step, not a gap for the model to fill.
@@ -94,6 +96,14 @@ The value carried by an action SHALL come from the step, from the page, or from 
 #### Scenario: A value the step never supplied
 - **WHEN** a step requires a field to be filled and names no value for it
 - **THEN** the model does not invent one
+
+#### Scenario: A navigation the server redirected
+- **WHEN** a navigation ends at a URL other than the one requested
+- **THEN** the result names both the requested URL and where the browser landed
+
+#### Scenario: A navigation that goes where it was asked
+- **WHEN** a navigation ends at the URL requested
+- **THEN** the result is unchanged from before
 
 ### Requirement: Setup steps and browser lifecycle
 The executor SHALL run optional `setup` steps before the test steps, start from the configured `base_url`, and run each test in a fresh browser context.
@@ -209,4 +219,29 @@ The model SHALL receive, on every iteration of a step, the actions already perfo
 #### Scenario: The record does not cross steps
 - **WHEN** a new step begins
 - **THEN** the record is empty
+
+### Requirement: A judgment is made with the step's record in view
+The judge SHALL receive, alongside the step and the model's expectation, the actions already performed successfully in that step together with their results — the same record the model receives, scoped to the step and masked on the same boundary.
+
+The record SHALL be presented as what was done, and SHALL NOT be treated as evidence that the step's outcome holds. An action reported as successful establishes that it was attempted and what it produced; the snapshot remains the only evidence of what is now true.
+
+#### Scenario: An outcome the page can no longer show
+- **WHEN** an action succeeds and the page that follows it cannot show that it happened — a navigation the server redirected, a submit answered by a redirect back to a reset form
+- **THEN** the judgment is made knowing the action was performed and where it led, rather than inferring from the page alone that it did not happen
+
+#### Scenario: The record does not pass a step on its own
+- **WHEN** the record shows a successful action but the snapshot does not show the step's outcome
+- **THEN** the judgment still fails, because the record says what was attempted and not what is true
+
+#### Scenario: The record is masked
+- **WHEN** an action carried a value the run has registered as secret
+- **THEN** the judge sees it redacted, on the same boundary as the snapshot
+
+#### Scenario: The record does not cross steps
+- **WHEN** a new step begins
+- **THEN** the record the judge receives is empty
+
+#### Scenario: Re-observation sees it too
+- **WHEN** a failed judgment is re-evaluated against a freshly settled page
+- **THEN** that judgment receives the same record
 
