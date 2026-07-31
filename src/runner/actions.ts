@@ -66,20 +66,66 @@ export interface ActionContext {
   resolveValue?: (value: string) => string;
 }
 
+/** The URL a fresh browser context shows before anything is loaded (design contained-navigation, D2). */
+const BLANK_PAGE = 'about:blank';
+
+/**
+ * The origins the agent may be on: the application's own, plus whatever the
+ * configuration declares. One construction, used by both checks (design
+ * contained-navigation, D3) — this defect existed because the rule lived at one
+ * call site while claiming to cover everything, and two copies of it that can
+ * drift apart would be a poor way to fix that.
+ */
+export function allowedOriginsFor(baseUrl: string, allowedOrigins: string[] | undefined): Set<string> {
+  const allowed = new Set<string>([new URL(baseUrl).origin]);
+  for (const origin of allowedOrigins ?? []) {
+    allowed.add(new URL(origin).origin);
+  }
+  return allowed;
+}
+
+/**
+ * Whether `url` is inside the boundary.
+ *
+ * `about:blank` is inside it: the browser's own empty page carries no content
+ * and is what a fresh context shows before the first `goto`. Everything else is
+ * compared by origin, and a URL with no comparable origin — `file:`, `data:` —
+ * is **not** allowed. Treating "no origin" as "fine" would be the same
+ * permissiveness that produced this defect (design D2).
+ */
+export function isOriginAllowed(url: string, allowed: ReadonlySet<string>): boolean {
+  if (url === BLANK_PAGE) return true;
+  let origin: string;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return false;
+  }
+  if (origin === 'null') return false;
+  return allowed.has(origin);
+}
+
+/** Describes the boundary the way both failure messages name it. */
+export function describeBoundary(allowed: ReadonlySet<string>): string {
+  return [...allowed].join(' or ');
+}
+
 /**
  * The one containment that does not depend on the model cooperating: an absolute
  * URL ignores the base entirely (`new URL('https://x/y', base)` is `https://x/y`),
  * so a page that can influence the agent could otherwise send it anywhere while it
  * holds a live session. Compared, not argued with (design D1).
+ *
+ * Refusing to make the request is strictly better than making it and objecting
+ * afterwards, so this stays even though the executor now also checks where the
+ * page ended up: the model is told its target is out of bounds and can choose
+ * differently, rather than the step simply ending.
  */
 function assertAllowedOrigin(url: URL, ctx: ActionContext): void {
-  const allowed = new Set<string>([new URL(ctx.baseUrl).origin]);
-  for (const origin of ctx.allowedOrigins ?? []) {
-    allowed.add(new URL(origin).origin);
-  }
-  if (!allowed.has(url.origin)) {
+  const allowed = allowedOriginsFor(ctx.baseUrl, ctx.allowedOrigins);
+  if (!isOriginAllowed(url.toString(), allowed)) {
     throw new ActionError(
-      `Refusing to navigate outside the application: ${url.origin} is not ${[...allowed].join(' or ')}. ` +
+      `Refusing to navigate outside the application: ${url.origin} is not ${describeBoundary(allowed)}. ` +
         'Add it to allowed_origins in .blastproof/config.yaml if the app legitimately spans hosts.',
     );
   }

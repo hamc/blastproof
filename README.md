@@ -241,7 +241,9 @@ The key itself is never read from a `BLASTPROOF_*` variable — you name *which*
 
 The application under test is not trusted input: its page content reaches the model, so a page that controls its own accessible text can try to influence the agent. Two things constrain that.
 
-**The agent cannot leave your application.** `navigate` is bounded by `base_url`'s origin; an app spanning hosts declares them in `allowed_origins:`. This is enforced by comparison, not by asking the model nicely.
+**The agent cannot leave your application.** The boundary is `base_url`'s origin plus whatever `allowed_origins:` declares, and it constrains where the page **is**, not only where an action asked to go. A `navigate` outside it is refused before the request; a page that ends up outside it any other way — a redirect, a link to another host, a script setting the location — fails the step, and its content is never sent to the model. Enforced by comparison, not by asking the model nicely.
+
+If your application legitimately spans hosts (an identity provider, a hosted payment step), declare them. A suite that was quietly walking onto a foreign page will now fail and name the origin to add.
 
 **Your secrets stay out of prompts.** `{{env.*}}` placeholders survive intact and are substituted at the moment of typing. Every value your tests or auth recipe reference is redacted from everything else crossing into a prompt — page snapshots included — in literal and percent-encoded form. Redaction matches known values, so treat it as a strong default rather than a guarantee against a hostile app.
 

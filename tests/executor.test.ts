@@ -6,7 +6,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentBrain } from '../src/llm/brain.js';
 import type { AgentIterationInput } from '../src/llm/prompts.js';
 import type { AgentAction, AssertJudgment } from '../src/llm/schemas.js';
-import { performAction, resolveTarget, type LocatorLike, type PageLike } from '../src/runner/actions.js';
+import {
+  allowedOriginsFor,
+  isOriginAllowed,
+  performAction,
+  resolveTarget,
+  type LocatorLike,
+  type PageLike,
+} from '../src/runner/actions.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
 import { executeTest, SETTLE_TIMEOUT_MS, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
 import { describeAction, StepRecovery } from '../src/runner/recovery.js';
@@ -1328,5 +1335,110 @@ describe('StepRecovery commit keys', () => {
     for (const key of ['Tab', 'Escape', 'ArrowDown']) {
       expect(perform({ action: 'press', value: key, reasoning: 'move' })).toBeUndefined();
     }
+  });
+});
+
+// --- the boundary holds where the page is -------------------------------------
+//
+// `assertAllowedOrigin` checked the URL a `navigate` asked for and nothing else,
+// so a 302 to another host, or a click on a foreign link, carried the agent out
+// of the application and the run reported PASS (#3). Both were reproduced with a
+// real model against two local origins before this was written.
+
+describe('executeTest origin boundary', () => {
+  function brainRecording(script: AgentAction[]): AgentBrain & { snapshots: string[] } {
+    let calls = 0;
+    const snapshots: string[] = [];
+    return {
+      snapshots,
+      async nextAction(input: AgentIterationInput): Promise<AgentAction> {
+        snapshots.push(input.snapshot);
+        const next = script[calls++];
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(): Promise<AssertJudgment> {
+        return { pass: true, reason: 'fine' };
+      },
+    };
+  }
+
+  /** A page that lands somewhere else the moment it is asked to go anywhere. */
+  class RedirectingPage extends FakePage {
+    constructor(private readonly landsAt: string) {
+      super();
+    }
+    override async goto(url: string): Promise<void> {
+      this.calls.push(`goto ${url}`);
+      this.currentUrl = this.landsAt;
+    }
+  }
+
+  it('fails the step when a redirect has carried the page off the allowed origin', async () => {
+    const page = new RedirectingPage('http://elsewhere.test/landing');
+    const brain = brainRecording([{ action: 'done', reasoning: 'never reached' }]);
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { baseUrl: 'http://app.test' }));
+
+    expect(result.status).toBe('failed');
+    expect(result.reason).toContain('http://elsewhere.test');
+    expect(result.reason).toContain('allowed_origins');
+  });
+
+  it('never sends the content of an out-of-bounds page to the model', async () => {
+    // The property that matters. The request has already happened by the time we
+    // find out; what this change controls is that the response is not read into
+    // a prompt while the context still holds the application's session.
+    const page = new RedirectingPage('http://elsewhere.test/landing');
+    const brain = brainRecording([{ action: 'done', reasoning: 'never reached' }]);
+
+    await executeTest(
+      page,
+      makeTest(),
+      baseOptions(brain, {
+        baseUrl: 'http://app.test',
+        snapshot: async () => 'url: http://elsewhere.test/landing\n- heading "Outside the application"',
+      }),
+    );
+
+    expect(brain.snapshots).toHaveLength(0);
+  });
+
+  it('allows an origin the configuration declares', async () => {
+    const page = new RedirectingPage('https://auth.example.com/sso');
+    const brain = brainRecording([{ action: 'done', reasoning: 'signed in' }]);
+
+    const result = await executeTest(
+      page,
+      makeTest(),
+      baseOptions(brain, { baseUrl: 'http://app.test', allowedOrigins: ['https://auth.example.com'] }),
+    );
+
+    expect(result.status).toBe('passed');
+  });
+
+  it('treats about:blank as inside the boundary', () => {
+    const allowed = allowedOriginsFor('http://app.test', undefined);
+    expect(isOriginAllowed('about:blank', allowed)).toBe(true);
+  });
+
+  it('does not treat a URL with no comparable origin as allowed', () => {
+    // "No origin to compare" must not mean "fine" — that permissiveness is what
+    // produced this defect in the first place.
+    const allowed = allowedOriginsFor('http://app.test', undefined);
+    expect(isOriginAllowed('file:///etc/passwd', allowed)).toBe(false);
+    expect(isOriginAllowed('not a url at all', allowed)).toBe(false);
+  });
+
+  it('still refuses a navigate action to a foreign origin, with the same message', async () => {
+    const page = new FakePage();
+    await expect(
+      performAction(
+        page,
+        { action: 'navigate', value: 'https://elsewhere.example.com/x', reasoning: 'go' },
+        { baseUrl: 'http://app.test' },
+      ),
+    ).rejects.toThrow(/Refusing to navigate outside the application: https:\/\/elsewhere\.example\.com/);
+    expect(page.calls.filter((c) => c.startsWith('goto'))).toHaveLength(0);
   });
 });

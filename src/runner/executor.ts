@@ -4,7 +4,13 @@ import type { AgentBrain } from '../llm/brain.js';
 import type { AgentAction } from '../llm/schemas.js';
 import { BudgetExhaustedError } from './budget.js';
 import type { TestFile } from './testfile.js';
-import { performAction, type PageLike } from './actions.js';
+import {
+  allowedOriginsFor,
+  describeBoundary,
+  isOriginAllowed,
+  performAction,
+  type PageLike,
+} from './actions.js';
 import { StepRecovery, describeAction } from './recovery.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
@@ -209,6 +215,9 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
   };
 
   let failure: { step: string; reason: string } | undefined;
+  // Built once for the test: the same allowed set `performAction` compares a
+  // navigate target against, so the two checks cannot drift (design D3).
+  const boundary = allowedOriginsFor(baseUrl, allowedOrigins);
 
   // Every test starts from the configured base_url (spec: browser lifecycle).
   await page.goto(new URL(baseUrl).toString());
@@ -237,6 +246,25 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         // before every snapshot, unconditionally — see `waitForSettled` for
         // why this cannot be applied only to actions believed to navigate.
         await waitForSettled(page);
+        // The boundary constrains where the page IS, not only where an action
+        // asked to go (design contained-navigation, D1). Checked here, at the
+        // one point the page's content crosses into a prompt, because that
+        // covers every way a URL can change — a redirect, a click on a foreign
+        // link, a form submit, a script setting `location`, an action added to
+        // the vocabulary later — without anyone having to remember to add a
+        // call. Enumerating the actions that can navigate would be the same
+        // mistake this exists to fix, moved somewhere new: the accessibility
+        // tree cannot tell you whether a button navigates.
+        //
+        // Before `takeSnapshot`, never after: the request has already gone out
+        // by the time we find out, so the property still available — and the
+        // one that matters — is that the response never reaches the model.
+        if (!isOriginAllowed(page.url(), boundary)) {
+          throw new StepFailure(
+            `The page left the application: ${page.url()} is outside ${describeBoundary(boundary)}. ` +
+              'Add it to allowed_origins in .blastproof/config.yaml if the app legitimately spans hosts.',
+          );
+        }
         const snap = await takeSnapshot(page);
 
         let action: AgentAction;
