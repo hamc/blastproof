@@ -37,7 +37,6 @@ let dir: string;
 let logs: string[];
 let errors: string[];
 
-const out = (): string => logs.join('\n');
 const errOut = (): string => errors.join('\n');
 
 function browserDouble(): unknown {

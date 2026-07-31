@@ -10,6 +10,12 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
+    // Dead code is caught by the compiler rather than by review (#7 asks for a
+    // linter, which is a wider question — see the note there for what these two
+    // do and do not cover). Turning them on cost five fixes: four unused
+    // imports in tests and one redundant parameter, none hiding a defect.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
