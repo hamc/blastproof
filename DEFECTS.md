@@ -115,7 +115,7 @@
 - **Tests protect what they claim to (priority 5)**: in a throwaway copy outside the repo, (a) truncating `runPreflight`'s failure list to the first entry (violating D2 fail-fast-together) broke 5 tests across `tests/preflight.test.ts`, `tests/run-preflight.test.ts`, and `tests/plan.test.ts`, including the direct "no I/O when nothing applies" dry-run check; (b) making `stripCommandLine` in `src/runner/browser.ts` a no-op (reintroducing the raw argv dump) broke exactly the one test asserting that, `tests/browser.test.ts`'s "keeps an unrecognised cause visible, with its command line stripped". Neither mutation was left in place; no product code in the actual repo was touched.
 
 ## DEF-004 — Pre-existing retry-budget test in `executor.test.ts` was widened to fit the new re-observation call, but doesn't itself assert the new call count
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW (test-coverage nit; the behaviour itself is correct and covered by other, adjacent tests — see below)
 - Found by: qa
 - Steps: numbered, from a clean state, with exact commands
@@ -127,6 +127,9 @@
 - Actual: the fixture was widened just enough to not under-run its scripted responses, but the assertions stay agnostic to how many of the six were actually consumed, so this test alone would not catch a regression that dropped the re-observation call (e.g. quietly reverting `judge` to be called once per attempt again) as long as the three existing assertions still held.
 - Evidence: `git diff tests/executor.test.ts` around line 348 (only the `Array(3)` → `Array(6)` fixture size and its comment changed, no new `expect`); pre-change-clone run (task 5.7 method, see DEF-001's latest history entry for the clone method) showing this specific test absent from the 13 pre-change failures while its four sibling tests in the same `describe` blocks are present.
 - History: 2026-07-30 filed by qa
+- History: **2026-07-30, fixed in `f3b5d38` — the same change that motivated the report** (`trustworthy-verdicts`). The test now asserts `judgeCalls === 6` and `calls === 3` beside the widened fixture, with a comment naming this defect. Nobody closed the record.
+- History: 2026-07-31, verified and closed. Removing the re-observation entirely from `executor.ts` makes *"retries a failing assertion to the budget and then fails the step, unchanged"* the first test to fail — so the assertion is load-bearing, not decorative, which is exactly what this report asked for.
+- Process note, 2026-07-31: this record stayed OPEN for a day and six releases after the code satisfied it, and an outside review of 0.11.0 deducted for it — counting it among the four items separating the project from a perfect code score, and listing "DEF-004 fechado (uma asserção de contagem)" on its path to 10. The assertion had been there since 0.5.0. **This is the third instance in three days of a document in this repository asserting a state the code had moved past**, after the `estimateMaxModelCalls` derivation and DEF-005's "deliberately NOT taken". All three were found by outside readers; none by internal review, because a test suite verifies behaviour and nothing verifies that what we wrote about ourselves is still true.
 
 ## DEF-005 — Anchoring the judge to the step introduced two regressions that only a real model could surface
 - Status: CLOSED
