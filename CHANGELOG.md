@@ -3,6 +3,45 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.9.0] — 2026-07-31
+
+### Added
+- **Tests can run several at once.** `concurrency: 4` in the config, or `--concurrency 4` for a single
+  invocation. Measured on this repository's own suite: **156s to 68s, 2.3× faster, for the same 81
+  model calls and the same tokens.** Parallelism buys wall-clock, not spend.
+
+  **The default stays 1, and raising it is a decision only you can make.** Other test runners default
+  to parallel because their tests are isolated by construction — separate processes, separate
+  fixtures. These are plain-English journeys driven against one running application, so two tests can
+  see each other's data. The example in this repository's own suite: a test that adds a note and then
+  asserts "one note on file" both writes shared server state and asserts on a global count, and cannot
+  run beside itself. A tool that gates merges must not start producing failures from its own scheduler
+  on upgrade.
+
+  Above concurrency 1 each test's output is buffered and printed as one block when it finishes, since a
+  step transcript is only legible read consecutively. At 1, output streams exactly as before. Results
+  are reported in selection order regardless of finishing order, so a report never changes shape
+  because of timing.
+
+- **A run reports what it spent.** Every model call and every token was already counted — that is how
+  `budget:` enforces its limits — and then discarded. The only cost figure the tool volunteered was
+  `--dry-run`'s worst case, which is deliberately a maximum: it says 735 model calls for this
+  repository's suite where a real run spends 82. Anyone sizing `max_llm_calls` from the one number
+  available would set it about nine times too high.
+
+  A finished run now prints `Spent: 82 model call(s), 115407 token(s)`, against the configured limits
+  when there are any. So does a run its own budget stopped, which is where the number is least
+  guessable. The figures land in the JUnit report as `llm_calls` and `llm_tokens` beside `score`, and
+  in the HTML summary. Where a provider reports no token usage the line says so rather than showing
+  zero, and the JUnit property is omitted rather than written as `0` — "no tokens were reported" and
+  "no tokens were spent" are different claims. Not currency, for the same reason the budget itself is
+  not: a price table is wrong the day a provider reprices, and wrong behind a gateway.
+
+### Changed
+- With concurrency above 1, a `budget:` limit can overshoot by up to the configured concurrency rather
+  than by a single call, because calls already in flight are allowed to finish. Unchanged for a run at
+  the default.
+
 ## [0.8.0] — 2026-07-31
 
 ### Fixed
