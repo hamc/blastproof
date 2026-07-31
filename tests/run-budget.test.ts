@@ -265,3 +265,112 @@ describe('runCommand reports what it spent (#27)', () => {
     expect(out()).toContain('Spent:');
   });
 });
+
+describe('runCommand concurrency (#2)', () => {
+  it('runs tests one at a time by default, streaming their output', async () => {
+    // The default must not change what an existing user sees. Tests are
+    // journeys against one live application, and only the person who wrote
+    // them knows whether two can run at once (design tests-in-parallel, D1).
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B });
+    let inFlight = 0;
+    let peak = 0;
+    executeTestMock.mockImplementation(async (_page: unknown, test: never) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+      return passingResult(test);
+    });
+
+    await runCommand({ cwd: dir, tags: [] });
+
+    expect(peak).toBe(1);
+  });
+
+  it('runs several at once when asked, and reports in selection order', async () => {
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B, 'c.yaml': TEST_C });
+    let peak = 0;
+    let inFlight = 0;
+    // B finishes last; the summary must still list A, B, C.
+    const delays: Record<string, number> = { 'Test A': 5, 'Test B': 40, 'Test C': 5 };
+    executeTestMock.mockImplementation(async (_page: unknown, test: never) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, delays[(test as { summary: string }).summary] ?? 5));
+      inFlight--;
+      return passingResult(test);
+    });
+
+    await runCommand({ cwd: dir, tags: [], concurrency: 3 });
+
+    expect(peak).toBe(3);
+    const summary = out().slice(out().indexOf('--- Summary'));
+    expect(summary.indexOf('Test A')).toBeLessThan(summary.indexOf('Test B'));
+    expect(summary.indexOf('Test B')).toBeLessThan(summary.indexOf('Test C'));
+  });
+
+  it('keeps each test\'s transcript contiguous when running concurrently', async () => {
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B });
+    executeTestMock.mockImplementation(async (_page: unknown, test: never, options: never) => {
+      const { summary } = test as { summary: string };
+      const emit = (options as { onEvent: (e: unknown) => void }).onEvent;
+      emit({ type: 'step-start', index: 0, total: 1, step: `${summary} step one`, setup: false });
+      await new Promise((resolve) => setTimeout(resolve, summary === 'Test A' ? 30 : 1));
+      emit({ type: 'step-start', index: 1, total: 2, step: `${summary} step two`, setup: false });
+      return passingResult(test);
+    });
+
+    await runCommand({ cwd: dir, tags: [], concurrency: 2 });
+
+    // Contiguity, not ordering: B finishes first so its block prints first,
+    // which is fine. What must not happen is another test's line landing
+    // between two of A's.
+    const text = out();
+    const between = text.slice(
+      text.indexOf('Test A step one'),
+      text.indexOf('Test A step two'),
+    );
+    expect(between).not.toContain('Test B');
+    expect(text).toContain('Test A step two');
+  });
+
+  it('starts no further test once the budget has stopped the run', async () => {
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B, 'c.yaml': TEST_C });
+    const started: string[] = [];
+    executeTestMock.mockImplementation(async (_page: unknown, test: never) => {
+      const { summary } = test as { summary: string };
+      started.push(summary);
+      if (summary === 'Test A') throw new BudgetExhaustedError('calls', 5, 5);
+      return passingResult(test);
+    });
+
+    await runCommand({ cwd: dir, tags: [] });
+
+    // Only the test that hit the limit ever ran; the guarantee is held by the
+    // loop, not inherited from the budget happening to refuse the next check.
+    expect(started).toEqual(['Test A']);
+    expect(out()).toMatch(/NOT RUN\s+P0\s+Test B/);
+    expect(out()).toMatch(/NOT RUN\s+P0\s+Test C/);
+  });
+
+  it('takes the flag over the configured value', async () => {
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B });
+    await writeFile(
+      path.join(dir, '.blastproof', 'config.yaml'),
+      `${CONFIG}concurrency: 1\n`,
+    );
+    let peak = 0;
+    let inFlight = 0;
+    executeTestMock.mockImplementation(async (_page: unknown, test: never) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+      return passingResult(test);
+    });
+
+    await runCommand({ cwd: dir, tags: [], concurrency: 2 });
+
+    expect(peak).toBe(2);
+  });
+});

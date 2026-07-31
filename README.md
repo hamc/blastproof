@@ -167,6 +167,22 @@ blastproof plan --base main --dry-run                 # affected routes no test 
 
 They report affected routes, files nobody has classified, and affected routes no test covers — a coverage-gap report with an exit code, useful even on a repo whose suite is Playwright or Cypress.
 
+## Running tests at once
+
+Tests run one at a time by default. Raise it when your tests can stand it:
+
+```yaml
+concurrency: 4
+```
+
+or `blastproof run --concurrency 4` for a single invocation. On this repository's own suite that takes a run from 156s to 68s — **2.3× faster, for the same 81 model calls.** Parallelism buys wall-clock, not spend.
+
+**The default is 1 on purpose, and raising it is your call to make.** Other test runners default to parallel because their tests are isolated by construction — separate processes, separate fixtures. These are journeys driven against **one running application**, so two tests can see each other's data. A suite is safe to parallelise when its tests do not write state that another test reads.
+
+The test in this repository's own suite that could not run beside itself is a good shape to recognise: it adds a note and then asserts *"one note on file"*. It writes shared server state, and it asserts on a global count. Either alone is a warning; together they mean the test's verdict depends on nothing else touching the application at that moment.
+
+Two practical notes. Four concurrent journeys are four times the traffic against whatever you pointed at — usually fine for a development instance, worth knowing for a shared one. And with several model calls in flight, a `budget:` limit can overshoot by up to the concurrency rather than by a single call, since the calls already sent are allowed to finish.
+
 ## Bounding a run
 
 Nothing stops a run by default. `budget:` puts a ceiling on `run`, `plan` and `test` alike — every model call any of them makes is counted:

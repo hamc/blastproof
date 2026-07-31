@@ -18,6 +18,7 @@ import {
   type RunBudgetOptions,
 } from '../runner/budget.js';
 import { MissingEnvError, SecretsMask, substituteEnv } from '../runner/env.js';
+import { runWithConcurrency } from '../runner/pool.js';
 import { describeAction } from '../runner/recovery.js';
 import {
   DEFAULT_MAX_ITERATIONS_PER_STEP,
@@ -50,6 +51,8 @@ export const EXIT_USAGE = 2;
  * `test` (which composes both) accept the same three.
  */
 export interface BudgetFlags {
+  /** Overrides config `concurrency` for this invocation (`--concurrency`). */
+  concurrency?: number;
   /** Overrides config `budget.max_llm_calls` for this invocation (`--max-llm-calls`). */
   maxLlmCalls?: number;
   /** Overrides config `budget.max_tokens` for this invocation (`--max-tokens`). */
@@ -179,19 +182,28 @@ function notRunResults(tests: TestFile[], reason: string): TestResult[] {
   }));
 }
 
-function printEvent(event: ExecutorEvent): void {
+/**
+ * Where a test's console lines go (design tests-in-parallel, D2). Serial runs
+ * hand in one that writes straight through, so output streams exactly as it
+ * always has; a concurrent run hands in one that collects, and the block is
+ * printed whole when the test finishes. Decided once, where the run's
+ * concurrency is known — never by the printer checking a global.
+ */
+export type LineSink = (line: string) => void;
+
+function printEvent(event: ExecutorEvent, write: LineSink = console.log): void {
   switch (event.type) {
     case 'step-start':
-      console.log(`  ${event.setup ? '(setup) ' : ''}step ${event.index + 1}/${event.total}: ${event.step}`);
+      write(`  ${event.setup ? '(setup) ' : ''}step ${event.index + 1}/${event.total}: ${event.step}`);
       break;
     case 'action': {
       const { action, result } = event;
-      console.log(`    -> ${describeAction(action)} :: ${result}`);
+      write(`    -> ${describeAction(action)} :: ${result}`);
       break;
     }
     case 'step-end':
       if (event.status === 'failed') {
-        console.log(`    X step failed: ${event.reason ?? 'unknown reason'}`);
+        write(`    X step failed: ${event.reason ?? 'unknown reason'}`);
       }
       break;
   }
@@ -253,6 +265,7 @@ async function runOne(
   session: AuthSession | undefined,
   runMask: SecretsMask,
   budget: RunBudget,
+  write: LineSink,
 ): Promise<TestResult> {
   const brain = createBrain(createModel(config.llm).model, undefined, budget);
 
@@ -294,7 +307,7 @@ async function runOne(
       timeoutMs: config.browser.timeout_ms,
       maxSnapshotLines: config.browser.max_snapshot_lines,
       mask: (text) => mask.mask(text),
-      onEvent: printEvent,
+      onEvent: (event) => printEvent(event, write),
     });
   } finally {
     await context.close();
@@ -650,26 +663,61 @@ export async function runCommand(options: RunOptions): Promise<number> {
       // to start, so every one of them is not run (design D3).
       results.push(...notRunResults(selected, incomplete.message));
     } else {
-      for (let i = 0; i < selected.length; i++) {
-        const test = selected[i]!;
-        console.log(`\n> ${test.summary} [${test.priority}] (${path.relative(options.cwd, test.path)})`);
+      const concurrency = options.concurrency ?? config.concurrency;
+      // Serial runs stream, concurrent runs buffer (design tests-in-parallel,
+      // D2). Decided once, here, where the concurrency is known — the printer
+      // never asks.
+      const streaming = concurrency === 1;
+
+      // Once any test has been stopped by the budget, no further test starts
+      // (design tests-in-parallel, D5). Held here rather than left to
+      // `budget.check()` to refuse the next one: that only holds while the
+      // budget itself agrees, which makes the guarantee a side effect of
+      // another component instead of a rule this loop enforces — the exact
+      // shape of defect this codebase keeps producing.
+      let stoppedBy: BudgetExhaustedError | undefined;
+
+      const outcomes = await runWithConcurrency(selected, concurrency, async (test, index) => {
+        if (stoppedBy) return { index, stopped: stoppedBy };
+        const lines: string[] = [];
+        // The header belongs to the block, not to the moment the test starts:
+        // printed on start, a concurrent run would separate every header from
+        // the transcript it introduces (design D2, task 3.3).
+        const header = `\n> ${test.summary} [${test.priority}] (${path.relative(options.cwd, test.path)})`;
+        const write: LineSink = streaming ? console.log : (line) => lines.push(line);
+        if (streaming) console.log(header);
+        else lines.push(header);
+
         try {
           // Checked here too, not only inside the brain (design run-budget task
           // 4.2): a deadline that has already passed must stop the *next test*
           // rather than launching a fresh context only to fail on its first call.
+          // This is also the whole of "no further test starts" once a budget has
+          // stopped the run (design tests-in-parallel, D5) — every test queued
+          // behind the stop short-circuits here without opening a context.
           budget.check();
-          results.push(await runOne(browser, test, config, sessionDir, session, runMask, budget));
+          const result = await runOne(browser, test, config, sessionDir, session, runMask, budget, write);
+          if (!streaming) for (const line of lines) console.log(line);
+          return { index, result };
         } catch (error) {
           if (error instanceof BudgetExhaustedError) {
-            incomplete = error;
-            // The test in progress, plus everything after it, never finished —
-            // recorded as not run rather than failed, and excluded from the
-            // score's denominator rather than counted against it (D3/D4).
-            results.push(...notRunResults(selected.slice(i), error.message));
-            break;
+            stoppedBy ??= error;
+            if (!streaming) for (const line of lines) console.log(line);
+            return { index, stopped: error };
           }
           throw error;
         }
+      });
+
+      for (const outcome of outcomes) {
+        if (outcome.result) {
+          results.push(outcome.result);
+          continue;
+        }
+        // Recorded as not run rather than failed, and excluded from the score's
+        // denominator rather than counted against it (D3/D4).
+        incomplete ??= outcome.stopped;
+        results.push(...notRunResults([selected[outcome.index]!], outcome.stopped!.message));
       }
     }
   } finally {
