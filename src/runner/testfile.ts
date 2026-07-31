@@ -42,7 +42,7 @@ export class TestFileError extends Error {
   }
 }
 
-function formatIssues(file: string, error: z.ZodError): string {
+function formatIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
     .join('\n');
@@ -68,7 +68,7 @@ export async function parseTestFile(filePath: string): Promise<TestFile> {
 
   const result = testFileSchema.safeParse(data ?? {});
   if (!result.success) {
-    throw new TestFileError(`Invalid test file ${filePath}:\n${formatIssues(filePath, result.error)}`);
+    throw new TestFileError(`Invalid test file ${filePath}:\n${formatIssues(result.error)}`);
   }
 
   return { path: filePath, ...result.data };

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ActionError, performAction, type PageLike } from '../src/runner/actions.js';
 import { executeTest } from '../src/runner/executor.js';
 import { SecretsMask, substituteEnv } from '../src/runner/env.js';

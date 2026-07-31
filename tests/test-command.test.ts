@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffError } from '../src/diff.js';
-import { BudgetExhaustedError } from '../src/runner/budget.js';
 
 const {
   launchMock,
