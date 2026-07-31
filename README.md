@@ -42,6 +42,8 @@ Before `run`, `plan` or `test` do anything, they check what they are about to sp
 
 **Your markup must be accessible — a hard requirement.** Elements are found by role, label or visible text from the accessibility tree. That is what removes selectors and survives redesigns; the cost is that an interface the accessibility tree cannot describe cannot be driven at all, and there is deliberately no CSS or XPath fallback. Icon-only buttons without accessible names, `div`-based controls and ARIA-less dropdowns simply cannot be targeted. Run an accessibility checker first — the result predicts how well this will work better than anything else.
 
+**Windows is untested.** Development and CI run on Linux and macOS. Nothing is known to be broken and reports are welcome (#8).
+
 **Not supported yet:** `iframe` content (so hosted payment widgets like Stripe Elements are invisible — an embedded checkout cannot be driven end to end), hover, scroll-to, drag and drop, file upload, multiple tabs, native `alert`/`confirm` dialogs. Page snapshots are capped at 200 lines by default, so very dense pages are truncated — raise it with `browser.max_snapshot_lines` if your pages need more; truncation is always marked in the snapshot so the model is never misled into thinking it saw the whole page.
 
 **Point it at disposable data.** Within a step, an action that commits — a click, or pressing Enter — is never performed twice: the runner refuses the repeat and tells the agent it already did that. This closes the case that used to produce duplicate records, where a submit answered by a redirect came back to a reset form and the agent, seeing no evidence of its own work, submitted again. It is not a guarantee of zero duplicate writes: an agent that reaches the same effect by a genuinely different route — another control with the same effect — is not caught. Use a seeded database, a staging environment you can reset, or a throwaway account; do not gate on a run against production data.
@@ -69,6 +71,26 @@ steps:
 ```
 
 `priority` is P0–P2 (default P1). `tags`, `setup` steps and `auth` are optional — `auth: false` runs the test signed out, which a login test needs. `routes` declares the URLs a test covers, which is what `--impacted` selects on; write route strings consistently, since they compare by exact equality (`/cart` ≠ `/cart/`).
+
+### Say what each step should produce
+
+This is the one rule that decides whether a suite works. An outside evaluation took the **same application, same suite, same version from Score 64 to Score 100 by rewriting two steps** — nothing else changed:
+
+```yaml
+# Fragile: a bare action. Nothing says what should be true afterwards.
+- submit the add-task form
+- verify the new task "Fix the flaky test" appears in the task list
+
+# Robust: the step carries its own outcome.
+- submit the add-task form and verify the task "Fix the flaky test" appears
+  in the task list with priority High and status Open
+```
+
+The bare version fails on a shape that is everywhere: the form POSTs, the server redirects back to the same page, and the form comes back empty. The agent is asked whether "submit the add-task form" happened, and is looking at a page that is indistinguishable from one where nothing did. A step that names the outcome gives it something to check that survives the action.
+
+Write steps that end in an observable result — text on the page, a count, a state change — and this class of failure does not arise.
+
+**Inline error messages should be plain visible text.** `role="alert"` is read correctly from the accessibility tree and needs no special handling, but note that an alert your page has cleared shows up as an empty element: if a verdict says an alert exists whose content is missing, the message was emptied, not hidden.
 
 ## Commands
 
@@ -208,6 +230,8 @@ Score: 100
 The figures also land in the JUnit report as `llm_calls` and `llm_tokens`, beside `score`, so a pipeline can trend cost without scraping output. A run stopped by its own budget reports the spend too — that is the case where the number is least guessable. Where a provider reports no token usage, the line says so rather than showing zero.
 
 `--dry-run` reports the ceiling before you spend anything. Read it as a maximum and nothing more: for this repository's own suite it says 735 calls where a real run spends 82. Size a budget from what your runs actually report, not from the ceiling.
+
+For an order of magnitude, this repository's own suite — 7 tests, 31 steps, an authenticated demo shop, `anthropic/claude-haiku-4.5` — spends **about 82 model calls and 115k tokens**, taking 156s serially or 68s at `--concurrency 4`. That is a number you can reproduce (`node examples/demo-app/serve.mjs 4173` and `blastproof run`), not a forecast for your suite: cost scales with steps, page density and how often the agent has to retry. Run yours once and read the `Spent:` line.
 
 ## Testing behind a login
 

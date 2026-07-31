@@ -175,38 +175,44 @@ export interface StepCounts {
 
 /**
  * Worst-case model-call ceiling for a selection (design D5, spec run-budget: "the
- * ceiling the selection cannot exceed").
+ * ceiling the selection cannot exceed"). Per step it is `N + R + min(N, R)`,
+ * where N is `maxIterationsPerStep` and R is `maxRetriesPerStep`.
  *
- * Per step, `executor.ts` enforces two independent caps, `maxIterationsPerStep`
- * (N) and `maxRetriesPerStep` (R), and a model call can spend against either or
- * both at once:
+ * Per step, `executor.ts` enforces those two caps independently, and a model
+ * call can spend against either or both at once:
  *   - A malformed `nextAction` response is retried — `failedAttempts++` then
  *     `continue` — *before* `iterations++` runs, so it costs one call against R
  *     alone, never touching N.
- *   - A successful `nextAction` always costs one call against N. If the action is
- *     `assert`, `judge()` spends a second call in the same turn; a failing
- *     judgment then also costs one unit of R, on top of the N unit already spent.
+ *   - A plain action costs one call against N alone.
+ *   - A **failing** `assert` costs three: `nextAction`, the judgment, and the
+ *     re-judgment the executor performs against a freshly settled page before
+ *     handing control back to the model (design D3, trustworthy-verdicts). It
+ *     spends one unit of N and one of R for those three calls.
  *
- * So R-worth of calls can be spent two ways: standalone (1 call each, N
- * untouched) or bundled onto a failing assert (2 calls each, N and R both spent
- * for the price of one retry unit). Filling all N iteration slots with failing
- * asserts alone (`2N` calls) never has enough retry budget left to also cash in
- * standalone calls once `maxRetriesPerStep` is exhausted — that path is bounded
- * by `min(N, R)` bundled iterations, not N of them, unless R ≥ N. Working the
- * trade-off through (an LP over how many of the R retry units are bundled onto an
- * iteration vs. spent standalone) tops out at exactly `N + R` calls, achieved by
- * spending every iteration slot and every retry unit once each, never both on the
- * same call except where a failing assert intentionally pays for one of each.
- * `2N` (the previous formula) undercounts once R exceeds what standalone retries
- * can absorb below N — DEF-001 measured 35 real calls against N=15, R=20 (its
- * reported ceiling of 30 came from `2N` alone, ignoring R entirely). `N + R`
- * matches that measurement exactly: 15 + 20 = 35.
+ * Maximising calls against the two budgets is therefore a question of how many
+ * of the R retry units are bundled onto an iteration rather than spent
+ * standalone:
+ *   - R >= N: N failing asserts (3N) + (R - N) malformed responses = 2N + R
+ *   - R <  N: R failing asserts (3R) + (N - R) plain actions      = N + 2R
+ * which is `N + R + min(N, R)` in both regimes.
  *
  * A forecast this is not — most steps finish in a handful of calls, long before
- * either cap binds. This is the maximum a single step's loop cannot exceed no
- * matter how the model behaves, and `maxRetriesPerStep` is read from config, not
- * assumed, because it has no upper bound (`z.number().int().min(1)`) and a fixed
- * assumption here would silently stop being a ceiling the moment a config raised it.
+ * either cap binds, and a run reports what it actually spent (`RunBudget.spend`)
+ * precisely because this number is the wrong one to size a budget from. On this
+ * repository's own suite the ceiling is 735 calls where a real run spends about
+ * 82. This is the maximum a single step's loop cannot exceed no matter how the
+ * model behaves, and nothing more.
+ *
+ * `maxRetriesPerStep` is read from config, not assumed, because it has no upper
+ * bound (`z.number().int().min(1)`) and a fixed assumption here would silently
+ * stop being a ceiling the moment a config raised it.
+ *
+ * Keep this in step with the executor. The formula has been wrong twice. `2N`
+ * undercounted once R exceeded what standalone retries could absorb below N —
+ * DEF-001 measured 35 real calls against N=15, R=20, where `2N` reported 30.
+ * Its replacement, `N + R`, was correct until a failing assert began costing
+ * three calls rather than two. An estimate that undershoots is worse than none,
+ * because a budget gets sized from it.
  */
 export function estimateMaxModelCalls(
   tests: StepCounts[],
@@ -217,20 +223,6 @@ export function estimateMaxModelCalls(
     (sum, test) => sum + (test.setup?.length ?? 0) + test.steps.length,
     0,
   );
-  // N + R + min(N, R), not N + R. A failing `assert` now costs three calls, not
-  // two: `nextAction`, the judgment, and the re-judgment the executor performs
-  // before handing control back to the model (design D3, trustworthy-verdicts).
-  //
-  // Maximising calls against the two independent budgets — iterations (N) and
-  // retries (R) — with a failing assert spending one of each for three calls, a
-  // malformed response spending a retry alone for one, and a plain action
-  // spending an iteration alone for one:
-  //   R >= N: N failing asserts (3N) + (R - N) malformed  = 2N + R
-  //   R <  N: R failing asserts (3R) + (N - R) actions     = N + 2R
-  // which is N + R + min(N, R) in both regimes.
-  //
-  // This must be kept in step with the executor: DEF-001 was an estimate that
-  // undershot, and an estimate that undershoots is worse than none, because a
-  // budget gets sized from it.
+  // Derivation and the two times this formula has been wrong: see above.
   return totalSteps * (maxIterationsPerStep + maxRetriesPerStep + Math.min(maxIterationsPerStep, maxRetriesPerStep));
 }
