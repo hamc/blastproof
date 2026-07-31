@@ -15,6 +15,7 @@ import {
 } from '../planner.js';
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import type { PageLike } from '../runner/actions.js';
+import { formatSpendLine } from '../report/score.js';
 import { BudgetExhaustedError, RunBudget } from '../runner/budget.js';
 import type { ExecutorEvent } from '../runner/executor.js';
 import {
@@ -352,6 +353,10 @@ export async function planCommand(options: PlanOptions): Promise<number> {
       for (const route of notAttempted) console.log(`  ${route}`);
     }
   }
+  // Reported only when this command constructed the budget (design
+  // report-what-it-spent, D2): when `test` handed one in, `test` reports the
+  // single allowance once, after both phases.
+  if (options.budget === undefined) console.log(formatSpendLine(budget.spend()));
   console.log('---------------------------------------------------------------');
 
   return incomplete || failed.length > 0 ? EXIT_FAILED : EXIT_OK;

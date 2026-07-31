@@ -177,3 +177,34 @@ describe('writeJUnit', () => {
     }
   });
 });
+
+describe('JUnit spend properties', () => {
+  const meta = { score: 100, durationMs: 1000 };
+
+  it('carries the calls and tokens a run spent, beside the score', () => {
+    const xml = renderJUnit([], [], {
+      ...meta,
+      spend: { calls: 13, tokens: 18382, callsWithUsage: 13 },
+    });
+    expect(xml).toContain('<property name="score" value="100"/>');
+    expect(xml).toContain('<property name="llm_calls" value="13"/>');
+    expect(xml).toContain('<property name="llm_tokens" value="18382"/>');
+  });
+
+  it('omits the token property rather than writing zero when nothing was reported', () => {
+    // A property carrying 0 reads to a pipeline as "this run spent no tokens",
+    // which is a different claim from "the provider did not say".
+    const xml = renderJUnit([], [], {
+      ...meta,
+      spend: { calls: 4, tokens: 0, callsWithUsage: 0 },
+    });
+    expect(xml).toContain('<property name="llm_calls" value="4"/>');
+    expect(xml).not.toContain('llm_tokens');
+  });
+
+  it('emits neither when there is no spend to report', () => {
+    const xml = renderJUnit([], [], meta);
+    expect(xml).toContain('<property name="score" value="100"/>');
+    expect(xml).not.toContain('llm_calls');
+  });
+});

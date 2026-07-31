@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BudgetExhaustedError } from '../src/runner/budget.js';
+import { BudgetExhaustedError, RunBudget } from '../src/runner/budget.js';
+
+/** The slice of `RunBudget` these tests drive through the mocked `createBrain`. */
+type RunBudgetLike = { record(usage: { totalTokens?: number } | undefined): void };
 
 const { launchMock, createBrainMock, executeTestMock } = vi.hoisted(() => ({
   launchMock: vi.fn(),
@@ -210,5 +213,55 @@ describe('runCommand budget exhaustion (design D3/D4, spec run-budget)', () => {
     expect(code).toBe(EXIT_FAILED);
     expect(out()).toContain('Run incomplete');
     expect(out()).toMatch(/NOT RUN\s+P0\s+Test A/);
+  });
+});
+
+describe('runCommand reports what it spent (#27)', () => {
+  it('prints the spend for a run that owns its budget', async () => {
+    await writeProject({ 'a.yaml': TEST_A });
+    executeTestMock.mockImplementation(async (_page, test) => passingResult(test));
+    createBrainMock.mockImplementation((_model: unknown, _mask: unknown, budget: RunBudgetLike) => {
+      budget.record({ totalTokens: 1200 });
+      budget.record({ totalTokens: 800 });
+      return { nextAction: vi.fn(), judge: vi.fn() };
+    });
+
+    await runCommand({ cwd: dir, tags: [] });
+
+    expect(out()).toContain('Spent: 2 of 5 model call(s), 2000 token(s)');
+  });
+
+  it('does not print the spend when a composing caller owns the budget', async () => {
+    // `test` hands one budget to both phases on purpose. Reporting at the point
+    // of use rather than the point of ownership would print the running total
+    // twice, the second line silently including the first.
+    await writeProject({ 'a.yaml': TEST_A });
+    executeTestMock.mockImplementation(async (_page, test) => passingResult(test));
+    const shared = new RunBudget();
+    createBrainMock.mockImplementation((_model: unknown, _mask: unknown, budget: RunBudgetLike) => {
+      budget.record({ totalTokens: 1200 });
+      return { nextAction: vi.fn(), judge: vi.fn() };
+    });
+
+    await runCommand({ cwd: dir, tags: [], budget: shared });
+
+    expect(out()).not.toContain('Spent:');
+    expect(shared.spend().calls).toBe(1);
+  });
+
+  it('reports the spend of a run its budget stopped', async () => {
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B });
+    createBrainMock.mockImplementation((_model: unknown, _mask: unknown, budget: RunBudgetLike) => {
+      budget.record({ totalTokens: 900 });
+      return { nextAction: vi.fn(), judge: vi.fn() };
+    });
+    executeTestMock
+      .mockImplementationOnce(async (_page: unknown, test: never) => passingResult(test))
+      .mockRejectedValueOnce(new BudgetExhaustedError('calls', 5, 5));
+
+    await runCommand({ cwd: dir, tags: [] });
+
+    expect(out()).toContain('Run incomplete');
+    expect(out()).toContain('Spent:');
   });
 });

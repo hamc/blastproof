@@ -81,6 +81,7 @@ export class RunBudget {
   private readonly startedAt: number;
   private calls = 0;
   private tokens = 0;
+  private callsWithUsage = 0;
 
   constructor(options: RunBudgetOptions = {}) {
     this.maxCalls = options.maxCalls;
@@ -124,8 +125,46 @@ export class RunBudget {
   /** Records what a completed model call spent. */
   record(usage: CallUsage | undefined): void {
     this.calls += 1;
-    if (usage?.totalTokens !== undefined) this.tokens += usage.totalTokens;
+    if (usage?.totalTokens !== undefined) {
+      this.tokens += usage.totalTokens;
+      this.callsWithUsage += 1;
+    }
   }
+
+  /**
+   * What this budget has been spent on, for every surface that reports it
+   * (design report-what-it-spent, D1). One method rather than four getters read
+   * separately: the console, the JUnit report and the HTML report take the same
+   * numbers from the same object, so they cannot disagree about what a run cost.
+   */
+  spend(): BudgetSpend {
+    return {
+      calls: this.calls,
+      maxCalls: this.maxCalls,
+      tokens: this.tokens,
+      callsWithUsage: this.callsWithUsage,
+      maxTokens: this.maxTokens,
+    };
+  }
+}
+
+/**
+ * What a run actually spent, for reporting (design report-what-it-spent, D1).
+ *
+ * `callsWithUsage` is what separates "no tokens were reported" from "no tokens
+ * were spent". `tokenCount` starts at zero and is only ever incremented by a
+ * value the provider supplied, so a run against a provider that reports no
+ * usage ends indistinguishable from one that made no calls at all. Printing
+ * `0 tokens` there is not a rounding error — it is a false statement about the
+ * one thing someone is reading the line to learn.
+ */
+export interface BudgetSpend {
+  calls: number;
+  maxCalls?: number;
+  tokens: number;
+  /** How many completed calls reported token usage; 0 means the figure is unavailable. */
+  callsWithUsage: number;
+  maxTokens?: number;
 }
 
 /** The step counts an estimate needs from a test — a subset of `TestFile`. */

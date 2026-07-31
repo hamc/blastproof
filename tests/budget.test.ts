@@ -9,6 +9,7 @@ import {
 import { executeTest } from '../src/runner/executor.js';
 import type { PageLike } from '../src/runner/actions.js';
 import type { TestFile } from '../src/runner/testfile.js';
+import { formatSpendLine } from '../src/report/score.js';
 
 describe('RunBudget', () => {
   it('never binds when unconfigured', () => {
@@ -210,5 +211,74 @@ describe('estimateMaxModelCalls bounds the real executor (DEF-001 regression)', 
     // = 11, which is 3 + 5 + min(3, 5).
     expect(actualCalls).toBe(N + R + Math.min(N, R));
     expect(ceiling).toBe(N + R + Math.min(N, R));
+  });
+});
+
+// --- what a run spent ---------------------------------------------------------
+//
+// The counts existed and were discarded (#27). An evaluator sizing a PR gate had
+// to ask the provider what a run cost, because the only figure blastproof
+// volunteered was `--dry-run`'s worst case — measured at 105 against 13 calls
+// actually spent for the same selection.
+
+describe('RunBudget.spend', () => {
+  it('reports the calls and tokens spent', () => {
+    const budget = new RunBudget();
+    budget.record({ totalTokens: 1539 });
+    budget.record({ totalTokens: 1525 });
+
+    expect(budget.spend()).toEqual({
+      calls: 2,
+      tokens: 3064,
+      callsWithUsage: 2,
+      maxCalls: undefined,
+      maxTokens: undefined,
+    });
+    expect(formatSpendLine(budget.spend())).toBe('Spent: 2 model call(s), 3064 token(s)');
+  });
+
+  it('says token usage is unavailable rather than showing zero', () => {
+    // A local provider that reports no usage leaves `tokens` at 0, which is
+    // indistinguishable from a run that spent nothing. Printing "0 tokens" there
+    // is a false statement about the one thing the line exists to report.
+    const budget = new RunBudget();
+    budget.record(undefined);
+    budget.record({});
+
+    expect(budget.spend().callsWithUsage).toBe(0);
+    expect(formatSpendLine(budget.spend())).toBe(
+      'Spent: 2 model call(s); token usage not reported by the provider',
+    );
+  });
+
+  it('says how many calls a partial token figure covers', () => {
+    const budget = new RunBudget();
+    budget.record({ totalTokens: 100 });
+    budget.record(undefined);
+    budget.record({ totalTokens: 50 });
+
+    expect(formatSpendLine(budget.spend())).toBe(
+      'Spent: 3 model call(s), 150 token(s) (tokens reported by 2 of 3 call(s))',
+    );
+  });
+
+  it('reports against the configured limits when there are any', () => {
+    const budget = new RunBudget({ maxCalls: 500, maxTokens: 200_000 });
+    budget.record({ totalTokens: 1539 });
+
+    expect(formatSpendLine(budget.spend())).toBe(
+      'Spent: 1 of 500 model call(s), 1539 of 200000 token(s)',
+    );
+  });
+
+  it('still reports what was spent after the budget stopped the run', () => {
+    // The case where the number is least guessable and most needed: a stop says
+    // which limit was hit, not what the rest of the picture was.
+    const budget = new RunBudget({ maxCalls: 2 });
+    budget.record({ totalTokens: 900 });
+    budget.record({ totalTokens: 800 });
+    expect(() => budget.check()).toThrow(BudgetExhaustedError);
+
+    expect(formatSpendLine(budget.spend())).toBe('Spent: 2 of 2 model call(s), 1700 token(s)');
   });
 });

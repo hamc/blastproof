@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { BudgetSpend } from '../runner/budget.js';
 import type { StepResult, TestResult } from '../runner/executor.js';
+import { formatSpendLine } from './score.js';
 import type { SkippedCase } from './junit.js';
 
 const ESCAPES: Record<string, string> = {
@@ -44,6 +46,12 @@ export interface HtmlMeta {
   generatedAt?: Date;
   /** The reason the run's budget or deadline stopped it, when it did (spec run-budget). */
   incomplete?: string;
+  /**
+   * What the run spent, when this report's caller owns the budget (design
+   * report-what-it-spent). Rendered from `formatSpendLine`, the same text the
+   * console prints, rather than recomposed here.
+   */
+  spend?: BudgetSpend;
 }
 
 const STYLES = `
@@ -215,7 +223,9 @@ export async function renderHtml(
 <body>
 <main>
   <h1>blastproof report</h1>
-  <p class="sub">${escapeHtml(generatedAt)} · ${seconds(meta.durationMs)}</p>
+  <p class="sub">${escapeHtml(generatedAt)} · ${seconds(meta.durationMs)}${
+    meta.spend ? ` · ${escapeHtml(formatSpendLine(meta.spend))}` : ''
+  }</p>
 
 ${banner}  <section class="score">
     <b>${meta.score}</b>

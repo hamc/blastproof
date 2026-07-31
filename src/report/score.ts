@@ -1,3 +1,4 @@
+import type { BudgetSpend } from '../runner/budget.js';
 import type { TestResult } from '../runner/executor.js';
 
 /** Priority weights: a failing P0 costs three times a failing P2 (design D1). */
@@ -58,4 +59,41 @@ export function formatIncompleteLine(score: number, reason: string): string {
     `Run incomplete: ${reason}\n` +
     `Score over executed tests: ${score} (not a verdict — exit code 1 regardless of --min-score)`
   );
+}
+
+/**
+ * The summary line stating what a run actually spent (design
+ * report-what-it-spent, D1/D4).
+ *
+ * Lives here, with the other summary lines, rather than in the console command:
+ * the JUnit and HTML reports take the same figures from the same
+ * {@link BudgetSpend}, and formatting it where only the console can see it is
+ * how three surfaces start disagreeing about what a run cost.
+ *
+ * Deliberately not currency. The same reasoning that keeps the budget itself
+ * denominated in calls and tokens applies to reporting them: a price table is
+ * wrong the day a provider reprices, and wrong for anyone behind a gateway.
+ * Digits are plain, not locale-grouped, so the line is identical everywhere it
+ * is read or asserted on.
+ */
+export function formatSpendLine(spend: BudgetSpend): string {
+  const calls =
+    spend.maxCalls === undefined
+      ? `${spend.calls} model call(s)`
+      : `${spend.calls} of ${spend.maxCalls} model call(s)`;
+
+  // Zero tokens counted and zero tokens reported are different facts, and only
+  // one of them is about the run (design D1).
+  if (spend.callsWithUsage === 0) {
+    return `Spent: ${calls}; token usage not reported by the provider`;
+  }
+  const tokens =
+    spend.maxTokens === undefined
+      ? `${spend.tokens} token(s)`
+      : `${spend.tokens} of ${spend.maxTokens} token(s)`;
+  const coverage =
+    spend.callsWithUsage < spend.calls
+      ? ` (tokens reported by ${spend.callsWithUsage} of ${spend.calls} call(s))`
+      : '';
+  return `Spent: ${calls}, ${tokens}${coverage}`;
 }
