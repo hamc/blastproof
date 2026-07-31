@@ -1,4 +1,5 @@
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
+import { formatSpendLine } from '../report/score.js';
 import { RunBudget } from '../runner/budget.js';
 import { planCommand } from './plan.js';
 import {
@@ -86,6 +87,10 @@ export async function testCommand(options: TestOptions): Promise<number> {
   });
   if (planCode === EXIT_USAGE) return EXIT_USAGE;
 
+  // The one allowance both phases shared, reported once by the command that
+  // created it (design report-what-it-spent, D2). Neither phase reports it
+  // itself: each checks whether it owns its budget, and here neither does.
+  console.log(`\n${formatSpendLine(budget.spend())}`);
   console.log(
     '\nDrafts are not executed and do not affect the score — review them before ' +
       'they join the suite.',

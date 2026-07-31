@@ -182,7 +182,16 @@ Each limit is optional; with none set, nothing binds. They count **calls and tok
 
 Exhausting a budget **stops the run; it does not fail a test.** Running out of quota says nothing about the code under review. Unreached tests are reported as `not run`, a third state excluded from the score entirely, and the process exits 1 unconditionally — `--min-score` cannot rescue it, because the tests that finished are whichever ran first, not a representative sample.
 
-`--dry-run` reports the ceiling before you spend anything.
+**Every run reports what it spent**, so you can size a limit from experience rather than guesswork:
+
+```
+Spent: 82 model call(s), 115407 token(s)
+Score: 100
+```
+
+The figures also land in the JUnit report as `llm_calls` and `llm_tokens`, beside `score`, so a pipeline can trend cost without scraping output. A run stopped by its own budget reports the spend too — that is the case where the number is least guessable. Where a provider reports no token usage, the line says so rather than showing zero.
+
+`--dry-run` reports the ceiling before you spend anything. Read it as a maximum and nothing more: for this repository's own suite it says 735 calls where a real run spends 82. Size a budget from what your runs actually report, not from the ceiling.
 
 ## Testing behind a login
 

@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { BudgetSpend } from '../runner/budget.js';
 import type { TestResult } from '../runner/executor.js';
 
 const ESCAPES: Record<string, string> = {
@@ -31,6 +32,12 @@ export interface JUnitMeta {
   cwd?: string;
   /** The reason the run's budget or deadline stopped it, when it did (spec run-budget). */
   incomplete?: string;
+  /**
+   * What the run spent, when this report's caller owns the budget (design
+   * report-what-it-spent). Taken from the same `RunBudget` the summary line
+   * uses, so the report and the console cannot disagree about what a run cost.
+   */
+  spend?: BudgetSpend;
 }
 
 function seconds(ms: number): string {
@@ -61,6 +68,13 @@ export function renderJUnit(
     `<testsuite name="blastproof" tests="${results.length + skipped.length}" failures="${failures}" skipped="${skipped.length + notRun.length}" time="${seconds(meta.durationMs)}">`,
     '  <properties>',
     `    <property name="score" value="${meta.score}"/>`,
+    ...(meta.spend ? [`    <property name="llm_calls" value="${meta.spend.calls}"/>`] : []),
+    // Omitted rather than emitted as zero when no call reported usage: a
+    // property carrying 0 would be read by a pipeline as "this run spent no
+    // tokens", which is a different claim from "the provider did not say".
+    ...(meta.spend && meta.spend.callsWithUsage > 0
+      ? [`    <property name="llm_tokens" value="${meta.spend.tokens}"/>`]
+      : []),
     ...(meta.incomplete !== undefined
       ? [
           '    <property name="incomplete" value="true"/>',

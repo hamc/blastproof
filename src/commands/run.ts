@@ -8,9 +8,15 @@ import { createModel, MissingApiKeyError } from '../llm/provider.js';
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
-import { computeScore, formatIncompleteLine, formatScoreLine } from '../report/score.js';
+import { computeScore, formatIncompleteLine, formatScoreLine, formatSpendLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
-import { BudgetExhaustedError, estimateMaxModelCalls, RunBudget, type RunBudgetOptions } from '../runner/budget.js';
+import {
+  BudgetExhaustedError,
+  estimateMaxModelCalls,
+  RunBudget,
+  type BudgetSpend,
+  type RunBudgetOptions,
+} from '../runner/budget.js';
 import { MissingEnvError, SecretsMask, substituteEnv } from '../runner/env.js';
 import { describeAction } from '../runner/recovery.js';
 import {
@@ -341,8 +347,16 @@ async function finalize(
   durationMs: number,
   impact?: ImpactResult,
   incomplete?: BudgetExhaustedError,
+  spend?: BudgetSpend,
 ): Promise<number> {
   if (results.length > 0) printSummary(results);
+
+  // Before the score, so the verdict stays the last thing printed. Reported for
+  // an interrupted run too (design report-what-it-spent, D3): a stop already
+  // says which limit was hit, and what it does not say is the rest of the
+  // picture — a run stopped on tokens still spent calls, and someone deciding
+  // whether the limit was too tight needs both.
+  if (spend) console.log(formatSpendLine(spend));
 
   const score = computeScore(results);
   console.log(
@@ -359,6 +373,7 @@ async function finalize(
       durationMs,
       cwd: options.cwd,
       incomplete: incomplete?.message,
+      spend,
     });
     await writeJUnit(target, xml);
     console.log(`JUnit report: ${path.relative(options.cwd, target)}`);
@@ -375,6 +390,7 @@ async function finalize(
       minScore: options.minScore,
       cwd: options.cwd,
       incomplete: incomplete?.message,
+      spend,
     });
     await writeHtml(target, html);
     console.log(`HTML report: ${path.relative(options.cwd, target)}`);
@@ -668,5 +684,11 @@ export async function runCommand(options: RunOptions): Promise<number> {
     Date.now() - startedAt,
     impact,
     incomplete,
+    // The command that constructed the budget is the one that reports it
+    // (design report-what-it-spent, D2). `test` hands one budget to both of its
+    // phases deliberately, so reporting at the point of use rather than the
+    // point of ownership would print the running total twice for a single
+    // allowance, the second line silently including the first.
+    options.budget === undefined ? budget.spend() : undefined,
   );
 }
