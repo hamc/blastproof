@@ -3,6 +3,30 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.8.0] — 2026-07-31
+
+### Fixed
+- **The agent could leave the application under test, and the run reported a pass.** The origin
+  boundary checked the URL a `navigate` action asked for, before the request, and nothing after it.
+  Two ways out, both reproduced with a real model against two local origins: a path on the
+  application's own origin answering `302` to a foreign host, and a click on a link pointing at one.
+  The click case is the wider of the two — the check was called in the `navigate` branch and nowhere
+  else, so a link across origins was never checked at all. Both runs reported `Score: 100`, and in
+  the redirect run the judge named the foreign URL in its own reason while the run passed anyway.
+
+  This matters beyond tidiness: once outside, that page's content went into the next prompt while
+  the browser context still held the application's session, which is the exact scenario
+  `agent-containment` exists to prevent. The boundary is now compared against where the page
+  actually is, before every snapshot — so it covers a redirect, a click, a form submission, a script
+  setting the location, and any action added later, and a page outside the boundary is never read
+  into a prompt. The pre-navigation check remains, because refusing to make the request is better
+  than making it and objecting afterwards.
+
+  **This is a behavioural change.** An application that redirects across hosts without declaring
+  them in `allowed_origins:` now fails the step, naming the origin to add, instead of continuing in
+  silence. A suite that was quietly walking onto a foreign page was never testing what it claimed
+  to. Applications that stay within their own origin see no difference.
+
 ## [0.7.0] — 2026-07-30
 
 ### Fixed
