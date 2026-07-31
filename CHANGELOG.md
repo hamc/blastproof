@@ -3,6 +3,50 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.10.0] — 2026-07-31
+
+### Fixed
+- **A step naming a path was failed when the server redirected.** The judge compared the URL it could
+  see against the path the step named, and had no way to know a redirect had happened, so it reported
+  *"the navigation did not occur"* about a navigation that occurred, was reported `ok`, and was then
+  retried and failed twice more.
+
+  Measured, the trigger is narrower than it looks: same step, identical destination content, same
+  model — a **same-origin** redirect passed 3 of 3, a **cross-origin** one failed 3 of 3. The
+  same-origin case passing was the judge tolerating a smaller discrepancy, not the judge being right.
+
+  This was the third defect of one family. A successful navigation to a redirecting path cannot leave
+  the browser at that path, exactly as a successful submit cannot leave the form filled (0.7.0) and a
+  successful action removes the control the step names (0.6.0). Each time the judge was asked whether
+  something happened while looking at the state that succeeding produces, and each time the answer was
+  one more description of one more shape. So this one is answered structurally instead: **a `navigate`
+  now reports where it landed** when that differs from where it was asked to go, and **the judge
+  receives the record of what was already done in the step** — the same record the agent gets, masked
+  the same way, scoped to the step — at both judgments including the re-observation.
+
+  The record says what was *attempted*; the snapshot remains the only evidence of what is now *true*.
+  That distinction is the risk this change carries, and it was checked against the reproduction from
+  0.7.0 where a successful click sits in the record while the step's outcome is absent: it still
+  fails, and still leaves nothing behind.
+
+### Changed
+- A `navigate` that the server redirects now reports both URLs — `ok: navigated to <requested>, which
+  redirected to <landing>` — instead of reporting arrival at the requested one. Runs that never
+  redirect are unchanged.
+
+### Internal
+- **The tests are typechecked.** `tsconfig.json` excluded `tests/`, so `npm run typecheck` skipped all
+  418 of them, and vitest does not fill that gap: it transpiles with esbuild, which strips type
+  annotations without checking them. A test asserting on a field that does not exist read `undefined`
+  and passed, and the negative forms (`toBeUndefined`, `not.toBe`) passed silently rather than failing.
+  Turning it on surfaced 16 errors across 9 files; **none was a vacuous test**, but three fixtures were
+  building a shape the parser can never produce, and three assertions now check that a call really
+  threw before reading a message off it.
+- Documentation corrections from an outside review: the architecture tree in `AGENTS.md` was missing
+  three files, and the derivation above `estimateMaxModelCalls` still argued the previous formula while
+  the code below it computed the current one. The rule that decides whether a suite works — every step
+  names its own outcome — moved to where tests are actually written, with the measured before-and-after.
+
 ## [0.9.0] — 2026-07-31
 
 ### Added
