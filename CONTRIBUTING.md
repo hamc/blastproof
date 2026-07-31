@@ -64,10 +64,21 @@ Agentic runs cost tokens and need a real provider. Everything else — unit test
 
 Publishing runs from a tag, never from a merge — a released version can never be edited and the package name is claimed permanently, so it takes a deliberate act:
 
+One commit moves every version surface together — `package.json`, the changelog entry, and the README's Action example — and the tag points at it:
+
 ```bash
-# bump the version in package.json first, then
+# in one commit: bump package.json, write the CHANGELOG entry, update the
+# README's `uses: hamc/blastproof@vX.Y.Z` example, then
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+The changelog entry is written **here**, not in the pull requests, and it is derived from what has landed since the last tag:
+
+```bash
+git log --oneline v0.1.0..main
+```
+
+Read that list before tagging. 0.7.0 shipped without a changelog entry because nobody did, and every other surface agreed with itself — which is exactly why the one that disagreed went unnoticed.
 
 The release workflow refuses to publish if the tag and the manifest version disagree, rebuilds and re-runs the full verification, and publishes with npm provenance. It needs an `NPM_TOKEN` secret on the repository.
 
