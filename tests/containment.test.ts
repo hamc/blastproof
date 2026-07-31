@@ -60,9 +60,14 @@ describe('origin boundary', () => {
       page,
       { action: 'navigate', value: 'https://elsewhere.example.com/x', reasoning: '' },
       { baseUrl: BASE },
-    ).catch((e: Error) => e);
-    expect(error.message).toContain('https://elsewhere.example.com');
-    expect(error.message).toContain('allowed_origins');
+    ).catch((e: unknown) => e);
+    // Asserting it really threw, before reading a message off it. Without this
+    // the union includes `performAction`'s success string, and reading
+    // `.message` from that would be `undefined` — which `toContain` catches, but
+    // only by accident (#23).
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('https://elsewhere.example.com');
+    expect((error as Error).message).toContain('allowed_origins');
   });
 
   it('allows an origin the config declared', async () => {

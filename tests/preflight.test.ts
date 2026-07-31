@@ -5,7 +5,7 @@ const { launchMock } = vi.hoisted(() => ({ launchMock: vi.fn() }));
 vi.mock('playwright', () => ({ chromium: { launch: launchMock } }));
 
 import { runPreflight } from '../src/preflight.js';
-import type { PreflightConfig } from '../src/preflight.js';
+import type { FetchLike, PreflightConfig } from '../src/preflight.js';
 
 const CONFIG: PreflightConfig = {
   base_url: 'http://localhost:4173',
@@ -15,7 +15,7 @@ const CONFIG: PreflightConfig = {
 
 describe('runPreflight', () => {
   it('is silent (no failures) and performs no I/O when nothing applies — a dry run', async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn<FetchLike>();
 
     const result = await runPreflight(
       { browser: false, model: false, baseUrl: false },
@@ -31,7 +31,7 @@ describe('runPreflight', () => {
   it('passes silently when every check succeeds, and hands back the launched browser', async () => {
     const browser = { close: vi.fn() };
     launchMock.mockResolvedValue(browser);
-    const fetchMock = vi.fn().mockResolvedValue({});
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue({});
 
     const result = await runPreflight({ browser: true, model: true, baseUrl: true }, CONFIG, fetchMock);
 
@@ -106,8 +106,8 @@ describe('runPreflight', () => {
   // ever aborts its fetch, so simulating the abort event Node's real `fetch`
   // raises when that fires (a DOMException named AbortError) exercises exactly
   // the path the real timeout takes, without waiting out the real 15s limit.
-  function fetchThatTimesOut(): ReturnType<typeof vi.fn> {
-    return vi.fn().mockImplementation(
+  function fetchThatTimesOut(): ReturnType<typeof vi.fn<FetchLike>> {
+    return vi.fn<FetchLike>().mockImplementation(
       (_url: string, init?: { signal?: AbortSignal }) =>
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => {

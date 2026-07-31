@@ -171,6 +171,8 @@ describe('estimateMaxModelCalls bounds the real executor (DEF-001 regression)', 
       steps: ['one step, worst case'],
       priority: 'P1',
       tags: [],
+      routes: [],
+      auth: true, // the parser's default; a fixture that omits it is not a real test file
     };
 
     const fakePage = {

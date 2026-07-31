@@ -201,6 +201,8 @@ function makeTest(overrides: Partial<TestFile> = {}): TestFile {
     steps: ['step one'],
     priority: 'P1',
     tags: [],
+    routes: [],
+    auth: true, // both are required and defaulted by the parser (#23)
     ...overrides,
   };
 }
