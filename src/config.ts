@@ -104,6 +104,13 @@ const configSchema = z.object({
   allowed_origins: z.array(z.string().url()).optional(),
   auth: authSchema.optional(),
   max_retries_per_step: z.number().int().min(1).default(3),
+  /**
+   * How many tests may run at once (design tests-in-parallel, D1). Defaults to
+   * 1 — tests are journeys driven against one running application, and whether
+   * two of them can run at the same time is a property of that application and
+   * those tests, not of the runner. Opted into by the person who knows.
+   */
+  concurrency: z.number().int().min(1, 'concurrency must be at least 1').default(1),
   budget: budgetSchema.optional(),
 });
 

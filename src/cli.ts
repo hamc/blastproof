@@ -89,6 +89,11 @@ program
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
   .option(
+    '--concurrency <n>',
+    'run this many tests at once (overrides config; default 1 — see the README on when this is safe)',
+    parsePositiveInt('--concurrency'),
+  )
+  .option(
     '--max-llm-calls <n>',
     'stop the run after this many model calls, reported as incomplete (overrides config)',
     parsePositiveInt('--max-llm-calls'),
@@ -116,6 +121,7 @@ program
       junit?: string | boolean;
       html?: string | boolean;
       failOnUnmapped?: boolean;
+      concurrency?: number;
       maxLlmCalls?: number;
       maxTokens?: number;
       maxDuration?: number;
@@ -134,6 +140,7 @@ program
           junit: options.junit,
           html: options.html,
           failOnUnmapped: options.failOnUnmapped,
+          concurrency: options.concurrency,
           maxLlmCalls: options.maxLlmCalls,
           maxTokens: options.maxTokens,
           maxDuration: options.maxDuration,
