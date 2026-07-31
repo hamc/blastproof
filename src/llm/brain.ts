@@ -11,6 +11,7 @@ import {
   type PlannerInput,
 } from './prompts.js';
 import type { RunBudget } from '../runner/budget.js';
+import type { StepHistoryEntry } from '../runner/recovery.js';
 import {
   agentActionSchema,
   assertJudgmentSchema,
@@ -34,7 +35,12 @@ export interface AgentBrain {
    * pass. Kept alongside the step because it is still useful: it says which
    * reading of the step the model is checking, and it belongs in reports.
    */
-  judge(step: string, expectation: string, snapshot: string): Promise<AssertJudgment>;
+  judge(
+    step: string,
+    expectation: string,
+    snapshot: string,
+    stepHistory?: StepHistoryEntry[],
+  ): Promise<AssertJudgment>;
 }
 
 /** Narrowed signature of `generateObject` so tests can inject a stub. */
@@ -101,12 +107,12 @@ export function createBrain(
       return parsed.data;
     },
 
-    async judge(step, expectation, snapshot) {
+    async judge(step, expectation, snapshot, stepHistory) {
       const result = await countedGenerate(generate, budget, {
         model,
         schema: assertJudgmentSchema,
         system: assertSystemPrompt(),
-        prompt: assertUserPrompt(step, expectation, snapshot),
+        prompt: assertUserPrompt(step, expectation, snapshot, stepHistory),
       });
       const parsed = assertJudgmentSchema.safeParse(result.object);
       if (!parsed.success) {

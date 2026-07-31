@@ -213,7 +213,15 @@ export async function performAction(
       // Same knob as resolution (design D1): a slow app is waited for, not just
       // the elements on the page it eventually renders.
       await page.goto(url.toString(), { timeout: ctx.resolveTimeoutMs ?? 30_000 });
-      return `ok: navigated to ${url.toString()}`;
+      // Where it landed, when that is not where it was asked to go (design
+      // judge-sees-the-record, D1). The executor has both facts and used to
+      // discard one, which left every later reader — the model, the step
+      // record, the judge, and whoever reads the log afterwards — believing a
+      // redirected navigation had arrived at the requested URL.
+      const landed = page.url();
+      return landed === url.toString()
+        ? `ok: navigated to ${url.toString()}`
+        : `ok: navigated to ${url.toString()}, which redirected to ${landed}`;
     }
     case 'click': {
       const target = requireTarget(action);

@@ -317,7 +317,15 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           // expectation that does not establish the step's own outcome must
           // not close the step. Same masking boundary as everything else that
           // crosses into a prompt: the step text too (design D1, task 2.5).
-          let judgment = await brain.judge(mask(step), mask(expectation), mask(snap));
+          // The judge decides with the step's record in view (design
+          // judge-sees-the-record, D2): without it, it could not tell a
+          // navigation the server redirected from one that never happened.
+          let judgment = await brain.judge(
+            mask(step),
+            mask(expectation),
+            mask(snap),
+            recovery.stepHistory(),
+          );
           if (!judgment.pass) {
             // Re-observe before handing control back to the model (design D3):
             // the settle wait above is bounded and can time out silently, so a
@@ -330,7 +338,12 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             // is what let the model invent an action instead of looking again.
             await waitForSettled(page);
             const freshSnap = await takeSnapshot(page);
-            judgment = await brain.judge(mask(step), mask(expectation), mask(freshSnap));
+            judgment = await brain.judge(
+              mask(step),
+              mask(expectation),
+              mask(freshSnap),
+              recovery.stepHistory(),
+            );
           }
           const result = judgment.pass
             ? `ok: assertion passed: ${judgment.reason}`

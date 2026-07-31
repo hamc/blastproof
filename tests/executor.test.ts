@@ -1444,3 +1444,107 @@ describe('executeTest origin boundary', () => {
     expect(page.calls.filter((c) => c.startsWith('goto'))).toHaveLength(0);
   });
 });
+
+// --- the judge sees the record ------------------------------------------------
+//
+// The judge could not tell a navigation the server redirected from one that
+// never happened: it saw the destination URL and the step's path, and nothing
+// else (#35). Measured before this was written — a same-origin redirect passed
+// 3 of 3, a cross-origin one failed 3 of 3, on identical destination content.
+
+describe('executeTest judge inputs', () => {
+  interface JudgeCall {
+    step: string;
+    snapshot: string;
+    history: { action: string; result: string }[] | undefined;
+  }
+
+  function judgeRecording(
+    script: AgentAction[],
+    verdicts: AssertJudgment[],
+  ): AgentBrain & { judged: JudgeCall[] } {
+    let calls = 0;
+    let judgments = 0;
+    const judged: JudgeCall[] = [];
+    return {
+      judged,
+      async nextAction(): Promise<AgentAction> {
+        const next = script[calls++];
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(step, _expectation, snapshot, stepHistory): Promise<AssertJudgment> {
+        judged.push({ step, snapshot, history: stepHistory });
+        return verdicts[judgments++] ?? { pass: true, reason: 'fine' };
+      },
+    };
+  }
+
+  it('gives the judge what was already done in this step', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    const brain = judgeRecording(
+      [click('Add note'), { action: 'assert', reasoning: 'check', expectation: 'it was added' }],
+      [{ pass: true, reason: 'it is there' }],
+    );
+
+    await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(brain.judged).toHaveLength(1);
+    expect(brain.judged[0]?.history?.[0]?.action).toContain('Add note');
+  });
+
+  it('gives the re-observation the same record', async () => {
+    // The second judgment is the one `trustworthy-verdicts` added; it must not
+    // be the one left without the context (design D2, task 3.3).
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    const brain = judgeRecording(
+      [
+        click('Add note'),
+        { action: 'assert', reasoning: 'check', expectation: 'it was added' },
+        { action: 'fail', reasoning: 'gave up' },
+      ],
+      [
+        { pass: false, reason: 'not yet' },
+        { pass: false, reason: 'still not' },
+      ],
+    );
+
+    await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(brain.judged).toHaveLength(2);
+    expect(brain.judged[1]?.history?.[0]?.action).toContain('Add note');
+  });
+
+  it('masks the record the judge receives', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Password');
+    const brain = judgeRecording(
+      [
+        { action: 'fill', target: { role: 'textbox', name: 'Password' }, value: 's3cret', reasoning: 'type' },
+        { action: 'assert', reasoning: 'check', expectation: 'signed in' },
+      ],
+      [{ pass: true, reason: 'signed in' }],
+    );
+
+    await executeTest(page, makeTest(), baseOptions(brain, { mask: (s) => s.replaceAll('s3cret', '***') }));
+
+    expect(JSON.stringify(brain.judged[0]?.history)).not.toContain('s3cret');
+  });
+
+  it('gives a new step an empty record', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    const brain = judgeRecording(
+      [click('Add note'), { action: 'done', reasoning: 'done' }, { action: 'assert', reasoning: 'c', expectation: 'e' }],
+      [{ pass: true, reason: 'fine' }],
+    );
+
+    await executeTest(page, makeTest({ steps: ['one', 'two'] }), baseOptions(brain));
+
+    // The only judgment happens in step two, which did nothing of its own.
+    expect(brain.judged[0]?.step).toBe('two');
+    expect(brain.judged[0]?.history ?? []).toHaveLength(0);
+  });
+});

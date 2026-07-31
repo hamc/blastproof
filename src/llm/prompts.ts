@@ -108,14 +108,33 @@ A value sitting in a control that was just typed into — an open dialog's textb
 
 A step that names an ACTION (submit, click, create, add, ...) is satisfied by evidence the action took effect, not by the action's own control still being on the page. A successful action ordinarily replaces or moves past exactly the form, button or field the step names, so that control's absence is normal evidence of success, not evidence the step is unverifiable — do not fail such a step only because you can no longer see the thing it names. Fail it instead when the snapshot shows the action did NOT take effect: an error message, a validation warning, or the very same pre-action page still in front of you with nothing changed. A different page, a new state, or the result the action was meant to produce counts as evidence it worked.
 
+You may also be shown the actions already performed in this step, with their results. That record tells you what was ATTEMPTED and what it produced — for instance that a navigation was performed and which URL the server ultimately served, or that a form was submitted. Use it to avoid concluding that something never happened when the page simply cannot show it any more: a navigation the server redirected does not leave the browser at the path that was requested, and that is what success looks like, not failure.
+
+The record is not evidence that the step's outcome holds. An action reported as \`ok\` establishes that it ran and what it returned; whether the thing the step describes is now TRUE is still decided by the snapshot alone. Never pass a step because the record shows an action succeeded while the snapshot does not show the outcome.
+
 Be strict about what the step asks, not about withholding a pass you can plainly see is earned. Answer with pass=true/false and a one-sentence reason.
 
 \`***\` marks a secret deliberately withheld from you — a password, token or key. Seeing it is expected. A field holding \`***\` is filled, not empty, so do not fail a step on the grounds that a value was redacted. This applies only to the redaction itself: everything else the step asks for must still be visibly satisfied by the snapshot, and a step you genuinely cannot check against what you were shown still fails.`;
 }
 
-export function assertUserPrompt(step: string, expectation: string, snapshot: string): string {
-  return [
-    `Step under test: ${step}`,
+export function assertUserPrompt(
+  step: string,
+  expectation: string,
+  snapshot: string,
+  stepHistory?: { action: string; result: string }[],
+): string {
+  const parts = [`Step under test: ${step}`];
+  if (stepHistory && stepHistory.length > 0) {
+    // What was done, not what is true (design judge-sees-the-record, D2). The
+    // judge could not previously tell a navigation the server redirected from a
+    // navigation that never happened, because it saw only the destination URL.
+    parts.push(
+      '',
+      'Actions already performed in this step, with their results (what was DONE — not evidence of what is now true):',
+      ...stepHistory.map((entry, i) => `${i + 1}. ${entry.action} -> ${entry.result}`),
+    );
+  }
+  parts.push(
     '',
     `Model's expectation (the claim offered in support of the step, not the question itself): ${expectation}`,
     '',
@@ -123,7 +142,8 @@ export function assertUserPrompt(step: string, expectation: string, snapshot: st
     snapshot,
     '',
     "Does the snapshot establish that the step's own outcome holds?",
-  ].join('\n');
+  );
+  return parts.join('\n');
 }
 
 export function plannerSystemPrompt(): string {
