@@ -3,6 +3,44 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.11.0] — 2026-07-31
+
+### Fixed
+- **`plan` drafted the shape this project documents as wrong.** The README leads its writing guidance
+  with the rule — every step names what it should produce — and the measurement behind it: same
+  application, same suite, Score 64 to 100 on two rewritten steps. The planner's prompt still taught
+  the older, weaker version, "end with at least one step that verifies an observable outcome".
+  Generating against this repository's own demo app produced three bare actions in a row, two of them
+  naming no value at all:
+
+  ```yaml
+  - Navigate to the Support page
+  - Enter a subject in the Subject textbox
+  - Enter a message in the Message textbox
+  ```
+
+  The executor has refused to invent values since 0.7.0, so `plan` was drafting a test `run` is
+  designed not to complete. Generated steps now name their outcome and write any value they supply.
+
+- **The planner did not know where a run starts.** A run opens the application's base URL, not the
+  route a draft was generated for. The planner had never been told, and emitted a navigation step only
+  because it was listing actions naively — so tightening the rule above made it drop the navigation
+  entirely, and the first draft generated under the new prompt failed on the home page. Drafts now open
+  by navigating to the route and saying what should be visible there. Found by running a generated
+  draft rather than reading it, which is the only reason it was found at all.
+
+### Changed
+- The planner's "one action **or** check per step" becomes "one move per step — a single action
+  together with what it should produce, or a single check". The old phrasing contradicted the rule
+  above, since the documented example is one action *and* its check.
+
+### Internal
+- `DEFECTS.md` said DEF-005's structural lever was "deliberately NOT taken" for a full day after 0.10.0
+  took it. An outside review read the file and reported the lever as still pending, twice and in its
+  conclusion — right about the file, wrong about the code. Second instance in two days of
+  documentation asserting something the code had since contradicted. A defect record is a claim about
+  the present, not only a diary of the past.
+
 ## [0.10.0] — 2026-07-31
 
 ### Fixed
