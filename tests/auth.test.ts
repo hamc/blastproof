@@ -31,7 +31,10 @@ function fakeBrowser(overrides: { fail?: boolean } = {}): {
         async newPage() {
           return {
             goto: async () => undefined,
-            url: () => 'http://localhost/account',
+            // Port included, as a real page URL always is: the executor now
+            // compares this against the boundary before every snapshot, and
+            // `http://localhost` is a different origin from `http://localhost:4173`.
+            url: () => 'http://localhost:4173/account',
             waitForLoadState: async () => {},
             getByRole: () => ({}) as never,
             getByLabel: () => ({}) as never,
