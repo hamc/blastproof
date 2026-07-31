@@ -17,6 +17,7 @@ import {
 } from '../src/planner.js';
 import type { PageLike } from '../src/runner/actions.js';
 import { parseTestFile, type TestFile } from '../src/runner/testfile.js';
+import { plannerSystemPrompt } from '../src/llm/prompts.js';
 
 const DRAFT: GeneratedTest = {
   summary: 'Applying a discount updates the cart total',
@@ -268,5 +269,27 @@ describe('coveredRoutes', () => {
       { routes: [] },
     ] as TestFile[];
     expect([...coveredRoutes(tests)].sort()).toEqual(['/cart', '/checkout', '/login']);
+  });
+});
+
+describe('plannerSystemPrompt teaches the rule the docs teach', () => {
+  // The prompt said "end with at least one step that verifies an observable
+  // outcome" while the README led with the stronger rule, and drifted from it
+  // for a release. Pinned so the next edit has something to fail against.
+  const prompt = plannerSystemPrompt();
+
+  it('asks every step to state its outcome', () => {
+    expect(prompt).toMatch(/Every step says what it should produce/);
+    expect(prompt).not.toMatch(/at least one step that verifies/);
+  });
+
+  it('asks a step that enters a value to write the value', () => {
+    expect(prompt).toMatch(/A step that enters a value writes the value/);
+  });
+
+  it('does not tell the model one action OR check, which contradicts the above', () => {
+    // The README's own worked example is one action AND its check.
+    expect(prompt).not.toMatch(/One action or check per step/);
+    expect(prompt).toMatch(/One move per step/);
   });
 });
