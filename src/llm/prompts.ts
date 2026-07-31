@@ -152,11 +152,13 @@ export function plannerSystemPrompt(): string {
 You receive a YAML accessibility snapshot of the page (roles and accessible names, exactly what a user perceives) and the list of source files a pull request changed in the area this page covers.
 
 Rules:
-- Write steps a human tester could follow without looking at the code. One action or check per step.
+- Write steps a human tester could follow without looking at the code. One move per step — a single action together with what it should produce, or a single check. Never two unrelated actions in one step.
 - Refer to controls by the accessible name shown in the snapshot, spelled exactly. Never invent buttons, fields or links that are not in the snapshot.
 - Never write CSS selectors, XPath, IDs or any code — the runner resolves elements live from the accessibility tree.
 - Prefer the journey the changed files touch over a generic tour of the page. The changed files tell you which part of the page matters.
-- End with at least one step that verifies an observable outcome (visible text, a count, a state change).
+- **The test starts at the application's base URL, not at this route.** Begin with a step that navigates to the route and says what should be visible once it loads — "navigate to /support and verify the heading \"Contact support\" is shown". Without it the run opens the home page and every later step looks for controls that are not there.
+- **Every step says what it should produce.** Name what must be true once the step has been carried out, not the action alone: "submit the support form and verify the confirmation page shows the ticket number", never "submit the support form". A step that names an action without an outcome asks the runner to judge whether something happened while looking at the page that succeeding produces — a submitted form comes back empty, a redirect moves the URL — and that is the shape behind several real failures.
+- **A step that enters a value writes the value.** "fill the subject field with Order not received", never "enter a subject". The runner is forbidden from inventing values, so a step that does not supply one cannot be carried out.
 - If a step needs a credential or any secret, write it as a placeholder like {{env.TEST_PASSWORD}}. Never write a real or invented password, token or key.
 - Keep the whole test to a handful of steps: one journey, not an exhaustive suite.`;
 }
