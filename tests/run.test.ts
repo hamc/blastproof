@@ -437,7 +437,7 @@ describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)',
     await writeProject({ 'cart.yaml': CART_TEST });
     const config = await loadConfig(dir);
 
-    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [] });
+    const resolved = resolveBudgetOptions(config, {});
 
     expect(resolved).toEqual({ maxCalls: undefined, maxTokens: undefined, maxDurationMs: undefined });
   });
@@ -450,7 +450,7 @@ describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)',
     );
     const config = await loadConfig(dir);
 
-    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [] });
+    const resolved = resolveBudgetOptions(config, {});
 
     expect(resolved.maxCalls).toBe(500);
     expect(resolved.maxDurationMs).toBe(60_000);
@@ -464,7 +464,7 @@ describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)',
     );
     const config = await loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: '20' });
 
-    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [] });
+    const resolved = resolveBudgetOptions(config, {});
 
     expect(resolved.maxCalls).toBe(20);
   });
@@ -477,7 +477,7 @@ describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)',
     );
     const config = await loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: '20' });
 
-    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [], maxLlmCalls: 3 });
+    const resolved = resolveBudgetOptions(config, { maxLlmCalls: 3 });
 
     expect(resolved.maxCalls).toBe(3);
   });
@@ -485,7 +485,7 @@ describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)',
   it('converts the seconds flag/config to milliseconds for the budget', () => {
     const config = { budget: undefined } as unknown as Parameters<typeof resolveBudgetOptions>[0];
 
-    const resolved = resolveBudgetOptions(config, { cwd: dir, tags: [], maxDuration: 30 });
+    const resolved = resolveBudgetOptions(config, { maxDuration: 30 });
 
     expect(resolved.maxDurationMs).toBe(30_000);
   });

@@ -1,0 +1,19 @@
+{
+  // The tests are typechecked too (#23). They cannot live in `tsconfig.json`'s
+  // own `include`: that one carries `rootDir: "src"` for the build, and widening
+  // it would put `tests/` in the emitted layout. So the build keeps its config
+  // and verification gets this one, which is what `npm run typecheck` runs.
+  //
+  // Why this matters: vitest transpiles with esbuild, which strips type
+  // annotations without checking them. A test asserting on a field that does not
+  // exist — a rename, a typo — reads `undefined` and passes, and the negative
+  // forms (`toBeUndefined`, `not.toBe`) pass silently rather than failing loudly.
+  // 418 tests were never looked at this way.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

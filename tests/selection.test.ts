@@ -9,6 +9,7 @@ function makeTest(overrides: Partial<TestFile> & { summary: string }): TestFile 
     priority: 'P1',
     tags: [],
     routes: [],
+    auth: true, // the parser's default (#23)
     ...overrides,
   };
 }

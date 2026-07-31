@@ -386,10 +386,10 @@ describe('authenticate: steps strategy', () => {
         { steps: ['fill the password field with {{env.BLASTPROOF_AUTH_PASSWORD}}'], cache: false },
         stubBrain({ succeed: false }),
       ),
-    ).catch((e: Error) => e);
+    ).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(AuthError);
-    expect(error.message).not.toContain('hunter2');
+    expect((error as Error).message).not.toContain('hunter2');
   });
 
   // Regression for the defect: `runJourney`'s call at auth.ts passed `brain`,

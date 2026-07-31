@@ -234,10 +234,10 @@ describe('auth recipe', () => {
     await writeConfig(
       'base_url: http://localhost:3000\nauth:\n  steps:\n    - sign in\n  storage_state: a.json\n',
     );
-    const error = await loadConfig(dir, {}).catch((e: Error) => e);
+    const error = await loadConfig(dir, {}).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ConfigError);
-    expect(error.message).toContain('steps');
-    expect(error.message).toContain('storage_state');
+    expect((error as Error).message).toContain('steps');
+    expect((error as Error).message).toContain('storage_state');
   });
 
   it('rejects an empty auth section', async () => {
