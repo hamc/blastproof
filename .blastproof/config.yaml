@@ -56,6 +56,7 @@ ignore:
   - "package.json"
   - "package-lock.json"
   - "tsconfig.json"
+  - "tsconfig.typecheck.json"
   - "tsup.config.ts"
   - "vitest.config.ts"
   - ".gitignore"
