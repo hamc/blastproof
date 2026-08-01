@@ -1,4 +1,10 @@
-# blastproof
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./.github/logo-dark.svg">
+    <img src="./.github/logo-light.svg" alt="" width="30" height="30">
+  </picture>
+  blastproof
+</h1>
 
 [![CI](https://github.com/hamc/blastproof/actions/workflows/ci.yml/badge.svg)](https://github.com/hamc/blastproof/actions/workflows/ci.yml)
 [![Dogfood](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml/badge.svg)](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml)
