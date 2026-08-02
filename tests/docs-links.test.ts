@@ -44,14 +44,26 @@ function headingsOf(markdown: string): Set<string> {
   return anchors;
 }
 
-/** Relative markdown links, ignoring absolute URLs, images and bare anchors. */
+/**
+ * Relative references, ignoring absolute URLs and bare anchors.
+ *
+ * Both syntaxes, because the README uses both: markdown links for prose, and
+ * raw HTML for the things markdown cannot express — the themed logo in a
+ * `<picture>`, and the video card that needs a `width`. Checking only markdown
+ * left every asset the header points at unverified, which is the half of the
+ * file most likely to be renamed.
+ */
 function linksOf(markdown: string): { target: string; anchor?: string }[] {
   const links: { target: string; anchor?: string }[] = [];
-  for (const match of markdown.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)\)/g)) {
-    const href = match[1]!;
-    if (/^[a-z]+:/i.test(href)) continue;
+  const push = (href: string): void => {
+    if (/^[a-z]+:/i.test(href)) return;
     const [target, anchor] = href.split('#');
     links.push({ target: target ?? '', anchor });
+  };
+
+  for (const match of markdown.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)\)/g)) push(match[1]!);
+  for (const match of markdown.matchAll(/<[a-z]+\b[^>]*?\b(?:src|srcset|href)="([^"]+)"/gi)) {
+    push(match[1]!);
   }
   return links;
 }

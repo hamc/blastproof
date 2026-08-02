@@ -18,7 +18,10 @@ git diff → impact mapping → test generation → agentic execution → report
 
 100% local. MIT. Bring your own LLM key.
 
-▶ **[Watch the introduction](https://www.youtube.com/shorts/miqN5FzMF_k)** — what it does, in a minute.
+<a href="https://www.youtube.com/shorts/miqN5FzMF_k">
+  <img src="./.github/video-card.png" width="440"
+       alt="Watch the introduction — a short video on what blastproof does, and what it does not">
+</a>
 
 **Documentation:** [Configuration](./docs/configuration.md) · [Testing behind a login](./docs/auth.md) · [Running in CI](./docs/ci.md) · [Contributing](./CONTRIBUTING.md) · [Architecture](./AGENTS.md)
 
