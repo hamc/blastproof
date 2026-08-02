@@ -44,14 +44,26 @@ function headingsOf(markdown: string): Set<string> {
   return anchors;
 }
 
-/** Relative markdown links, ignoring absolute URLs, images and bare anchors. */
+/**
+ * Relative references, ignoring absolute URLs and bare anchors.
+ *
+ * Both syntaxes, because the README uses both: markdown links for prose, and
+ * raw HTML for what markdown cannot express — the themed logo in a `<picture>`
+ * and the flow diagram, which needs a `width`. Reading only markdown left every
+ * asset the page points at unverified, and those are the files most likely to
+ * be renamed or re-exported.
+ */
 function linksOf(markdown: string): { target: string; anchor?: string }[] {
   const links: { target: string; anchor?: string }[] = [];
-  for (const match of markdown.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)\)/g)) {
-    const href = match[1]!;
-    if (/^[a-z]+:/i.test(href)) continue;
+  const push = (href: string): void => {
+    if (/^[a-z]+:/i.test(href)) return;
     const [target, anchor] = href.split('#');
     links.push({ target: target ?? '', anchor });
+  };
+
+  for (const match of markdown.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)\)/g)) push(match[1]!);
+  for (const match of markdown.matchAll(/<[a-z]+\b[^>]*?\b(?:src|srcset|href)="([^"]+)"/gi)) {
+    push(match[1]!);
   }
   return links;
 }

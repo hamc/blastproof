@@ -87,6 +87,15 @@ Within a step, an action that commits — a click, or pressing Enter — is neve
 
 It is **not** a guarantee of zero duplicate writes. An agent that reaches the same effect by a genuinely different route — another control that does the same thing — is not caught.
 
+## How it works
+
+<img src="./.github/coverage-flow.svg" width="100%"
+     alt="How a diff becomes a merge decision. In CI, unattended: changed files are matched against the routes: and ignore: globs; matched files contribute affected routes, files matching neither are reported as unclassified and fail the run only under --fail-on-unmapped. Tests declaring an affected route are executed and produce a weighted score, which --min-score gates on. An affected route no test declares is reported as a coverage gap and never fails the run. Separately and manually, outside CI: blastproof plan loads such a route in Chromium, makes one model call, and produces a YAML draft you review, edit and run before committing it.">
+
+**The boundary in the middle is the point.** Everything above it runs unattended on every pull request and ends in an exit code. Everything below it is something you choose to run, on your machine, and review before it lands.
+
+A route no test covers is *reported*, never failed — blocking on it would punish you for an incomplete map instead of teaching you to complete it. Turning that report into a test is the manual half, and the draft it produces is not trusted until a person has read it.
+
 ## Writing tests
 
 Tests live in `.blastproof/tests/` as plain-English YAML — no selectors:
