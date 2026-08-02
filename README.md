@@ -18,6 +18,10 @@ git diff → impact mapping → test generation → agentic execution → report
 
 100% local. MIT. Bring your own LLM key.
 
+▶ **[Watch the introduction](https://www.youtube.com/shorts/miqN5FzMF_k)** — what it does, in a minute.
+
+**Documentation:** [Configuration](./docs/configuration.md) · [Testing behind a login](./docs/auth.md) · [Running in CI](./docs/ci.md) · [Contributing](./CONTRIBUTING.md) · [Architecture](./AGENTS.md)
+
 ## Quick start
 
 ```bash
@@ -44,21 +48,44 @@ blastproof run
 
 Before `run`, `plan` or `test` do anything, they check what they are about to spend — the browser can launch, the model provider is reachable, `base_url` responds — and report every unmet one together, so a stopped app or a missing browser is never a wall you hit one crash at a time. A missing system library names the exact install command and says it needs root; nothing is installed on your behalf. Silent when everything is fine, and skipped entirely by `--dry-run`, which needs none of it.
 
+Provider options, budgets and browser tuning: [Configuration](./docs/configuration.md).
+
 ## Does this fit your application?
 
-**Your markup must be accessible — a hard requirement.** Elements are found by role, label or visible text from the accessibility tree. That is what removes selectors and survives redesigns; the cost is that an interface the accessibility tree cannot describe cannot be driven at all, and there is deliberately no CSS or XPath fallback. Icon-only buttons without accessible names, `div`-based controls and ARIA-less dropdowns simply cannot be targeted. Run an accessibility checker first — the result predicts how well this will work better than anything else.
+Three questions. The first one decides most cases.
 
-**Windows is untested.** Development and CI run on Linux and macOS. Nothing is known to be broken and reports are welcome (#8).
+### 1. Is your markup accessible?
 
-**Not supported yet:** `iframe` content (so hosted payment widgets like Stripe Elements are invisible — an embedded checkout cannot be driven end to end), hover, scroll-to, drag and drop, file upload, multiple tabs, native `alert`/`confirm` dialogs. Page snapshots are capped at 200 lines by default, so very dense pages are truncated — raise it with `browser.max_snapshot_lines` if your pages need more; truncation is always marked in the snapshot so the model is never misled into thinking it saw the whole page.
+**A hard requirement, not a preference.** blastproof finds elements the way a screen reader does — by role, by label, by visible text. That is what removes selectors and survives redesigns. The cost is that there is deliberately no CSS or XPath fallback, so anything the accessibility tree cannot describe cannot be driven at all.
 
-**Point it at disposable data.** Within a step, an action that commits — a click, or pressing Enter — is never performed twice: the runner refuses the repeat and tells the agent it already did that. This closes the case that used to produce duplicate records, where a submit answered by a redirect came back to a reset form and the agent, seeing no evidence of its own work, submitted again. It is not a guarantee of zero duplicate writes: an agent that reaches the same effect by a genuinely different route — another control with the same effect — is not caught. Use a seeded database, a staging environment you can reset, or a throwaway account; do not gate on a run against production data.
+| works | cannot be driven |
+| --- | --- |
+| `<button>Add to cart</button>` | a `<div>` with a click handler |
+| `<label for="email">` + `<input>` | an input with no label |
+| `<button aria-label="Delete note">` | an icon-only button with no name |
+| `<select>` with `<option>`s | an ARIA-less custom dropdown |
 
-`browser.timeout_ms` bounds every wait — resolving a target element from the accessibility tree, and navigation — not only the click or fill performed afterwards. Raise it for an application that is merely slow to hydrate; the trade-off is that a genuinely missing element then takes longer to fail. It never changes how many self-healing retries a step gets — waiting and retrying are deliberately separate.
+**Run an accessibility checker on your app before installing anything.** The result predicts how well this will work better than anything else you could measure — and the fixes it suggests are worth making regardless of whether you adopt this tool.
 
-Writing each step so it states its own outcome helps here as well as everywhere else: `submit the form, then verify the confirmation shows the reference number` gives the agent something to check, where `click the submit button` leaves it to invent an expectation — and a poor invented expectation is what turns one submission into three.
+### 2. Does your journey need anything on this list?
 
-**This is now load-bearing, not just advisable.** The judge decides whether a step's own outcome holds, using the model's expectation only as the claim offered in support of it — a step that never says what its outcome is gives the judge nothing to anchor on beyond whatever the model happened to check that turn. `verify the confirmation shows the reference number` gives the judge a real question; `verify it worked` does not, and may now fail where a looser judge previously let a true-but-unrelated claim pass it.
+Not supported yet:
+
+- **`iframe` content** — a hosted payment widget is invisible, so an embedded checkout cannot be driven end to end
+- **hover, scroll-to, drag and drop, file upload**
+- **multiple tabs**, and native `alert` / `confirm` dialogs
+
+**Windows is untested.** Development and CI run on Linux and macOS. Nothing is known to be broken and reports are welcome ([#8](https://github.com/hamc/blastproof/issues/8)).
+
+If a critical journey needs one of these, that journey stays with your existing test suite. The two can coexist — nothing here replaces what you already have.
+
+### 3. Can you point it at data you can throw away?
+
+**Use a seeded database, a staging environment you can reset, or a throwaway account. Do not gate on a run against production data.**
+
+Within a step, an action that commits — a click, or pressing Enter — is never performed twice: the runner refuses the repeat and tells the agent it already did that. This closes the case that used to produce duplicate records, where a submit answered by a redirect came back to a reset form and the agent, seeing no evidence of its own work, submitted again.
+
+It is **not** a guarantee of zero duplicate writes. An agent that reaches the same effect by a genuinely different route — another control that does the same thing — is not caught.
 
 ## Writing tests
 
@@ -118,41 +145,13 @@ Common flags — `blastproof <command> --help` has the full list:
 | `--min-score <n>` | Gate on a weighted score instead of all-must-pass |
 | `--fail-on-unmapped` | Fail when a changed file matches no `routes:` or `ignore:` glob |
 | `--junit [path]` · `--html [path]` | Write reports |
+| `--concurrency <n>` | Run tests at once — [when that is safe](./docs/configuration.md#concurrency--running-tests-at-once) |
 | `--write` | `plan` only — persist drafts instead of previewing |
-| `--max-llm-calls` · `--max-tokens` · `--max-duration` | Bound what a run may spend |
+| `--max-llm-calls` · `--max-tokens` · `--max-duration` | [Bound what a run may spend](./docs/configuration.md#budget--bounding-what-a-run-spends) |
 
 Exit codes: **0** pass, **1** the gate failed, **2** usage or config error.
 
 **Generated drafts are never executed and never affect the score.** An unreviewed model-written test in the merge path fails in two directions: a hallucinated expectation blocks a correct PR, and a credulous one waves a broken change through while looking like coverage. `plan` makes the gap visible with a draft to review; it does not make an uncovered route safe.
-
-## In CI
-
-```yaml
-name: blastproof
-on: pull_request
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0          # required — the diff needs a merge-base
-
-      - run: npm start &          # however your app boots
-
-      - uses: hamc/blastproof@v0.11.0
-        with:
-          version: '0.6.0'        # pin both when this gates merges
-          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          base: ${{ github.event.pull_request.base.ref }}
-          min-score: '80'
-          fail-on-unmapped: 'true'
-```
-
-A non-zero exit blocks the merge. The action outputs `score` (0–100, empty when no report was produced) for later steps. Full input list: [`action.yml`](./action.yml).
-
-`fetch-depth: 0` is not optional — the default checkout is shallow and has no merge-base. The action detects this and fails immediately rather than letting it surface as a git error mid-run.
 
 ## Impact mapping
 
@@ -182,6 +181,8 @@ blastproof run --min-score 80    # one failing P2 is tolerated
 
 `--min-score` **replaces** the all-must-pass rule rather than adding to it. Only executed tests count: filtered and unrouted tests are neither numerator nor denominator, and a run that executed nothing scores 100, so a docs-only PR is never blocked. JUnit carries the score as a `<property name="score">`, and unrouted tests appear as `<skipped/>` so the coverage gap shows up in CI rather than vanishing.
 
+Wiring this into a pipeline, with the gating patterns worth knowing: [Running in CI](./docs/ci.md).
+
 ## Without a browser or a key
 
 Half of blastproof is deterministic and free. These need no model, no browser and no network:
@@ -194,103 +195,6 @@ blastproof plan --base main --dry-run                 # affected routes no test 
 ```
 
 They report affected routes, files nobody has classified, and affected routes no test covers — a coverage-gap report with an exit code, useful even on a repo whose suite is Playwright or Cypress.
-
-## Running tests at once
-
-Tests run one at a time by default. Raise it when your tests can stand it:
-
-```yaml
-concurrency: 4
-```
-
-or `blastproof run --concurrency 4` for a single invocation. On this repository's own suite that takes a run from 156s to 68s — **2.3× faster, for the same 81 model calls.** Parallelism buys wall-clock, not spend.
-
-**The default is 1 on purpose, and raising it is your call to make.** Other test runners default to parallel because their tests are isolated by construction — separate processes, separate fixtures. These are journeys driven against **one running application**, so two tests can see each other's data. A suite is safe to parallelise when its tests do not write state that another test reads.
-
-The test in this repository's own suite that could not run beside itself is a good shape to recognise: it adds a note and then asserts *"one note on file"*. It writes shared server state, and it asserts on a global count. Either alone is a warning; together they mean the test's verdict depends on nothing else touching the application at that moment.
-
-Two practical notes. Four concurrent journeys are four times the traffic against whatever you pointed at — usually fine for a development instance, worth knowing for a shared one. And with several model calls in flight, a `budget:` limit can overshoot by up to the concurrency rather than by a single call, since the calls already sent are allowed to finish.
-
-## Bounding a run
-
-Nothing stops a run by default. `budget:` puts a ceiling on `run`, `plan` and `test` alike — every model call any of them makes is counted:
-
-```yaml
-budget:
-  max_llm_calls: 500
-  max_tokens: 2000000
-  max_duration_s: 900
-```
-
-Each limit is optional; with none set, nothing binds. They count **calls and tokens, not currency** — a price table keyed by model and provider goes stale the day a provider reprices, and a limit that quietly stops meaning what it says is worse than none, because it is trusted.
-
-Exhausting a budget **stops the run; it does not fail a test.** Running out of quota says nothing about the code under review. Unreached tests are reported as `not run`, a third state excluded from the score entirely, and the process exits 1 unconditionally — `--min-score` cannot rescue it, because the tests that finished are whichever ran first, not a representative sample.
-
-**Every run reports what it spent**, so you can size a limit from experience rather than guesswork:
-
-```
-Spent: 82 model call(s), 115407 token(s)
-Score: 100
-```
-
-The figures also land in the JUnit report as `llm_calls` and `llm_tokens`, beside `score`, so a pipeline can trend cost without scraping output. A run stopped by its own budget reports the spend too — that is the case where the number is least guessable. Where a provider reports no token usage, the line says so rather than showing zero.
-
-`--dry-run` reports the ceiling before you spend anything. Read it as a maximum and nothing more: for this repository's own suite it says 735 calls where a real run spends 82. Size a budget from what your runs actually report, not from the ceiling.
-
-For an order of magnitude, this repository's own suite — 7 tests, 31 steps, an authenticated demo shop, `anthropic/claude-haiku-4.5` — spends **about 82 model calls and 115k tokens**, taking 156s serially or 68s at `--concurrency 4`. That is a number you can reproduce (`node examples/demo-app/serve.mjs 4173` and `blastproof run`), not a forecast for your suite: cost scales with steps, page density and how often the agent has to retry. Run yours once and read the `Spent:` line.
-
-## Testing behind a login
-
-Declare a recipe once; blastproof signs in one time per run and reuses that session for every test and for `plan`. Pick exactly one strategy:
-
-```yaml
-# 1) A plain-English journey — form login, or anything a person can click through
-auth:
-  steps:
-    - navigate to /login
-    - fill the email field with {{env.TEST_EMAIL}}
-    - fill the password field with {{env.TEST_PASSWORD}}
-    - submit the login form
-  verify: a signed-in indicator is visible    # optional, strongly recommended
-
-# 2) A session captured by hand — for SSO, MFA or magic links
-auth:
-  storage_state: .blastproof/auth.json
-
-# 3) Static values — for token-based apps
-auth:
-  headers:
-    Authorization: "Bearer {{env.API_TOKEN}}"
-```
-
-**`verify` is worth the extra call.** Without it a wrong password surfaces as every test failing on a login wall — N failures, none naming the cause. Authentication failure exits 2 and never reports as failing tests, because a login you cannot complete says nothing about the code under review.
-
-**A captured session is a credential** — the file holds live cookies. `init` git-ignores it; never commit one.
-
-## LLM providers (BYOK)
-
-**Anthropic** (`ANTHROPIC_API_KEY`), **OpenAI** (`OPENAI_API_KEY`), or **Ollama** (local, no key). Any setting can be overridden from the environment, with precedence **CLI flag > environment > file**:
-
-| variable | overrides |
-| --- | --- |
-| `BLASTPROOF_BASE_URL` | `base_url` — the app under test |
-| `BLASTPROOF_LLM_PROVIDER` | `anthropic` \| `openai` \| `ollama` |
-| `BLASTPROOF_LLM_MODEL` | the model name |
-| `BLASTPROOF_LLM_BASE_URL` | the provider endpoint — *not* the app |
-| `BLASTPROOF_LLM_API_KEY_ENV` | the **name** of the variable holding your key |
-| `BLASTPROOF_MAX_LLM_CALLS` · `BLASTPROOF_MAX_TOKENS` · `BLASTPROOF_MAX_DURATION_S` | the budget fields |
-
-So an OpenAI-compatible gateway needs no file edit:
-
-```bash
-export BLASTPROOF_LLM_PROVIDER=openai
-export BLASTPROOF_LLM_MODEL=anthropic/claude-haiku-4.5
-export BLASTPROOF_LLM_BASE_URL=https://openrouter.ai/api/v1
-export BLASTPROOF_LLM_API_KEY_ENV=OPENROUTER_API_KEY
-blastproof run --impacted --min-score 80
-```
-
-The key itself is never read from a `BLASTPROOF_*` variable — you name *which* variable holds it, so errors can keep naming the one you chose.
 
 ## Trust boundaries
 
