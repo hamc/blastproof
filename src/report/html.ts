@@ -3,7 +3,8 @@ import path from 'node:path';
 import type { BudgetSpend } from '../runner/budget.js';
 import type { StepResult, TestResult } from '../runner/executor.js';
 import { formatSpendLine } from './score.js';
-import { ReportError, type SkippedCase } from './junit.js';
+import { ReportError, fsReason } from './errors.js';
+import { type SkippedCase } from './junit.js';
 
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -249,19 +250,6 @@ ${detail}
 </body>
 </html>
 `;
-}
-
-/**
- * Reduces a Node fs error to plain prose: drops the leading errno code
- * (`EACCES:`, `EISDIR:`, …) and the trailing `, <syscall> '<path>'` (the path
- * is already named in the surrounding message). Non-Error throws pass through.
- */
-function fsReason(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  return error.message
-    .replace(/^E[A-Z]+:\s*/, '')
-    .replace(/,\s+\w+\s+'[^']*'$/, '')
-    .trim();
 }
 
 /** Writes the report, creating missing parent directories. Returns the path written. */

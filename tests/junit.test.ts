@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ReportError, escapeXml, renderJUnit, writeJUnit, type SkippedCase } from '../src/report/junit.js';
+import { ReportError } from '../src/report/errors.js';
+import { escapeXml, renderJUnit, writeJUnit, type SkippedCase } from '../src/report/junit.js';
 import type { TestResult } from '../src/runner/executor.js';
 
 function passed(summary: string): TestResult {
