@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { access } from 'node:fs/promises';
+import { fsReason } from '../report/errors.js';
 
 const DEFAULT_CONFIG = `# blastproof configuration
 # Docs: https://github.com/hamc/blastproof
@@ -144,19 +145,6 @@ export class InitError extends Error {
     super(message);
     this.name = 'InitError';
   }
-}
-
-/**
- * Reduces a Node fs error to plain prose: drops the leading errno code
- * (`EACCES:`, `EISDIR:`, …) and the trailing `, <syscall> '<path>'` (the path
- * is already named in the surrounding message). Non-Error throws pass through.
- */
-function fsReason(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  return error.message
-    .replace(/^E[A-Z]+:\s*/, '')
-    .replace(/,\s+\w+\s+'[^']*'$/, '')
-    .trim();
 }
 
 async function writeIfAbsent(file: string, content: string, result: InitResult): Promise<void> {

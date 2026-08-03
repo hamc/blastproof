@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { embedScreenshot, escapeHtml, renderHtml, writeHtml } from '../src/report/html.js';
-import { ReportError, type SkippedCase } from '../src/report/junit.js';
+import { ReportError } from '../src/report/errors.js';
+import { type SkippedCase } from '../src/report/junit.js';
 import type { TestResult } from '../src/runner/executor.js';
 
 function passed(summary: string): TestResult {
