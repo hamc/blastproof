@@ -139,14 +139,40 @@ async function exists(file: string): Promise<boolean> {
   }
 }
 
+export class InitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InitError';
+  }
+}
+
+/**
+ * Reduces a Node fs error to plain prose: drops the leading errno code
+ * (`EACCES:`, `EISDIR:`, …) and the trailing `, <syscall> '<path>'` (the path
+ * is already named in the surrounding message). Non-Error throws pass through.
+ */
+function fsReason(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.message
+    .replace(/^E[A-Z]+:\s*/, '')
+    .replace(/,\s+\w+\s+'[^']*'$/, '')
+    .trim();
+}
+
 async function writeIfAbsent(file: string, content: string, result: InitResult): Promise<void> {
   if (await exists(file)) {
     result.kept.push(file);
     return;
   }
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, content);
-  result.created.push(file);
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, content);
+    result.created.push(file);
+  } catch (error) {
+    throw new InitError(
+      `Cannot scaffold ${file}: ${fsReason(error)}. Check that ${path.dirname(file)} is a directory you can write to, not a file.`,
+    );
+  }
 }
 
 /** Scaffolds `.blastproof/` in `cwd`. Idempotent: never overwrites existing files. */

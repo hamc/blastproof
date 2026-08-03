@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { BudgetSpend } from '../runner/budget.js';
 import type { StepResult, TestResult } from '../runner/executor.js';
 import { formatSpendLine } from './score.js';
-import type { SkippedCase } from './junit.js';
+import { ReportError, type SkippedCase } from './junit.js';
 
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -251,9 +251,28 @@ ${detail}
 `;
 }
 
+/**
+ * Reduces a Node fs error to plain prose: drops the leading errno code
+ * (`EACCES:`, `EISDIR:`, …) and the trailing `, <syscall> '<path>'` (the path
+ * is already named in the surrounding message). Non-Error throws pass through.
+ */
+function fsReason(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.message
+    .replace(/^E[A-Z]+:\s*/, '')
+    .replace(/,\s+\w+\s+'[^']*'$/, '')
+    .trim();
+}
+
 /** Writes the report, creating missing parent directories. Returns the path written. */
 export async function writeHtml(file: string, html: string): Promise<string> {
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, html, 'utf8');
-  return file;
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, html, 'utf8');
+    return file;
+  } catch (error) {
+    throw new ReportError(
+      `Cannot write HTML report to ${file}: ${fsReason(error)}. Check that the path is writable and is not a directory.`,
+    );
+  }
 }

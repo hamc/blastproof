@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { initProject } from '../src/commands/init.js';
+import { initProject, InitError } from '../src/commands/init.js';
 import { discoverTestFiles, parseTestFile } from '../src/runner/testfile.js';
 import { loadConfig } from '../src/config.js';
 
@@ -73,5 +73,23 @@ describe('initProject', () => {
 
     expect(result.kept).toContain(at('config.yaml'));
     await expect(readFile(at('config.yaml'), 'utf8')).resolves.toContain('mine.example.com');
+  });
+
+  it('throws InitError with a house-style message when .blastproof is a file, not a directory', async () => {
+    // A file where a directory is expected: mkdir fails (ENOTDIR/EEXIST), previously
+    // surfacing as a raw Node code instead of the house error style.
+    await writeFile(path.join(dir, '.blastproof'), 'not a directory');
+    let thrown: unknown;
+    try {
+      await initProject(dir);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(InitError);
+    const message = (thrown as Error).message;
+    expect(message).toContain('Cannot scaffold');
+    expect(message).toContain('.blastproof');
+    expect(message).not.toMatch(/\b(EACCES|EISDIR|ENOTDIR|EEXIST|ENOENT|EPERM):/);
+    expect(message).toMatch(/not a file/);
   });
 });
