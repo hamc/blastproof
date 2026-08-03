@@ -119,9 +119,35 @@ export function renderJUnit(
   return lines.join('\n');
 }
 
+export class ReportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReportError';
+  }
+}
+
+/**
+ * Reduces a Node fs error to plain prose: drops the leading errno code
+ * (`EACCES:`, `EISDIR:`, …) and the trailing `, <syscall> '<path>'` (the path
+ * is already named in the surrounding message). Non-Error throws pass through.
+ */
+function fsReason(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.message
+    .replace(/^E[A-Z]+:\s*/, '')
+    .replace(/,\s+\w+\s+'[^']*'$/, '')
+    .trim();
+}
+
 /** Writes the report, creating missing parent directories. Returns the path written. */
 export async function writeJUnit(file: string, xml: string): Promise<string> {
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, xml, 'utf8');
-  return file;
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, xml, 'utf8');
+    return file;
+  } catch (error) {
+    throw new ReportError(
+      `Cannot write JUnit report to ${file}: ${fsReason(error)}. Check that the path is writable and is not a directory.`,
+    );
+  }
 }
