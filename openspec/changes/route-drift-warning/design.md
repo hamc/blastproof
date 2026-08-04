@@ -8,10 +8,10 @@
 
 **Goals:**
 - Make a test-declared route no mapping declares visible, without changing what matches
-- Surface it where a keyless pre-flight already happens: `--dry-run` and the `--impacted` report
+- Surface it on every path `run` can take, from one place
 - Keep stdout machine-friendly and exit codes unchanged
 
-**Non-Goals:** a failing gate, route normalization, fuzzy suggestions, detection in `config.ts`, surfacing on plain runs.
+**Non-Goals:** a failing gate, route normalization, fuzzy suggestions, detection in `config.ts`.
 
 ## Decisions
 
@@ -27,8 +27,12 @@ Drift is "no mapping declares this route at all", independent of the current dif
 ### D4: Only run when config has at least one `routes:` mapping
 A suite using `routes:` as metadata with no mappings must not be flagged on every route. Empty declared set → empty result.
 
-### D5: Warning to stderr, non-fatal; surface in `--dry-run` and the `--impacted` report only
-Matches `reportUnclassified`'s stderr pattern; keeps stdout machine-friendly; avoids cluttering plain runs. `--dry-run` (with or without `--impacted`) is the keyless pre-flight where this is most valuable.
+### D5: Warning to stderr, non-fatal, from a single unconditional call site
+Matches `reportUnclassified`'s stderr pattern and keeps stdout machine-friendly. Printed once, right after detection, so every path `run` can take is covered — plain `run` included.
+
+This decision changed during review. It was first scoped to `--dry-run` and the `--impacted` report, on the argument that those are the keyless pre-flights where drift matters most and that a plain `run` should not be cluttered. That shape needed two call sites and an `if (!options.dryRun)` guard to stop them doubling up — the exact structure AGENTS.md names as this repository's recurring defect, a guarantee implemented at the call sites instead of over the whole scope, and the one that has already produced a secret leak, a budget that missed one command, and a timeout that missed the auth path. It also left the one path where someone actually executes their tests silent: a typo'd route looked fine locally and CI's `--impacted` then quietly tested nothing.
+
+Drift depends on neither the diff nor the selection, so there was never a path that could legitimately skip it. One call site makes the guarantee hold over the whole scope, and a fourth code path added later cannot bypass it.
 
 ### D6: Detection is a pure function in `selection.ts`; surfacing in `run.ts`
 Mirrors `mapImpact`/`selectImpactedTests` separation: pure logic, unit-testable; the CLI decides where to print. Not in `config.ts` — tests are not loaded there.
