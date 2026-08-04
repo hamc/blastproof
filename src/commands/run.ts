@@ -27,9 +27,11 @@ import {
   type TestResult,
 } from '../runner/executor.js';
 import {
+  detectRouteDrift,
   matchesFilters,
   selectImpactedTests,
   type ImpactedSelection,
+  type RouteDriftResult,
   type TestFilters,
 } from '../runner/selection.js';
 import {
@@ -443,7 +445,35 @@ function reportUnclassified(options: RunOptions, impact: ImpactResult | undefine
   return true;
 }
 
-function printDryRun(selected: TestFile[], config: BlastproofConfig, cwd: string): void {
+/** Unique sorted union of routes declared as values across all `routes:` mappings. */
+function declaredConfigRoutes(config: BlastproofConfig): string[] {
+  const routes = config.routes ? Object.values(config.routes) : [];
+  return [...new Set(routes.flat())].sort();
+}
+
+/**
+ * Prints route drift to stderr (design route-drift-warning D5): when a test declares
+ * a route no `routes:` mapping declares, that route contributes nothing to
+ * `--impacted` selection — indistinguishable from "genuinely not affected" — the
+ * same silent-coverage false negative `--fail-on-unmapped` exists to prevent, on
+ * the test side. Non-fatal; exit codes and selection semantics are unchanged.
+ */
+function printRouteDrift(drift: RouteDriftResult, cwd: string): void {
+  if (drift.drifted.length === 0) return;
+  console.error(
+    'Route drift (test routes declared by no routes: mapping — contribute nothing to --impacted selection):',
+  );
+  for (const { test, routes } of drift.drifted) {
+    console.error(`  ${test.summary} (${path.relative(cwd, test.path)}): ${routes.join(', ')}`);
+  }
+  console.error('Fix the route typo, or add the route to a routes: mapping in .blastproof/config.yaml.');
+}
+
+function printDryRun(
+  selected: TestFile[],
+  config: BlastproofConfig,
+  cwd: string,
+): void {
   console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${config.base_url}`);
   for (const test of selected) {
     console.log(`  ${test.summary} [${test.priority}] (${path.relative(cwd, test.path)})`);
@@ -549,6 +579,20 @@ export async function runCommand(options: RunOptions): Promise<number> {
       throw error;
     }
   }
+
+  // Drift is computed over the full parsed set (D2), against the full declared
+  // route universe (D3), independent of the diff and of selection — so a drifted
+  // test (one that never gets selected) is still caught.
+  const drift = detectRouteDrift(parsed, declaredConfigRoutes(config));
+
+  // Printed once on every path (D5): drift is diff- and selection-independent, so
+  // a plain `run` warns too — otherwise the one place a typo'd route could hide is
+  // a `run` someone executes locally and sees nothing wrong, only to find CI's
+  // `--impacted` quietly testing nothing. Drift can't depend on the diff, so there
+  // is no reason to hide it. Non-fatal; exit codes and selection semantics are
+  // unchanged. One call site (not two guarded by `!dryRun`) so a fourth code path
+  // added later cannot silently drop the guarantee.
+  printRouteDrift(drift, options.cwd);
 
   // Impacted selection first, tag/priority/query filters applied within it (D3/D4).
   const selection: ImpactedSelection = impact

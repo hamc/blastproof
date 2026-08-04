@@ -61,3 +61,44 @@ export function selectImpactedTests(
     uncoveredRoutes: affectedRoutes.filter((route) => !covered.has(route)),
   };
 }
+
+export interface RouteDriftEntry {
+  /** The test declaring at least one route no mapping declares. */
+  test: TestFile;
+  /** Routes this test declares that no config mapping declares; sorted, de-duplicated. */
+  routes: string[];
+}
+
+export interface RouteDriftResult {
+  drifted: RouteDriftEntry[];
+}
+
+/**
+ * Pure route-drift detection (design route-drift-warning D1–D7): returns tests
+ * that declare at least one route present in no `routes:` mapping's value list.
+ * Comparison is exact equality — no normalization (D1) — so `/cart` and `/cart/`
+ * are distinct, and a test declaring the one no mapping declares is drift.
+ *
+ * Computed over the FULL parsed set, not `selectImpactedTests`'s `selected`:
+ * a drifted test is precisely one that never gets selected, so checking
+ * `selected` would never fire (D2). Compared against the full declared route
+ * universe, not the diff's affected subset: drift is "no mapping declares this
+ * route at all", independent of the current diff (D3). Empty `declaredRoutes`
+ * means config has no `routes:` mappings, so a suite using `routes:` as metadata
+ * is not flagged (D4).
+ */
+export function detectRouteDrift(
+  tests: TestFile[],
+  declaredRoutes: Iterable<string>,
+): RouteDriftResult {
+  const known = new Set(declaredRoutes);
+  if (known.size === 0) return { drifted: [] };
+  const drifted: RouteDriftEntry[] = [];
+  for (const test of tests) {
+    const unknown = [...new Set(test.routes)]
+      .filter((route) => !known.has(route))
+      .sort();
+    if (unknown.length > 0) drifted.push({ test, routes: unknown });
+  }
+  return { drifted };
+}

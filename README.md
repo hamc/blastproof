@@ -112,7 +112,7 @@ steps:
   - complete checkout
 ```
 
-`priority` is P0–P2 (default P1). `tags`, `setup` steps and `auth` are optional — `auth: false` runs the test signed out, which a login test needs. `routes` declares the URLs a test covers, which is what `--impacted` selects on; write route strings consistently, since they compare by exact equality (`/cart` ≠ `/cart/`).
+`priority` is P0–P2 (default P1). `tags`, `setup` steps and `auth` are optional — `auth: false` runs the test signed out, which a login test needs. `routes` declares the URLs a test covers, which is what `--impacted` selects on; write route strings consistently, since they compare by exact equality (`/cart` ≠ `/cart/`). `run` warns to stderr — non-fatal — when a test declares a route no `routes:` mapping declares, since that route contributes nothing to `--impacted` selection.
 
 ### Say what each step should produce
 
