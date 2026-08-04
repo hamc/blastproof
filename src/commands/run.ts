@@ -473,7 +473,6 @@ function printDryRun(
   selected: TestFile[],
   config: BlastproofConfig,
   cwd: string,
-  drift: RouteDriftResult,
 ): void {
   console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${config.base_url}`);
   for (const test of selected) {
@@ -501,9 +500,6 @@ function printDryRun(
     `Worst case: up to ${ceiling} model call(s) for this selection${authNote} (a maximum, not a prediction).`,
   );
   console.log('Dry run: no browser launched, no LLM calls made.');
-  // Drift is diff-independent (D3) and surfaced on the keyless pre-flight too (D5),
-  // so it prints here even on an otherwise clean dry-run.
-  printRouteDrift(drift, cwd);
 }
 
 /**
@@ -589,6 +585,15 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // test (one that never gets selected) is still caught.
   const drift = detectRouteDrift(parsed, declaredConfigRoutes(config));
 
+  // Printed once on every path (D5): drift is diff- and selection-independent, so
+  // a plain `run` warns too — otherwise the one place a typo'd route could hide is
+  // a `run` someone executes locally and sees nothing wrong, only to find CI's
+  // `--impacted` quietly testing nothing. Drift can't depend on the diff, so there
+  // is no reason to hide it. Non-fatal; exit codes and selection semantics are
+  // unchanged. One call site (not two guarded by `!dryRun`) so a fourth code path
+  // added later cannot silently drop the guarantee.
+  printRouteDrift(drift, options.cwd);
+
   // Impacted selection first, tag/priority/query filters applied within it (D3/D4).
   const selection: ImpactedSelection = impact
     ? selectImpactedTests(parsed, impact.affectedRoutes, options)
@@ -601,13 +606,10 @@ export async function runCommand(options: RunOptions): Promise<number> {
 
   if (impact) {
     printImpactReport(impact, selection, options.cwd);
-    // Drift surfaces once per code path (D5): real impacted runs here; any dry-run
-    // (plain or --impacted) is handled by printDryRun below — never both.
-    if (!options.dryRun) printRouteDrift(drift, options.cwd);
   }
 
   if (options.dryRun) {
-    printDryRun(selected, config, options.cwd, drift);
+    printDryRun(selected, config, options.cwd);
     // A dry run is a pre-flight; reporting a clean plan while a file in the suite
     // cannot be parsed would bless a run that is about to fail and drop the score.
     if (results.length > 0) {

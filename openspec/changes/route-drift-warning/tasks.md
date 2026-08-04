@@ -6,8 +6,8 @@
 
 ## 2. Surfacing
 - [x] 2.1 In `src/commands/run.ts`, add `declaredConfigRoutes(config)` (sorted, de-duped union of `routes:` values) and `printRouteDrift(drift, cwd)` to stderr.
-- [x] 2.2 Compute drift once after the parse loop; pass it to `printDryRun` and `printImpactReport`. Drift prints in `--dry-run` (with or without `--impacted`) and in the `--impacted` report. Exit codes unchanged.
-- [x] 2.3 Tests in `tests/run.test.ts` for `--impacted --dry-run` drift, `--dry-run`-only drift, no-drift, and no-`routes:`-mappings. Do not break the existing dry-run or `--fail-on-unmapped` tests.
+- [x] 2.2 Compute drift once after the parse loop and print it from a single unconditional `printRouteDrift` call covering every path — plain `run`, `--dry-run`, and `--impacted`. Drift is no longer threaded into `printDryRun`/`printImpactReport`; the two old call sites and the `if (!options.dryRun)` guard are removed so a future code path cannot silently drop the warning. Exit codes unchanged.
+- [x] 2.3 Tests in `tests/run.test.ts` for `--impacted --dry-run` drift, `--dry-run`-only drift, plain-`run` drift, no-drift, and no-`routes:`-mappings. Do not break the existing dry-run or `--fail-on-unmapped` tests.
 
 ## 3. Spec & docs
 - [x] 3.1 Spec deltas under `openspec/changes/route-drift-warning/specs/{impact-mapping,cli-run-command}/spec.md`.

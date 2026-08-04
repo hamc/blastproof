@@ -678,4 +678,20 @@ steps:
     expect(errOut()).toContain('Cart trailing slash');
     expect(errOut()).toContain('/cart/');
   });
+
+  it('warns on stderr in a plain run (drift is reported on every path)', async () => {
+    await writeProject({ 'drift.yaml': DRIFT_TEST });
+    // A tag no test declares forces an empty selection, so the run short-circuits
+    // before any browser launch or LLM key check — drift prints regardless, and
+    // the exit code stays 0.
+    const code = await runCommand({ cwd: dir, tags: ['no-such-tag'] });
+
+    expect(code).toBe(EXIT_OK);
+    expect(getChangedFilesMock).not.toHaveBeenCalled();
+    expect(errOut()).toContain('Route drift');
+    expect(errOut()).toContain('/cart/');
+    expect(errOut()).toContain('Cart trailing slash');
+    expect(errOut()).toContain('declared by no routes: mapping');
+    expect(errOut().match(/Route drift/g)?.length).toBe(1);
+  });
 });
