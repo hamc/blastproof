@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { access } from 'node:fs/promises';
+import { fsReason } from '../report/errors.js';
 
 const DEFAULT_CONFIG = `# blastproof configuration
 # Docs: https://github.com/hamc/blastproof
@@ -139,14 +140,27 @@ async function exists(file: string): Promise<boolean> {
   }
 }
 
+export class InitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InitError';
+  }
+}
+
 async function writeIfAbsent(file: string, content: string, result: InitResult): Promise<void> {
   if (await exists(file)) {
     result.kept.push(file);
     return;
   }
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, content);
-  result.created.push(file);
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, content);
+    result.created.push(file);
+  } catch (error) {
+    throw new InitError(
+      `Cannot scaffold ${file}: ${fsReason(error)}. Check that ${path.dirname(file)} is a directory you can write to, not a file.`,
+    );
+  }
 }
 
 /** Scaffolds `.blastproof/` in `cwd`. Idempotent: never overwrites existing files. */

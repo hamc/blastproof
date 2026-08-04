@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { BudgetSpend } from '../runner/budget.js';
 import type { TestResult } from '../runner/executor.js';
+import { ReportError, fsReason } from './errors.js';
 
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -121,7 +122,13 @@ export function renderJUnit(
 
 /** Writes the report, creating missing parent directories. Returns the path written. */
 export async function writeJUnit(file: string, xml: string): Promise<string> {
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, xml, 'utf8');
-  return file;
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, xml, 'utf8');
+    return file;
+  } catch (error) {
+    throw new ReportError(
+      `Cannot write JUnit report to ${file}: ${fsReason(error)}. Check that the path is writable and is not a directory.`,
+    );
+  }
 }

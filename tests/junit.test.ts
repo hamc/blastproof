@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ReportError } from '../src/report/errors.js';
 import { escapeXml, renderJUnit, writeJUnit, type SkippedCase } from '../src/report/junit.js';
 import type { TestResult } from '../src/runner/executor.js';
 
@@ -172,6 +173,53 @@ describe('writeJUnit', () => {
       const written = await writeJUnit(target, '<testsuite/>');
       expect(written).toBe(target);
       await expect(readFile(target, 'utf8')).resolves.toBe('<testsuite/>');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws ReportError with a house-style message when the target is a directory', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'blastproof-junit-'));
+    try {
+      // writeFile to a directory fails with EISDIR — the raw code the issue calls out.
+      const target = path.join(dir, 'junit.xml');
+      await mkdir(target);
+      let thrown: unknown;
+      try {
+        await writeJUnit(target, '<testsuite/>');
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(ReportError);
+      const message = (thrown as Error).message;
+      expect(message).toContain('Cannot write JUnit report to');
+      expect(message).toContain(target);
+      expect(message).not.toMatch(/\b(EACCES|EISDIR|ENOTDIR|EEXIST|ENOENT|EPERM):/);
+      expect(message).toMatch(/is not a directory/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws ReportError with a house-style message when a parent path is a file', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'blastproof-junit-'));
+    try {
+      // mkdir through a file fails (ENOTDIR/EEXIST): the raw code the issue calls out.
+      const blocker = path.join(dir, 'blocker');
+      await writeFile(blocker, '');
+      const target = path.join(blocker, 'junit.xml');
+      let thrown: unknown;
+      try {
+        await writeJUnit(target, '<testsuite/>');
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(ReportError);
+      const message = (thrown as Error).message;
+      expect(message).toContain('Cannot write JUnit report to');
+      expect(message).toContain(target);
+      expect(message).not.toMatch(/\b(EACCES|EISDIR|ENOTDIR|EEXIST|ENOENT|EPERM):/);
+      expect(message).toMatch(/is not a directory/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
