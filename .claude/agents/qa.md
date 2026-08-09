@@ -49,7 +49,8 @@ File every defect you find (create `DEFECTS.md` on first use):
 - Status: OPEN
 - Severity: HIGH (breaks a requirement) | MEDIUM (degrades one) | LOW (cosmetic)
 - Found by: qa
-- Steps: numbered, from a clean state, with exact commands
+- Steps: numbered, from a clean state, with exact commands. Paths relative to the
+  repository root — never absolute paths from your machine, which nobody else can follow.
 - Expected: ...
 - Actual: ...
 - Evidence: command output / screenshot path
