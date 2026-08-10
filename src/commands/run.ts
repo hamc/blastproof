@@ -17,6 +17,11 @@ import {
   type BudgetSpend,
   type RunBudgetOptions,
 } from '../runner/budget.js';
+import {
+  detectMissingValues,
+  suggestValueClause,
+  type AuthoringResult,
+} from '../runner/authoring.js';
 import { MissingEnvError, SecretsMask, substituteEnv } from '../runner/env.js';
 import { runWithConcurrency } from '../runner/pool.js';
 import { describeAction } from '../runner/recovery.js';
@@ -89,6 +94,13 @@ export interface RunOptions extends TestFilters, BudgetFlags {
    * selected and still be blocked by a change nobody has classified (design D4).
    */
   failOnUnmapped?: boolean;
+  /**
+   * Fail the run when a step enters a value but names none. Off by default: the
+   * detection is a judgment about English, not a proof, and a false positive would
+   * block a test that works (design steps-name-their-value D1). Needs no companion
+   * flag — authoring is independent of the diff.
+   */
+  failOnAuthoring?: boolean;
   /**
    * A budget already constructed by a composing caller (`test`), so both of its
    * phases draw against one allowance instead of each resolving and starting its
@@ -469,6 +481,31 @@ function printRouteDrift(drift: RouteDriftResult, cwd: string): void {
   console.error('Fix the route typo, or add the route to a routes: mapping in .blastproof/config.yaml.');
 }
 
+/**
+ * Prints steps that enter a value but name none, to stderr (design
+ * steps-name-their-value D6). Each finding shows the user's own step beside the
+ * shape that runs: a warning citing the README is ignorable in the way all
+ * warnings are, and the fix here is mechanical enough to print.
+ *
+ * The English-only line is not a footnote (D9). An empty result means "nothing
+ * found in English", never "this suite is clean", and a reader who infers the
+ * second has been misled by us rather than by their own carelessness.
+ */
+function printAuthoring(result: AuthoringResult, cwd: string): void {
+  if (result.findings.length === 0) return;
+  console.error('\nAuthoring (a step enters a value but names none):');
+  for (const { test, origin, index, step } of result.findings) {
+    const where = origin === 'setup' ? `setup step ${index}` : `step ${index}`;
+    console.error(`  ${test.summary} (${path.relative(cwd, test.path)}) ${where}:`);
+    console.error(`      ${step}`);
+    console.error(`    → ${suggestValueClause(step)}`);
+  }
+  console.error(
+    'The runner is forbidden from inventing values, so a step that supplies none cannot be carried out.',
+  );
+  console.error('Steps are inspected in English only; steps in other languages are not checked.');
+}
+
 function printDryRun(
   selected: TestFile[],
   config: BlastproofConfig,
@@ -593,6 +630,23 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // unchanged. One call site (not two guarded by `!dryRun`) so a fourth code path
   // added later cannot silently drop the guarantee.
   printRouteDrift(drift, options.cwd);
+
+  // Same single-call-site rule as the drift warning above (D5): a step that names
+  // no value is independent of the diff and of selection, so there is no path that
+  // could legitimately skip it, and no guard to get wrong when a fifth code path
+  // is added later.
+  const authoring = detectMissingValues(parsed);
+  printAuthoring(authoring, options.cwd);
+
+  // The gate sits here, above preflight, the browser launch and the key check, so
+  // it costs nothing when it fires (D7) — the whole point is to fail before the
+  // 80 seconds this predicts. Opt-in: without the flag the finding stays a warning.
+  if (options.failOnAuthoring && authoring.findings.length > 0) {
+    console.error(
+      `error: --fail-on-authoring: ${authoring.findings.length} step(s) enter a value but name none.`,
+    );
+    return EXIT_FAILED;
+  }
 
   // Impacted selection first, tag/priority/query filters applied within it (D3/D4).
   const selection: ImpactedSelection = impact

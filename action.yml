@@ -44,6 +44,10 @@ inputs:
     description: 'Fail when a changed file matches no routes: or ignore: glob.'
     required: false
     default: 'false'
+  fail-on-authoring:
+    description: 'Fail when a test step enters a value but names none. Warns without this.'
+    required: false
+    default: 'false'
   write:
     description: 'Persist generated test drafts instead of only previewing them. Ignored when command is run, which generates nothing.'
     required: false
@@ -128,6 +132,10 @@ runs:
         esac
         [ -n "${{ inputs.min-score }}" ] && args+=(--min-score "${{ inputs.min-score }}")
         [ "${{ inputs.fail-on-unmapped }}" = "true" ] && args+=(--fail-on-unmapped)
+        # `plan` reads no test files, so it has no authoring to check.
+        case "${{ inputs.command }}" in
+          run|test) [ "${{ inputs.fail-on-authoring }}" = "true" ] && args+=(--fail-on-authoring) ;;
+        esac
         # `write` only exists on test/plan; passing it to `run` is a usage error.
         case "${{ inputs.command }}" in
           test|plan) [ "${{ inputs.write }}" = "true" ] && args+=(--write) ;;
