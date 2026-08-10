@@ -3,6 +3,51 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.12.0] — 2026-08-10
+
+Two silent false negatives become visible before a run spends anything. Both warn rather than fail,
+both print from a single unconditional call site so no code path can skip them, and both have an
+opt-in gate for teams enforcing in CI.
+
+### Added
+- **A step that enters a value but names none is now caught before the run.** The executor has been
+  forbidden from inventing values since 0.7.0 — one it types must come from the step, from the page,
+  or from an `{{env.*}}` placeholder — so `fill the note field` cannot be carried out at all. Until
+  now nothing said so until it failed, a browser launch and several model calls in, with a reason
+  about page state that reads as though the application is broken:
+
+  ```
+  Authoring (a step enters a value but names none):
+    Add a note (.blastproof/tests/notes.yaml) step 2:
+        fill the note field
+      → fill the note field with <value>
+  ```
+
+  Non-fatal; `--fail-on-authoring` promotes it to exit 1, above preflight and the key check, so the
+  gate costs nothing when it fires. The detector asks whether a step carries a connector rather than
+  whether it names a value — enumerating the ways to name a value cannot be closed, and trying it
+  flagged `set the priority to High`. Taking a value from the page is legal and is not flagged.
+
+  **English only.** A suite written in another language runs exactly as well and is not inspected;
+  the warning says so rather than letting silence read as coverage.
+
+- **A test route no `routes:` mapping declares is now reported.** `--impacted` intersects routes by
+  exact equality, so a test declaring `/cart/` against a config that maps `/cart` was never selected
+  and never mentioned — the suite looked covered while a regression walked through. The same silent
+  false negative `--fail-on-unmapped` prevents on the file side, now closed on the test side.
+  Contributed by [@01luyicheng](https://github.com/01luyicheng).
+
+### Fixed
+- **A report that could not be written failed with a raw errno.** `EACCES: permission denied, open
+  '…'` reached the user unchanged where every other error in the tool is plain prose naming what to
+  do. Filesystem failures in the JUnit, HTML and `init` writers now read like the rest of the tool.
+
+### Internal
+- `fsReason` and `ReportError` are shared from `src/report/errors.ts` instead of the HTML writer
+  importing them from the JUnit writer.
+- The operational reference moved out of the README into `docs/`, and `CONTRIBUTING.md`'s release
+  checklist now points at where the versioned Action example actually lives.
+
 ## [0.11.0] — 2026-07-31
 
 ### Fixed
