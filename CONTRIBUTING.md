@@ -64,13 +64,17 @@ Agentic runs cost tokens and need a real provider. Everything else — unit test
 
 Publishing runs from a tag, never from a merge — a released version can never be edited and the package name is claimed permanently, so it takes a deliberate act:
 
-One commit moves every version surface together — `package.json`, the changelog entry, and the README's Action example — and the tag points at it:
+One commit moves every version surface together — `package.json`, the changelog entry, and the Action example in `docs/ci.md` — and the tag points at it:
 
 ```bash
-# in one commit: bump package.json, write the CHANGELOG entry, update the
-# README's `uses: hamc/blastproof@vX.Y.Z` example, then
+# in one commit: bump package.json, write the CHANGELOG entry, update every
+# `uses: hamc/blastproof@vX.Y.Z` in docs/ci.md, then
+grep -rn 'blastproof@v' README.md docs/   # nothing older than the new tag
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+The Action example lived in the README until 0.12.0 and this checklist still said so afterwards —
+the grep is here because a version surface that moves is exactly the one a checklist stops finding.
 
 The changelog entry is written **here**, not in the pull requests, and it is derived from what has landed since the last tag:
 
