@@ -220,7 +220,7 @@ The `run` command SHALL report route drift to standard error on every run — pl
 
 ### Requirement: Authoring warnings
 
-The `run` command SHALL report authoring findings to standard error on every run — plain `run`, `--dry-run`, and `--impacted` — because a step the executor cannot carry out is independent of the diff and of selection. Warnings SHALL be non-fatal and SHALL NOT change the exit code. Each warning SHALL name the test, the step's position and its text, SHALL state that the executor is forbidden from inventing values, and SHALL show the offending step rewritten with a value clause as the shape to follow.
+The `run` command SHALL report authoring findings to standard error on every run — plain `run`, `--dry-run`, and `--impacted` — because a step that names no value is independent of the diff and of selection. Warnings SHALL be non-fatal and SHALL NOT change the exit code. Each warning SHALL name the test, the step's position and its text, SHALL show the offending step rewritten with a value clause as the shape to follow, and SHALL state the consequence accurately: the executor is forbidden from inventing values by its prompt, but the prompt instructs rather than enforces, so the step passes over a value the model made up rather than failing. No warning SHALL describe such a step as one that cannot be carried out.
 
 #### Scenario: Plain run reports an offending step
 - **WHEN** the user runs `blastproof run` and a test declares `fill the note field`

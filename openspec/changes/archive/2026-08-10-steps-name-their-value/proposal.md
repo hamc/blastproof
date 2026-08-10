@@ -1,5 +1,9 @@
 # Proposal: steps-name-their-value
 
+> **Corrected 2026-08-10.** The "Why" below claims such a step *cannot be carried out*.
+> Measured against a real model it is carried out every time, with an invented value,
+> and the step **passes**. See the correction at the end of `design.md`, and #57.
+
 ## Why
 
 `src/llm/prompts.ts:21` forbids the executor from inventing values: *"A value you type must come from the step, from the page, or from an `{{env.*}}` placeholder."* A step like `fill the note field`, with no value and no page reference, therefore **cannot be carried out** — the runner is required to fail it. Nothing says so until it does, roughly 80 seconds and several model calls into a run, in a `FAIL` whose reason talks about page state. The user concludes the application is broken, or that blastproof is unreliable; both are wrong and neither is recoverable from the output.

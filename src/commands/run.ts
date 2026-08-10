@@ -487,6 +487,14 @@ function printRouteDrift(drift: RouteDriftResult, cwd: string): void {
  * shape that runs: a warning citing the README is ignorable in the way all
  * warnings are, and the fix here is mechanical enough to print.
  *
+ * The consequence named here is what was measured, not what was assumed. The change
+ * that added this check called such a step impossible; run against a real model it
+ * runs every time, with a value the model makes up — `fill the note field` was
+ * filled with "This is a test note." twice and "This is a new note" once, and the
+ * step passed all three. `prompts.ts` forbids inventing a value, but a prompt
+ * instructs and does not enforce, so the real harm is a green test over a value
+ * nobody wrote rather than an honest failure. See #57.
+ *
  * The English-only line is not a footnote (D9). An empty result means "nothing
  * found in English", never "this suite is clean", and a reader who infers the
  * second has been misled by us rather than by their own carelessness.
@@ -501,7 +509,9 @@ function printAuthoring(result: AuthoringResult, cwd: string): void {
     console.error(`    → ${suggestValueClause(step)}`);
   }
   console.error(
-    'The runner is forbidden from inventing values, so a step that supplies none cannot be carried out.',
+    'The runner is forbidden from inventing values, but only by instruction: in practice the model ' +
+      'supplies one anyway, the step passes, and the test verifies a value nobody wrote — a different ' +
+      'one on each run.',
   );
   console.error('Steps are inspected in English only; steps in other languages are not checked.');
 }
