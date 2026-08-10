@@ -12,9 +12,9 @@ opt-in gate for teams enforcing in CI.
 ### Added
 - **A step that enters a value but names none is now caught before the run.** The executor has been
   forbidden from inventing values since 0.7.0 — one it types must come from the step, from the page,
-  or from an `{{env.*}}` placeholder — so `fill the note field` cannot be carried out at all. Until
-  now nothing said so until it failed, a browser launch and several model calls in, with a reason
-  about page state that reads as though the application is broken:
+  or from an `{{env.*}}` placeholder — but that rule lives in a prompt, which instructs rather than
+  enforces. A step like `fill the note field` does not fail: the model makes a value up and the step
+  **passes**, over an input nobody wrote and a different one on each run. Caught now before the run:
 
   ```
   Authoring (a step enters a value but names none):

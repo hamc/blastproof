@@ -134,3 +134,45 @@ Additive. Default exit codes are unchanged; a suite with no value-entering steps
   That reframes this change honestly. Run-time classification is the guarantee; the text check in D3 is an ahead-of-time optimization sitting on top of it, buying "before anything is spent" at the price of "English only". Shipping the optimization first is a deliberate order, not a claim that it is sufficient. Filed as #53 rather than left here.
 
 - Should `--fail-on-authoring` also gate `plan`, which generates tests rather than reading them? Drafts already obey the rule via `plannerSystemPrompt`, so the gate would be checking our own prompt. Deferred until a generated draft is observed violating it.
+
+---
+
+## Correction, 2026-08-10 — the premise above is wrong
+
+This design's Context, D1 and Open Questions all rest on one claim: that a step
+supplying no value **cannot be carried out**, because `prompts.ts:21` forbids the
+executor from inventing one. Measured against the real demo app with a real model,
+hours after this shipped, the claim is false.
+
+`fill the note field`, run in isolation three times:
+
+```
+1 → fill textbox "Note" [This is a test note.]  → PASS  Score: 100
+2 → fill textbox "Note" [This is a test note.]  → PASS  Score: 100
+3 → fill textbox "Note" [This is a new note]    → PASS  Score: 100
+```
+
+The model invents a value, the step passes, and the value differs between runs.
+The prompt rule is an instruction, not an enforcement, and the model declines it
+without difficulty.
+
+The body of this document is left as written, because it records what was believed
+when the decision was made and the reasoning is otherwise sound. What changes:
+
+- **The harm is worse than argued, not milder.** Not "a failure 80 seconds in that
+  reads as though the application is broken" — a **passing** test over an input
+  nobody wrote, differing run to run. A green check that verifies nothing specified
+  is the exact false negative this project exists to remove.
+- **D1's conclusion survives, its reasoning does not.** Warning over failure was
+  chosen because the detector is a judgment about English rather than a proof; that
+  is still true. But the counter-argument it answered — "this is an impossibility,
+  not a probability" — was never available to either side.
+- **#53's framing needs revisiting.** It proposes classifying a *failure* by cause.
+  There is no failure to classify here; the run is green.
+- **This is the recurring defect class again**, and `AGENTS.md` already names it:
+  a guarantee implemented as guidance rather than enforced over the scope. #46 makes
+  the identical argument about agent skills — *"guidance at the call site, not a
+  guarantee over the scope"* — and it applies word for word to `prompts.ts:21`.
+  The enforcement mechanism already exists elsewhere in the executor: the repeated-
+  commit refusal built for #28 stops an action rather than asking the model not to
+  take it. The value rule never got one. Filed as #57.

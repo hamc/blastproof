@@ -189,6 +189,23 @@ describe('the authoring rule reads the same everywhere it is stated', () => {
     expect(missing, `"${RULE}" is missing from: ${missing.join(', ')}`).toEqual([]);
   });
 
+  it('never claims such a step cannot be carried out', async () => {
+    // It can, and does. Measured against the real demo app with a real model:
+    // `fill the note field` was filled with an invented value three times out of
+    // three and the step passed every time. The claim shipped in 0.12.0 and is
+    // corrected here; this test exists so it cannot come back by paraphrase.
+    const surfaces = await Promise.all(
+      ['README.md', 'CHANGELOG.md', 'src/commands/run.ts', 'src/llm/prompts.ts'].map(
+        async (file) => [file, await readFile(path.join(root, file), 'utf8')] as const,
+      ),
+    );
+    const offending = surfaces
+      .filter(([, contents]) => /cannot be carried out|carried out at all/.test(contents))
+      .map(([file]) => file);
+
+    expect(offending, `these still claim the step is impossible: ${offending.join(', ')}`).toEqual([]);
+  });
+
   it('states the English-only limit in both the README and the message', async () => {
     const readme = await readFile(path.join(root, 'README.md'), 'utf8');
     const runner = await readFile(path.join(root, 'src/commands/run.ts'), 'utf8');

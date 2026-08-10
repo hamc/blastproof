@@ -141,7 +141,9 @@ Write steps that end in an observable result — text on the page, a count, a st
 - fill the note field                           # cannot run
 ```
 
-The agent is **forbidden from inventing values** — one it types must come from the step, from the page, or from an `{{env.*}}` placeholder. So the second step is not merely vague, it is impossible, and the run discovers that a minute in, with a failure reason about page state that reads as though your application is broken.
+The agent is **forbidden from inventing values** — one it types must come from the step, from the page, or from an `{{env.*}}` placeholder. But that rule lives in a prompt, and a prompt instructs rather than enforces. Run against a real model, the second step does not fail: the agent makes a value up, fills it, and the step **passes**. `fill the note field` produced "This is a test note." on two runs and "This is a new note" on a third.
+
+That is worse than a failure. The test goes green having verified a value nobody wrote, differing between runs — a passing check over an unspecified input. Closing the gap in the runner is [#57](https://github.com/hamc/blastproof/issues/57); until then, this warning is what stands between you and a green test that means nothing.
 
 `run` warns about it first, on every path, before launching a browser or asking for a key:
 
