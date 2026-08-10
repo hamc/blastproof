@@ -88,6 +88,7 @@ program
   .option('--junit [path]', 'write a JUnit XML report (default: .blastproof/reports/<session>/junit.xml)')
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
+  .option('--fail-on-authoring', 'fail when a step enters a value but names none (warns by default)')
   .option(
     '--concurrency <n>',
     'run this many tests at once (overrides config; default 1 — see the README on when this is safe)',
@@ -121,6 +122,7 @@ program
       junit?: string | boolean;
       html?: string | boolean;
       failOnUnmapped?: boolean;
+      failOnAuthoring?: boolean;
       concurrency?: number;
       maxLlmCalls?: number;
       maxTokens?: number;
@@ -140,6 +142,7 @@ program
           junit: options.junit,
           html: options.html,
           failOnUnmapped: options.failOnUnmapped,
+          failOnAuthoring: options.failOnAuthoring,
           concurrency: options.concurrency,
           maxLlmCalls: options.maxLlmCalls,
           maxTokens: options.maxTokens,
@@ -222,6 +225,7 @@ program
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .option('--write', 'persist generated drafts under .blastproof/tests/ instead of previewing them')
   .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
+  .option('--fail-on-authoring', 'fail when a step enters a value but names none (warns by default)')
   .option(
     '--max-llm-calls <n>',
     'stop the pipeline after this many model calls, shared by both phases (overrides config)',
@@ -246,6 +250,7 @@ program
       html?: string | boolean;
       write?: boolean;
       failOnUnmapped?: boolean;
+      failOnAuthoring?: boolean;
       maxLlmCalls?: number;
       maxTokens?: number;
       maxDuration?: number;
@@ -260,6 +265,7 @@ program
           html: options.html,
           write: options.write,
           failOnUnmapped: options.failOnUnmapped,
+          failOnAuthoring: options.failOnAuthoring,
           maxLlmCalls: options.maxLlmCalls,
           maxTokens: options.maxTokens,
           maxDuration: options.maxDuration,

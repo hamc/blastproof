@@ -58,6 +58,8 @@ One exception: `in` counts as a connector only when it is not adjacent to the ve
 
 The verb set stays closed and small — `fill`, `enter`, `type`, `input`, `set` — for the reason the issue gives: *"something narrow is probably enough, and probably better than something clever."* Matching is word-boundary and case-insensitive, never substring: `setup the account` must not match `set`.
 
+**The verb is anchored at the head of the step, not merely contained in it.** Found while implementing: `type` and `set` are nouns as often as verbs, so `verify the type is Premium` and `verify the set of results is empty` matched a contained verb, carried no connector, and were flagged — legitimate checks, reported as authoring defects. Test steps are imperative, so the leading word is the action; anchoring costs a step phrased as `then fill the note field`, which is a false negative and therefore the safe direction.
+
 The two lists fail in opposite directions, and only one of them is dangerous. **An unlisted verb** produces a false negative — the check stays silent and the run fails honestly, exactly as it does today. **An unlisted connector** produces a false positive — a legitimate step is flagged. So the verb set is the one that must be extended carefully, and the connector set is the one that can be extended freely: adding a connector can only ever quiet the check.
 
 **Alternative rejected:** parse the step with an LLM. Breaks the keyless guarantee that makes this check free, and reintroduces the cost the check exists to avoid.

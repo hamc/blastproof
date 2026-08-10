@@ -8,7 +8,7 @@ The system SHALL detect, over the `steps` and `setup` of every parsed test file,
 
 Detection is defined over English grammar only. A step written in another language SHALL produce no finding, and the absence of a finding SHALL NOT be represented anywhere as evidence that a suite was checked.
 
-A step names a value-entering action when it contains one of the closed verb set `fill`, `enter`, `type`, `input`, `set`, matched case-insensitively on word boundaries.
+A step names a value-entering action when it **begins with** one of the closed verb set `fill`, `enter`, `type`, `input`, `set`, matched case-insensitively and terminated by a word boundary. A verb appearing later in the step SHALL NOT match, because these words are nouns as often as verbs.
 
 A step supplies a value when it contains a connector: `with`, `to`, `as`, `using`, `into`, `from`, `in`, `:`, `=`, a quotation mark, or an `{{env.` placeholder. A step containing any connector SHALL NOT be reported. The connector `in` SHALL count only when it is not adjacent to the value-entering verb, so that the phrasal verbs `fill in` and `type in` do not silence the check.
 
@@ -47,6 +47,10 @@ A step supplies a value when it contains a connector: `with`, `to`, `as`, `using
 #### Scenario: setup steps are checked too
 - **WHEN** a test declares `setup: ["fill the search box"]` and no offending entry under `steps`
 - **THEN** the setup step is reported, because setup steps run through the same executor
+
+#### Scenario: A verb used as a noun is not reported
+- **WHEN** a test declares the step `verify the type is Premium`
+- **THEN** the step is not reported, because `type` is not the step's leading verb
 
 #### Scenario: The verb match is word-bounded
 - **WHEN** a test declares the step `setup the account and verify the dashboard is shown`

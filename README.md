@@ -134,6 +134,28 @@ Write steps that end in an observable result — text on the page, a count, a st
 
 **Inline error messages should be plain visible text.** `role="alert"` is read correctly from the accessibility tree and needs no special handling, but note that an alert your page has cleared shows up as an empty element: if a verdict says an alert exists whose content is missing, the message was emptied, not hidden.
 
+### A step that enters a value writes the value
+
+```yaml
+- fill the note field with Order not received   # runs
+- fill the note field                           # cannot run
+```
+
+The agent is **forbidden from inventing values** — one it types must come from the step, from the page, or from an `{{env.*}}` placeholder. So the second step is not merely vague, it is impossible, and the run discovers that a minute in, with a failure reason about page state that reads as though your application is broken.
+
+`run` warns about it first, on every path, before launching a browser or asking for a key:
+
+```
+Authoring (a step enters a value but names none):
+  Add a note (.blastproof/tests/notes.yaml) step 2:
+      fill the note field
+    → fill the note field with <value>
+```
+
+Non-fatal by default — `--fail-on-authoring` turns it into exit 1 for teams enforcing it in CI. Taking the value from the page is fine and is not flagged: `fill the recipient field with the address shown on the confirmation page`.
+
+**The check reads English only.** A suite written in another language runs exactly as well but is not inspected, and prints no warning saying so — silence from this check means "nothing found in English", never "this suite is clean".
+
 ## Commands
 
 ```bash
@@ -153,6 +175,7 @@ Common flags — `blastproof <command> --help` has the full list:
 | `--url <url>` | Override `base_url` for this run (e.g. a PR preview) |
 | `--min-score <n>` | Gate on a weighted score instead of all-must-pass |
 | `--fail-on-unmapped` | Fail when a changed file matches no `routes:` or `ignore:` glob |
+| `--fail-on-authoring` | Fail when a step enters a value but names none (warns by default) |
 | `--junit [path]` · `--html [path]` | Write reports |
 | `--concurrency <n>` | Run tests at once — [when that is safe](./docs/configuration.md#concurrency--running-tests-at-once) |
 | `--write` | `plan` only — persist drafts instead of previewing |

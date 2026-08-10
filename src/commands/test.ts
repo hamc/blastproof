@@ -26,6 +26,8 @@ export interface TestOptions extends BudgetFlags {
   write?: boolean;
   /** Fail when the diff contains a file matching neither routes: nor ignore:. */
   failOnUnmapped?: boolean;
+  /** Fail when a step enters a value but names none. */
+  failOnAuthoring?: boolean;
 }
 
 function section(title: string): void {
@@ -73,6 +75,7 @@ export async function testCommand(options: TestOptions): Promise<number> {
     junit: options.junit,
     html: options.html,
     failOnUnmapped: options.failOnUnmapped,
+    failOnAuthoring: options.failOnAuthoring,
     budget,
   });
   if (runCode === EXIT_USAGE) return EXIT_USAGE;

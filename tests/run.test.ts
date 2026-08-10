@@ -695,3 +695,119 @@ steps:
     expect(errOut().match(/Route drift/g)?.length).toBe(1);
   });
 });
+
+describe('runCommand authoring warning', () => {
+  const BARE_VALUE_TEST = `summary: Add a note
+routes: ["/cart"]
+steps:
+  - navigate to /notes
+  - fill the note field
+`;
+
+  const CLEAN_VALUE_TEST = `summary: Add a note
+routes: ["/cart"]
+steps:
+  - fill the note field with Check the invoice
+`;
+
+  // A tag no test declares empties the selection, so the run short-circuits before
+  // any browser launch or key check while still taking the real execution path.
+  const emptySelection = { tags: ['no-such-tag'] };
+
+  it('warns on stderr in a plain run', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, ...emptySelection });
+
+    expect(code).toBe(EXIT_OK);
+    expect(getChangedFilesMock).not.toHaveBeenCalled();
+    expect(errOut()).toContain('a step enters a value but names none');
+    expect(errOut()).toContain('Add a note');
+    expect(errOut()).toContain('step 2');
+    expect(errOut()).toContain('fill the note field with <value>');
+    expect(errOut()).toContain('forbidden from inventing values');
+  });
+
+  it('warns in --dry-run', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).toContain('a step enters a value but names none');
+  });
+
+  it('warns in --impacted --dry-run, exactly once', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut().match(/a step enters a value but names none/g)?.length).toBe(1);
+  });
+
+  it('keeps stdout clean and the exit code unchanged', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).not.toContain('enters a value');
+  });
+
+  it('prints nothing for a suite whose steps name their values', async () => {
+    await writeProject({ 'notes.yaml': CLEAN_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).not.toContain('enters a value');
+  });
+
+  it('states the English-only limit alongside the warning', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+
+    await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(errOut()).toContain('in English only');
+  });
+
+  it('--fail-on-authoring exits 1 with no browser launched and no key required', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], failOnAuthoring: true });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(launchMock).not.toHaveBeenCalled();
+    expect(errOut()).toContain('error: --fail-on-authoring');
+    // Still shows the finding, not only the refusal.
+    expect(errOut()).toContain('fill the note field with <value>');
+  });
+
+  it('--fail-on-authoring needs no --impacted, unlike --fail-on-unmapped', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, tags: [], failOnAuthoring: true });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(errOut()).not.toContain('requires --impacted');
+  });
+
+  it('--fail-on-authoring lets a clean suite through', async () => {
+    await writeProject({ 'notes.yaml': CLEAN_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, ...emptySelection, failOnAuthoring: true });
+
+    expect(code).toBe(EXIT_OK);
+  });
+
+  it('stays a warning without the flag', async () => {
+    await writeProject({ 'notes.yaml': BARE_VALUE_TEST });
+
+    const code = await runCommand({ cwd: dir, ...emptySelection });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).not.toContain('error: --fail-on-authoring');
+  });
+});
