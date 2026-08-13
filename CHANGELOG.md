@@ -3,6 +3,45 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.13.0] — 2026-08-12
+
+### Fixed
+- **A `routes:` map written the other way round is now refused instead of silently matching nothing.**
+  `routes:` is `{ glob: [route, ...] }` — the file glob is the key. Inverted, it still type-checks,
+  because both halves are a string keying a list of strings:
+
+  ```yaml
+  routes:
+    "/cart": ["src/cart/**"]      # loaded fine, matched nothing, ever
+  ```
+
+  Every changed file was then compared against `/cart` as though it were a glob, fell through to
+  unclassified, and `--impacted` selected zero tests. **The run exited 0 having exercised nothing**,
+  and the report was indistinguishable from a diff that genuinely affected no page. `--fail-on-unmapped`
+  would have caught it, but it is opt-in and fires only once the run has started.
+
+  Writing it inverted is a reasonable first guess rather than carelessness: the key is named `routes`,
+  and a test file's own `routes:` genuinely *is* a list of routes — the same word means the opposite
+  thing one file away. The error now names one offending entry and shows the correction built from
+  your own key and value, so the fix is visible without opening the documentation:
+
+  ```
+  error: Invalid .blastproof/config.yaml:
+    - routes: is the wrong way round — the key is the file glob, the value is the routes it affects.
+        found:    "/cart": ["src/cart/**"]
+        expected: "src/cart/**": ["/cart"]
+  ```
+
+  It refuses rather than warns because a warning preserves the exit code, and the exit code is the
+  defect. Detection requires **both** halves of an entry to look wrong, so a route holding a wildcard
+  (`"src/products/**": ["/products/*"]`) and an absolute-looking glob (`"/src/cart/**": ["/cart"]`)
+  both still load. Closes [#6](https://github.com/hamc/blastproof/issues/6).
+
+  **This is why the release is a minor rather than a patch.** A configuration that loaded yesterday
+  can now exit 2. No configuration that ever selected a test changes behaviour — an inverted map never
+  matched a file — but a pipeline that was green *because it ran nothing* will turn red, and that is a
+  behaviour change however welcome it is.
+
 ## [0.12.1] — 2026-08-12
 
 ### Fixed
