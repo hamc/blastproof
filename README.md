@@ -198,6 +198,8 @@ ignore:
   - "**/*.md"
 ```
 
+The key is the file glob and the value is the routes it can affect — the opposite way round from a test file's own `routes:`, which is a plain list of the routes that test covers. Inverted, the map matches nothing at all and every run reports a diff that affected no page, so `blastproof` refuses a map written that way rather than running green against it.
+
 Every changed file lands in one of three buckets: it matches `routes:` and contributes them, matches `ignore:` and is knowingly irrelevant, or **matches neither — nobody has said what it affects**. `--fail-on-unmapped` blocks on that third case, naming the files and both ways to resolve them.
 
 **Nothing is ignored by default**, on purpose: a default that guesses on your behalf would hide the first files worth thinking about. The flag is additive — a run can meet `--min-score` and still be blocked here, because "the tests I ran passed" and "something changed that nobody classified" are different claims.

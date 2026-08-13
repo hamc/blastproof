@@ -89,11 +89,78 @@ const authSchema = z
     }
   });
 
+/**
+ * A route as a URL path: a leading slash and no glob metacharacter. `routes:`
+ * globs are repository-relative (`src/cart/**`), so the leading slash is what
+ * tells the two shapes apart.
+ */
+const ROUTE_SHAPED = /^\/[^*?]*$/;
+
+/**
+ * A source path, or a glob over one: a wildcard, or any file extension.
+ *
+ * Deliberately not a list of known extensions. The first version of this check
+ * enumerated `.ts`, `.vue`, `.py` and a dozen more, and missed the very first
+ * real config it was pointed at — this repository's own, whose sources are
+ * `.html`. Enumerating the world's file types is a losing game; a trailing
+ * extension is the property that actually distinguishes a file from a route.
+ */
+const FILE_SHAPED = /[*?]|\.[a-z0-9]{1,8}$/i;
+
+/**
+ * Keys of `routes:` entries written the other way round — a route mapped to the
+ * files behind it, rather than a file glob mapped to the routes it can reach.
+ *
+ * The inverted form type-checks perfectly: both halves are still a string keying
+ * a list of strings, so it parses, and then every changed file matches nothing.
+ * The whole diff is reported as unclassified, `--impacted` selects no tests, and
+ * the run is green having exercised nothing — the failure looks exactly like a
+ * diff that affected no page. Nor is writing it inverted carelessness: the key
+ * is named `routes`, and a test file's own `routes:` genuinely *is* a list of
+ * routes (`runner/testfile.ts`), so the two meanings sit one file apart.
+ *
+ * Both halves must look wrong before this accuses. A route may legitimately hold
+ * a wildcard (`/products/*`), and that on its own proves nothing.
+ */
+export interface InvertedRouteEntry {
+  /** The key, which reads as a route rather than as a file glob. */
+  key: string;
+  /** The first value under it reading as a source path — the correction's other half. */
+  file: string;
+}
+
+export function findInvertedRouteEntries(routes: Record<string, string[]>): InvertedRouteEntry[] {
+  const inverted: InvertedRouteEntry[] = [];
+  for (const [key, values] of Object.entries(routes)) {
+    if (!ROUTE_SHAPED.test(key)) continue;
+    const file = values.find((value) => FILE_SHAPED.test(value));
+    if (file !== undefined) inverted.push({ key, file });
+  }
+  return inverted;
+}
+
 const configSchema = z.object({
   base_url: z.string().url(),
   llm: llmSchema.default({}),
   browser: browserSchema.default({}),
-  routes: z.record(z.array(z.string())).optional(),
+  routes: z
+    .record(z.array(z.string()))
+    .superRefine((value, ctx) => {
+      const inverted = findInvertedRouteEntries(value);
+      const first = inverted[0];
+      if (!first) return;
+      // Refusing is the point: accepting it produces a green run that selected no
+      // tests, which reads as "nothing was affected" rather than as a broken map.
+      const others = inverted.length > 1 ? ` (and ${inverted.length - 1} more)` : '';
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          `is the wrong way round${others} — the key is the file glob, the value is the routes it affects.\n` +
+          `      found:    "${first.key}": ["${first.file}"]\n` +
+          `      expected: "${first.file}": ["${first.key}"]`,
+      });
+    })
+    .optional(),
   /** Globs for files knowingly irrelevant to any route (docs, CI config, licences). */
   ignore: z.array(z.string()).optional(),
   /**
@@ -214,9 +281,10 @@ function unwrapToObjectSchema(schema: z.ZodTypeAny): z.ZodObject<z.ZodRawShape> 
 /**
  * Finds keys present in `data` that `schema` does not recognise, recursing into
  * nested sections (`llm`, `browser`, `budget`, `auth` — design task 3.2) so a key
- * misplaced inside one of them is caught too. `routes:` is a `z.record`, not a
- * `z.object`, so its keys (route globs, not schema fields) are deliberately never
- * flagged: `unwrapToObjectSchema` only recurses into an actual object schema.
+ * misplaced inside one of them is caught too. `routes:` is a `z.record` (behind a
+ * refinement), not a `z.object`, so its keys (route globs, not schema fields) are
+ * deliberately never flagged: `unwrapToObjectSchema` unwraps the refinement and
+ * then only recurses into an actual object schema.
  */
 export function findUnknownConfigKeys(
   data: unknown,
