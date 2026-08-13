@@ -107,8 +107,16 @@ const ROUTE_SHAPED = /^\/[^*?]*$/;
  */
 const FILE_SHAPED = /[*?]|\.[a-z0-9]{1,8}$/i;
 
+/** One `routes:` entry that reads as written the other way round. */
+export interface InvertedRouteEntry {
+  /** The key, which reads as a route rather than as a file glob. */
+  key: string;
+  /** The first value under it reading as a source path — the correction's other half. */
+  file: string;
+}
+
 /**
- * Keys of `routes:` entries written the other way round — a route mapped to the
+ * Finds `routes:` entries written the other way round — a route mapped to the
  * files behind it, rather than a file glob mapped to the routes it can reach.
  *
  * The inverted form type-checks perfectly: both halves are still a string keying
@@ -122,13 +130,6 @@ const FILE_SHAPED = /[*?]|\.[a-z0-9]{1,8}$/i;
  * Both halves must look wrong before this accuses. A route may legitimately hold
  * a wildcard (`/products/*`), and that on its own proves nothing.
  */
-export interface InvertedRouteEntry {
-  /** The key, which reads as a route rather than as a file glob. */
-  key: string;
-  /** The first value under it reading as a source path — the correction's other half. */
-  file: string;
-}
-
 export function findInvertedRouteEntries(routes: Record<string, string[]>): InvertedRouteEntry[] {
   const inverted: InvertedRouteEntry[] = [];
   for (const [key, values] of Object.entries(routes)) {
