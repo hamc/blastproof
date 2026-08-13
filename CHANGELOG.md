@@ -3,6 +3,25 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.12.1] — 2026-08-12
+
+### Fixed
+- **The authoring warning promised a consequence that does not happen.** The check shipped in 0.12.0
+  closed with "The runner is forbidden from inventing values, so a step that supplies none cannot be
+  carried out." Measured against `examples/demo-app` with a real model, that is false: the model
+  supplies a value anyway and the step **passes** — `fill the note field` was filled with "This is a
+  test note." twice and "This is a new note" once, passing all three times. The prohibition lives in
+  a prompt, and a prompt instructs rather than enforces.
+
+  The harm is therefore worse than the old wording described, not milder: a green test over a value
+  nobody wrote, and a different one on each run, rather than an honest failure the reader might
+  misjudge. The warning, the planner prompt, the README and the `cli-run-command` requirement now say
+  what was measured. Enforcing the rule in the executor is
+  [#57](https://github.com/hamc/blastproof/issues/57).
+
+  Detection, exit codes and `--fail-on-authoring` are unchanged; only what they claim about the
+  outcome has been corrected.
+
 ## [0.12.0] — 2026-08-10
 
 Two silent false negatives become visible before a run spends anything. Both warn rather than fail,
