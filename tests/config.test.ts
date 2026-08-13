@@ -2,7 +2,13 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyEnvOverrides, ConfigError, findUnknownConfigKeys, loadConfig } from '../src/config.js';
+import {
+  applyEnvOverrides,
+  ConfigError,
+  findInvertedRouteEntries,
+  findUnknownConfigKeys,
+  loadConfig,
+} from '../src/config.js';
 
 let dir: string;
 
@@ -381,5 +387,92 @@ describe('unknown configuration keys (design D5, spec preflight)', () => {
     await loadConfig(dir, {});
 
     expect(warnings).toEqual([]);
+  });
+});
+
+describe('an inverted routes: map', () => {
+  /** The rejection message, or a failure if the config loaded when it should not have. */
+  async function messageFromLoading(): Promise<string> {
+    try {
+      await loadConfig(dir, {});
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    throw new Error('expected loadConfig to reject an inverted routes: map');
+  }
+
+  it('is refused rather than silently matching nothing', async () => {
+    await writeConfig(
+      ['base_url: http://localhost:3000', 'routes:', '  "/cart": ["src/cart/**"]', ''].join('\n'),
+    );
+    await expect(loadConfig(dir, {})).rejects.toThrow(ConfigError);
+  });
+
+  it('shows the correction using the reader\'s own entry', async () => {
+    await writeConfig(
+      ['base_url: http://localhost:3000', 'routes:', '  "/cart": ["src/cart/**"]', ''].join('\n'),
+    );
+    const message = await messageFromLoading();
+    expect(message).toContain('the key is the file glob');
+    expect(message).toContain('found:    "/cart": ["src/cart/**"]');
+    expect(message).toContain('expected: "src/cart/**": ["/cart"]');
+  });
+
+  it('names one entry and counts the rest, rather than reprinting the map', async () => {
+    expect(
+      findInvertedRouteEntries({ '/cart': ['src/cart/**'], '/login': ['src/auth/**'] }),
+    ).toEqual([
+      { key: '/cart', file: 'src/cart/**' },
+      { key: '/login', file: 'src/auth/**' },
+    ]);
+
+    await writeConfig(
+      [
+        'base_url: http://localhost:3000',
+        'routes:',
+        '  "/cart": ["src/cart/**"]',
+        '  "/login": ["src/auth/**"]',
+        '',
+      ].join('\n'),
+    );
+    expect(await messageFromLoading()).toContain('(and 1 more)');
+  });
+
+  it('accepts a route holding a wildcard — one half looking odd is not evidence', async () => {
+    // The false positive the two-sided rule exists to avoid: `*` in a route is
+    // legitimate, and on its own says nothing about which way round the map is.
+    await writeConfig(
+      [
+        'base_url: http://localhost:3000',
+        'routes:',
+        '  "src/products/**": ["/products/*"]',
+        '',
+      ].join('\n'),
+    );
+    const config = await loadConfig(dir, {});
+    expect(config.routes).toEqual({ 'src/products/**': ['/products/*'] });
+  });
+
+  it('accepts an absolute-looking glob mapped to plain routes', async () => {
+    // Key starts with a slash but carries a wildcard, and the values look like
+    // routes rather than files: nothing here is inverted.
+    await writeConfig(
+      ['base_url: http://localhost:3000', 'routes:', '  "/src/cart/**": ["/cart"]', ''].join('\n'),
+    );
+    const config = await loadConfig(dir, {});
+    expect(config.routes).toEqual({ '/src/cart/**': ['/cart'] });
+  });
+
+  it('catches it whatever the file extension is', () => {
+    // Regression: the first version of the check enumerated code extensions and
+    // let this repository's own inverted config through, because a demo app is
+    // written in .html. Any trailing extension counts now, not a known list.
+    for (const file of ['examples/demo-app/login.html', 'app/styles.css', 'lib/mod.rs']) {
+      expect(findInvertedRouteEntries({ '/login': [file] })).toEqual([{ key: '/login', file }]);
+    }
+  });
+
+  it('leaves a correct map alone', () => {
+    expect(findInvertedRouteEntries({ 'src/cart/**': ['/cart', '/checkout'] })).toEqual([]);
   });
 });

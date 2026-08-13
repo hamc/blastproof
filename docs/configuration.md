@@ -272,7 +272,9 @@ a step that is making progress in a loop rather than failing.
 
 ## `routes` and `ignore`
 
-The impact map — which changed files can affect which pages.
+The impact map — which changed files can affect which pages. The key is the file
+glob, the value is the routes; written the other way round it matches nothing,
+and blastproof refuses it rather than reporting an unaffected diff.
 
 ```yaml
 routes:

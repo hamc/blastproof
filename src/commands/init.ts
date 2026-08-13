@@ -31,6 +31,9 @@ browser:
 # max_retries_per_step: 3
 
 # Impact hints mapping file globs to routes (used by \`blastproof run --impacted\`).
+# Read each line as "if this file changed, these pages are at risk" — the key is the
+# file glob, the value is the routes. Not the other way round: a test file's own
+# \`routes:\` is a list of routes, and this one is a map keyed by source path.
 routes:
   "src/auth/**": ["/login"]
   "src/cart/**": ["/cart", "/checkout"]
