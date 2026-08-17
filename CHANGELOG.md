@@ -3,6 +3,55 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.14.0] — 2026-08-17
+
+### Fixed
+- **A value the agent made up is now refused instead of typed.** `prompts.ts` has told the executor
+  *"Never invent a value"* since 0.7.0 — one it types must come from the step, from the page, or from
+  an `{{env.*}}` placeholder — and nothing enforced it. Measured against `examples/demo-app` with a
+  real model, a test whose only step is `fill the note field`:
+
+  ```
+  1 → fill textbox "Note" [This is a test note.]  → PASS  Score: 100
+  2 → fill textbox "Note" [This is a test note.]  → PASS  Score: 100
+  3 → fill textbox "Note" [This is a new note]    → PASS  Score: 100
+  ```
+
+  Three runs, three inventions, three passes, and the value differs between runs. A green test over an
+  input nobody wrote is worse than a failure: the suite reports coverage of a journey it never
+  specified, and nothing in the report says so, because nothing knew. 0.12.1 had to correct the
+  shipped warning to admit this and named [#57](https://github.com/hamc/blastproof/issues/57) as the
+  fix — which this is.
+
+  A `fill` or `select` whose value is traceable to none of **the step, any page shown during that
+  step, an `{{env.*}}` placeholder, or a value already typed in that step** is refused at the same
+  choke point that already refuses a repeated commit, and spends the same retry budget. The same run
+  now scores 0, with the agent's own reason naming the cause:
+
+  ```
+  -> fill textbox "Note" [This is a new note] :: refused: the value "This is a new note" was NOT
+     typed, because it appears neither in this step nor anywhere on the pages you have been shown…
+  -> fail :: The step requests to fill the note field but provides no value to enter…
+  ```
+
+  *"From the page"* means any snapshot shown during the step, not the one in hand — reading an order
+  number on one page and typing it on another is legitimate, and comparing against only the current
+  snapshot would refuse it. The comparison runs against the **masked** text the agent was actually
+  shown, so a secret the mask hid can never count as a source.
+
+  Unlike the authoring warning that predicts the same defect before a run, nothing here parses
+  English: the guarantee holds for a suite written in any language.
+
+  **Two limits, stated rather than discovered.** A value reformatted between the step and the field —
+  `1234` in the step, `1,234.00` in the box — is refused; write it the way it is typed. And a very
+  short value (`3`) appears somewhere in almost any page, so it passes: this closes fabricated
+  content, not every fabricated character.
+
+  **Why this is a minor and not a patch.** A suite that passed by fabricating a value now fails. Every
+  `fill` step in the suite this project ships names its value — which is the rule the README already
+  teaches, so enforcement is the documented contract finally being checked — but a suite relying on
+  fabrication changes behaviour, and that is not a patch.
+
 ## [0.13.0] — 2026-08-12
 
 ### Fixed
