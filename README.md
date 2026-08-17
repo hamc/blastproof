@@ -141,11 +141,13 @@ Write steps that end in an observable result — text on the page, a count, a st
 - fill the note field                           # cannot run
 ```
 
-The agent is **forbidden from inventing values** — one it types must come from the step, from the page, or from an `{{env.*}}` placeholder. But that rule lives in a prompt, and a prompt instructs rather than enforces. Run against a real model, the second step does not fail: the agent makes a value up, fills it, and the step **passes**. `fill the note field` produced "This is a test note." on two runs and "This is a new note" on a third.
+The agent is **forbidden from inventing values** — one it types must come from the step, from the page, or from an `{{env.*}}` placeholder — and the runner enforces it rather than asking. A `fill` or `select` whose value appears in none of those is refused: it is not typed, the agent is told which sources it may draw from, and the step fails on the retry budget if it keeps insisting.
 
-That is worse than a failure. The test goes green having verified a value nobody wrote, differing between runs — a passing check over an unspecified input. Closing the gap in the runner is [#57](https://github.com/hamc/blastproof/issues/57); until then, this warning is what stands between you and a green test that means nothing.
+The rule used to live only in the prompt, and a prompt instructs rather than enforces. Run against a real model, `fill the note field` did not fail — the agent made a value up, filled it, and the step **passed**, producing "This is a test note." on two runs and "This is a new note" on a third. A test going green over a value nobody wrote, differing between runs, is worse than a failure.
 
-`run` warns about it first, on every path, before launching a browser or asking for a key:
+Two limits worth knowing. A value the page shows in one format and the field wants in another — `1234` in the step, `1,234.00` in the box — is refused, and the fix is to write the value the way it is typed. And a very short value (`3`) appears somewhere in almost any page, so it will pass; this closes fabricated content, not every fabricated character.
+
+`run` also warns about it first — the same rule caught earlier, from the test file, on every path, before launching a browser or asking for a key:
 
 ```
 Authoring (a step enters a value but names none):
@@ -156,7 +158,7 @@ Authoring (a step enters a value but names none):
 
 Non-fatal by default — `--fail-on-authoring` turns it into exit 1 for teams enforcing it in CI. Taking the value from the page is fine and is not flagged: `fill the recipient field with the address shown on the confirmation page`.
 
-**The check reads English only.** A suite written in another language runs exactly as well but is not inspected, and prints no warning saying so — silence from this check means "nothing found in English", never "this suite is clean".
+**The warning reads English only.** A suite written in another language runs exactly as well but is not inspected, and prints no warning saying so — silence from this check means "nothing found in English", never "this suite is clean". The runner's refusal has no such limit: it compares text rather than parsing grammar, so a suite in any language is still held to the rule at run time.
 
 ## Commands
 

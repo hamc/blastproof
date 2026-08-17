@@ -726,6 +726,9 @@ steps:
     expect(errOut()).toContain('step 2');
     expect(errOut()).toContain('fill the note field with <value>');
     expect(errOut()).toContain('forbidden from inventing values');
+    // …and says the runner acts on it, which is what makes the warning worth
+    // reading rather than a restatement of an unenforced preference (#57).
+    expect(errOut()).toContain('refused');
   });
 
   it('warns in --dry-run', async () => {

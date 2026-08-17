@@ -25,6 +25,30 @@ const COMMIT_ACTIONS: ReadonlySet<string> = new Set(['click', 'press']);
  */
 const COMMIT_KEYS: ReadonlySet<string> = new Set(['Enter', 'NumpadEnter', ' ', 'Space', 'Spacebar']);
 
+/**
+ * The actions whose value is free text the model chose, and so the ones a
+ * fabricated value can enter through (design refuse-an-invented-value, D6).
+ *
+ * `press` is absent because its value is a key name — `Enter`, `Tab` — which is
+ * neither in the step nor on the page, so requiring a source would refuse every
+ * press. `navigate` is absent because its value is a URL, already constrained by
+ * `allowed_origins`: a stricter rule than this one, aimed at the same risk.
+ */
+const SOURCED_VALUE_ACTIONS: ReadonlySet<string> = new Set(['fill', 'select']);
+
+/** A value the model must pass through untouched; substitution happens later. */
+const ENV_PLACEHOLDER = /^\s*\{\{env\.[A-Za-z_][A-Za-z0-9_]*\}\}\s*$/;
+
+/**
+ * Case and spacing are presentation, so they are normalised away before any
+ * comparison. Nothing beyond that (design D5): stripping punctuation or
+ * reformatting numbers starts guessing at intent, and every such loosening
+ * weakens the guarantee while looking like a kindness.
+ */
+function normalise(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 export interface StepHistoryEntry {
   /** Human-readable action, already masked. */
   action: string;
@@ -84,11 +108,49 @@ function identity(action: AgentAction): string {
 export class StepRecovery {
   private readonly performed = new Set<string>();
   private readonly history: StepHistoryEntry[] = [];
+  /**
+   * Everything the model has been allowed to read this step, normalised: the
+   * step's own text, plus every snapshot it has been shown, plus every value it
+   * has already typed successfully.
+   *
+   * One accumulating haystack rather than the snapshot in hand (design D2). The
+   * model may read an order number on one page, navigate away, and type it into
+   * a box on another — at that moment the current snapshot does not contain it,
+   * and a check against only that snapshot would refuse a legitimate action.
+   *
+   * Bounded by construction: `max_snapshot_lines` caps each snapshot,
+   * `maxIterationsPerStep` caps how many arrive, and the instance dies with the
+   * step — which is also the whole of the "does not cross steps" rule.
+   */
+  private readonly readable: string[];
+
+  constructor(step: string) {
+    this.readable = [normalise(step)];
+  }
+
+  /**
+   * Records a snapshot the model was shown, as a source it may quote from.
+   *
+   * Takes the **masked** text (design D4). `executor.ts` shows the model
+   * `mask(snap)` and never the raw tree, so a secret rendered on the page is
+   * `***` to the model and cannot have been copied by it. Accepting the raw
+   * snapshot here would credit the model with access it never had, and would
+   * leave the executor and the model disagreeing about what the page said.
+   */
+  observe(maskedSnapshot: string): void {
+    this.readable.push(normalise(maskedSnapshot));
+  }
 
   /** Records an action that was actually performed and succeeded. */
   record(action: AgentAction, description: string, result: string): void {
     this.performed.add(identity(action));
     this.history.push({ action: description, result });
+    // A value that passed the source check when it was typed stays quotable for
+    // the rest of the step: a transitive closure over already-validated values,
+    // not a hole. It covers the case `contained-recovery` was built for — a
+    // submit answered by a redirect that empties the form, where the page has
+    // just lost the value the model legitimately used a moment ago.
+    if (action.value) this.readable.push(normalise(action.value));
   }
 
   /**
@@ -108,6 +170,10 @@ export class StepRecovery {
    * and #28 has now produced one on three applications.
    */
   refusalFor(action: AgentAction): string | undefined {
+    return this.repeatedCommitRefusal(action) ?? this.unsourcedValueRefusal(action);
+  }
+
+  private repeatedCommitRefusal(action: AgentAction): string | undefined {
     if (!COMMIT_ACTIONS.has(action.action)) return undefined;
     if (action.action === 'press' && !COMMIT_KEYS.has(action.value ?? '')) return undefined;
     if (!this.performed.has(identity(action))) return undefined;
@@ -116,6 +182,45 @@ export class StepRecovery {
       `Repeating something that commits repeats whatever it changed in the application. If the page no longer ` +
       `shows that it worked, that is normal for a submit answered by a redirect — check the record of what you ` +
       `have already done. Verify the step's outcome another way, or fail the step.`
+    );
+  }
+
+  /**
+   * Refuses a typed value that came from nowhere the model was entitled to read
+   * (design refuse-an-invented-value).
+   *
+   * `prompts.ts` has forbidden inventing a value since 0.7.0, and measured
+   * against a real model the rule simply does not hold: given `fill the note
+   * field`, the model supplied "This is a test note." twice and "This is a new
+   * note" once, and the step passed all three times. A prompt instructs; it does
+   * not enforce. The result is the false negative this project exists to remove
+   * — a green test over an input nobody wrote, differing run to run, with
+   * nothing in the report to say so because nothing knew.
+   *
+   * The comparison is `includes`, not equality: a value is legitimately a
+   * fragment of a step that also names the field, and of a snapshot that also
+   * holds the rest of the page.
+   *
+   * Unlike the authoring warning that predicts this before a run, nothing here
+   * parses English, so the guarantee holds for a suite written in any language.
+   */
+  private unsourcedValueRefusal(action: AgentAction): string | undefined {
+    if (!SOURCED_VALUE_ACTIONS.has(action.action)) return undefined;
+    const value = action.value;
+    if (!value) return undefined;
+    // Checked before any comparison: substitution happens inside `performAction`,
+    // after this point, so the placeholder is all there is to see — and a masked
+    // value could match neither the step nor the page, so treating it as
+    // unsourced would refuse every authenticated test (D3).
+    if (ENV_PLACEHOLDER.test(value)) return undefined;
+    const needle = normalise(value);
+    if (needle === '') return undefined;
+    if (this.readable.some((source) => source.includes(needle))) return undefined;
+    return (
+      `refused: the value "${value}" was NOT typed, because it appears neither in this step nor anywhere on the ` +
+      `pages you have been shown. A value you type must come from the step, from the page, or from an {{env.*}} ` +
+      `placeholder — one you make up would put the test's verdict on an input nobody wrote. Use a value the step ` +
+      `or the page gives you, or fail the step and say it supplies none.`
     );
   }
 

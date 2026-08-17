@@ -487,13 +487,14 @@ function printRouteDrift(drift: RouteDriftResult, cwd: string): void {
  * shape that runs: a warning citing the README is ignorable in the way all
  * warnings are, and the fix here is mechanical enough to print.
  *
- * The consequence named here is what was measured, not what was assumed. The change
- * that added this check called such a step impossible; run against a real model it
- * runs every time, with a value the model makes up — `fill the note field` was
- * filled with "This is a test note." twice and "This is a new note" once, and the
- * step passed all three. `prompts.ts` forbids inventing a value, but a prompt
- * instructs and does not enforce, so the real harm is a green test over a value
- * nobody wrote rather than an honest failure. See #57.
+ * The consequence named here is what was measured, not what was assumed, and it has
+ * now been corrected twice. The change that added this check called such a step
+ * impossible; run against a real model it ran every time, with a value the model
+ * made up — `fill the note field` was filled with "This is a test note." twice and
+ * "This is a new note" once, and the step passed all three. Since
+ * `refuse-an-invented-value` the runner enforces the rule instead of asking, so the
+ * step now fails rather than passing (#57). The warning still earns its place by
+ * arriving before a browser or a key: the same defect, caught for free.
  *
  * The English-only line is not a footnote (D9). An empty result means "nothing
  * found in English", never "this suite is clean", and a reader who infers the
@@ -509,9 +510,9 @@ function printAuthoring(result: AuthoringResult, cwd: string): void {
     console.error(`    → ${suggestValueClause(step)}`);
   }
   console.error(
-    'The runner is forbidden from inventing values, but only by instruction: in practice the model ' +
-      'supplies one anyway, the step passes, and the test verifies a value nobody wrote — a different ' +
-      'one on each run.',
+    'The runner is forbidden from inventing values and enforces it: one it cannot trace to the step, ' +
+      'the page or an {{env.*}} placeholder is refused, so a step supplying none fails at run time. ' +
+      'Naming the value here is what makes it run.',
   );
   console.error('Steps are inspected in English only; steps in other languages are not checked.');
 }

@@ -232,8 +232,10 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     let lastResult: string | undefined;
     let stepFailedReason: string | undefined;
     // One instance per step: constructing it here IS the "does not cross steps"
-    // rule (design contained-recovery, D1) — there is no reset to forget.
-    const recovery = new StepRecovery();
+    // rule (design contained-recovery, D1) — there is no reset to forget. The
+    // step's own text is its first readable source: a value the step names is
+    // one the model may type (design refuse-an-invented-value, D3).
+    const recovery = new StepRecovery(step);
 
     try {
       while (true) {
@@ -266,6 +268,12 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           );
         }
         const snap = await takeSnapshot(page);
+        // Recorded at the one point a snapshot crosses into a prompt, masked
+        // exactly as the model receives it (design refuse-an-invented-value,
+        // D2/D4): what the model was shown is what it may quote from, and a
+        // value it reads here stays quotable after the page has moved on.
+        const maskedSnap = mask(snap);
+        recovery.observe(maskedSnap);
 
         let action: AgentAction;
         try {
@@ -277,7 +285,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           action = await brain.nextAction({
             step,
             isSetup: setup,
-            snapshot: mask(snap),
+            snapshot: maskedSnap,
             lastResult: lastResult === undefined ? undefined : mask(lastResult),
             // Already masked when recorded, on the same boundary as everything
             // else crossing into a prompt (design contained-recovery, D2).
@@ -323,7 +331,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           let judgment = await brain.judge(
             mask(step),
             mask(expectation),
-            mask(snap),
+            maskedSnap,
             recovery.stepHistory(),
           );
           if (!judgment.pass) {
@@ -338,10 +346,16 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             // is what let the model invent an action instead of looking again.
             await waitForSettled(page);
             const freshSnap = await takeSnapshot(page);
+            const maskedFresh = mask(freshSnap);
+            // Every snapshot that crosses into a prompt during this step, not
+            // only the ones the acting model sees: the judge's reason comes back
+            // through `lastResult`, so this page has entered the step's record
+            // either way (design refuse-an-invented-value, D2).
+            recovery.observe(maskedFresh);
             judgment = await brain.judge(
               mask(step),
               mask(expectation),
-              mask(freshSnap),
+              maskedFresh,
               recovery.stepHistory(),
             );
           }

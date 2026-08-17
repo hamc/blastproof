@@ -407,7 +407,12 @@ describe('executeTest', () => {
     const events: ExecutorEvent[] = [];
     const mask = (s: string) => s.replaceAll('s3cret', '***');
 
-    const result = await executeTest(page, makeTest(), baseOptions(brain, { mask, onEvent: (e) => events.push(e) }));
+    // The step names the value, as a correctly authored one does — the executor
+    // refuses a value it cannot source, so a fixture whose step names none would
+    // now be testing the refusal rather than the mask. It makes this test
+    // stronger: the secret is in the step text too, so results must mask that.
+    const test = makeTest({ steps: ['fill the password field with s3cret'] });
+    const result = await executeTest(page, test, baseOptions(brain, { mask, onEvent: (e) => events.push(e) }));
 
     const serialized = JSON.stringify(events) + JSON.stringify(result);
     expect(serialized).not.toContain('s3cret');
@@ -1180,7 +1185,13 @@ describe('executeTest recovery containment', () => {
     );
     const events: ExecutorEvent[] = [];
 
-    await executeTest(page, makeTest(), baseOptions(brain, { onEvent: (e) => events.push(e) }));
+    await executeTest(
+      page,
+      // Names the value it types: a step that named none would be refused for
+      // that instead, and this test is about the repeated commit.
+      makeTest({ steps: ['add the note "Test note"'] }),
+      baseOptions(brain, { onEvent: (e) => events.push(e) }),
+    );
 
     expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(1);
     expect(events.filter((e) => e.type === 'action' && e.result.startsWith('refused:'))).toHaveLength(1);
@@ -1234,7 +1245,7 @@ describe('executeTest recovery containment', () => {
       ],
     );
 
-    await executeTest(page, makeTest(), baseOptions(brain));
+    await executeTest(page, makeTest({ steps: ['add the note "a note"'] }), baseOptions(brain));
 
     expect(page.calls.filter((c) => c.startsWith('fill'))).toHaveLength(2);
     expect(page.calls.filter((c) => c.startsWith('goto'))).toHaveLength(2); // initial goto + the navigate
@@ -1309,7 +1320,11 @@ describe('executeTest recovery containment', () => {
       [],
     );
 
-    await executeTest(page, makeTest(), baseOptions(brain, { mask: (s) => s.replaceAll('s3cret', '***') }));
+    await executeTest(
+      page,
+      makeTest({ steps: ['fill the password field with s3cret'] }),
+      baseOptions(brain, { mask: (s) => s.replaceAll('s3cret', '***') }),
+    );
 
     // The second turn sees the first action; the secret is redacted on the same
     // boundary as the snapshot and lastResult.
@@ -1320,9 +1335,201 @@ describe('executeTest recovery containment', () => {
   });
 });
 
+describe('executeTest refuses an invented value', () => {
+  const fill = (value: string): AgentAction => ({
+    action: 'fill',
+    target: { role: 'textbox', name: 'Note' },
+    value,
+    reasoning: 'type',
+  });
+
+  it('refuses the fill, tells the model why, and fails the step when it insists', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Note');
+    // The reproduction from #57: a step that names no value, and a model that
+    // supplies one anyway. Before this change all three passed with Score 100.
+    const brain = scriptedBrain(
+      [fill('This is a test note.'), fill('This is a new note'), fill('Another invention')],
+      [],
+    );
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the note field'] }),
+      baseOptions(brain, { snapshot: async () => '- textbox "Note"', onEvent: (e) => events.push(e) }),
+    );
+
+    expect(result.status).toBe('failed');
+    // Nothing reached the page: the value is refused before `performAction`.
+    expect(page.calls.filter((c) => c.startsWith('fill'))).toHaveLength(0);
+    const refusals = events.filter((e) => e.type === 'action' && e.result.startsWith('refused:'));
+    expect(refusals).toHaveLength(3);
+    // Spent from the existing retry budget, not a new counter, so an insisting
+    // model terminates rather than grinding to the iteration ceiling.
+    expect(result.steps[0]?.failedAttempts).toBe(3);
+  });
+
+  it('leaves a fill the step names completely alone', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Note');
+    const brain = scriptedBrain([fill('Check the invoice'), { action: 'done', reasoning: 'typed' }], []);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the note field with Check the invoice'] }),
+      baseOptions(brain, { snapshot: async () => '- textbox "Note"' }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(page.calls).toContain('fill role:textbox|Note=Check the invoice');
+  });
+
+  it('still substitutes an {{env.*}} placeholder', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Note');
+    const brain = scriptedBrain([fill('{{env.TOKEN}}'), { action: 'done', reasoning: 'typed' }], []);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the note field with {{env.TOKEN}}'] }),
+      baseOptions(brain, {
+        snapshot: async () => '- textbox "Note"',
+        resolveValue: (v) => v.replace('{{env.TOKEN}}', 'sealed'),
+        mask: (t) => t.replaceAll('sealed', '***'),
+      }),
+    );
+
+    expect(result.status).toBe('passed');
+    // The refusal saw the placeholder and the page saw the real value.
+    expect(page.calls).toContain('fill role:textbox|Note=sealed');
+  });
+
+  it('allows a value the model reads from the page the step sent it to', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Search');
+    const search: AgentAction = {
+      action: 'fill',
+      target: { role: 'textbox', name: 'Search' },
+      value: '#BP-1001',
+      reasoning: 'type the order number the page showed',
+    };
+    const brain = scriptedBrain([search, { action: 'done', reasoning: 'searched' }], []);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['search for the order shown on the page'] }),
+      baseOptions(brain, {
+        snapshot: async () => '- text "Order #BP-1001 confirmed"\n- textbox "Search"',
+      }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(page.calls).toContain('fill role:textbox|Search=#BP-1001');
+  });
+});
+
+// --- a typed value comes from somewhere ---------------------------------------
+//
+// `prompts.ts` has forbidden inventing a value since 0.7.0 and never enforced it.
+// Measured with a real model, `fill the note field` was carried out three times
+// with three different made-up values and passed all three (#57) — a green test
+// over an input nobody wrote. These pin the enforcement, and just as importantly
+// the four sources a value may legitimately come from.
+
+describe('StepRecovery unsourced values', () => {
+  const fill = (value: string): AgentAction => ({
+    action: 'fill',
+    target: { role: 'textbox', name: 'Note' },
+    value,
+    reasoning: 'type',
+  });
+
+  it('refuses a value that is in neither the step nor any page seen', () => {
+    const recovery = new StepRecovery('fill the note field');
+    recovery.observe('- textbox "Note"');
+    const refusal = recovery.refusalFor(fill('This is a test note.'));
+    expect(refusal).toContain('refused:');
+    // Names the sources rather than only the offence: the model has to be able
+    // to correct itself from the message alone.
+    expect(refusal).toContain('from the step, from the page');
+  });
+
+  it('allows a value the step names', () => {
+    const recovery = new StepRecovery('fill the note field with Check the invoice');
+    expect(recovery.refusalFor(fill('Check the invoice'))).toBeUndefined();
+  });
+
+  it('allows a value read from a page seen earlier in the step', () => {
+    // The false positive that killed the naive "compare against the current
+    // snapshot" reading (design D2): read on one page, typed on another.
+    const recovery = new StepRecovery('search for the order you just placed');
+    recovery.observe('- text "Order #BP-1001 confirmed"');
+    recovery.observe('- textbox "Search"');
+    expect(recovery.refusalFor(fill('#BP-1001'))).toBeUndefined();
+  });
+
+  it('allows an {{env.*}} placeholder without comparing anything', () => {
+    // Substitution happens after this point, so the placeholder is all there is
+    // to see — and a masked value matches neither step nor page, so treating it
+    // as unsourced would refuse every authenticated test (design D3).
+    const recovery = new StepRecovery('fill the password field');
+    recovery.observe('- textbox "Password"');
+    expect(recovery.refusalFor(fill('{{env.TEST_PASSWORD}}'))).toBeUndefined();
+  });
+
+  it('treats case and spacing as presentation, not invention', () => {
+    const recovery = new StepRecovery('fill the subject with Order Not Received');
+    expect(recovery.refusalFor(fill('order not  received'))).toBeUndefined();
+  });
+
+  it('allows a value it already typed once, after the page loses it', () => {
+    // The `contained-recovery` shape: a submit answered by a redirect empties
+    // the form, and the model retypes what it legitimately used a moment ago.
+    const recovery = new StepRecovery('add a note saying Check the invoice');
+    const action = fill('Check the invoice');
+    recovery.record(action, describeAction(action), 'ok');
+    const emptyAgain = new StepRecovery('add a note');
+    expect(recovery.refusalFor(fill('Check the invoice'))).toBeUndefined();
+    // …and that leniency is not ambient: a step that never typed it refuses it.
+    expect(emptyAgain.refusalFor(fill('Check the invoice'))).toBeDefined();
+  });
+
+  it('covers select, so a dropdown is not the way around a fill refusal', () => {
+    const recovery = new StepRecovery('choose a priority');
+    recovery.observe('- combobox "Priority"');
+    const select = (value: string): AgentAction => ({
+      action: 'select',
+      target: { role: 'combobox', name: 'Priority' },
+      value,
+      reasoning: 'choose',
+    });
+    expect(recovery.refusalFor(select('Urgent'))).toBeDefined();
+    recovery.observe('- option "Urgent"');
+    expect(recovery.refusalFor(select('Urgent'))).toBeUndefined();
+  });
+
+  it('never refuses a press or a navigate for its value', () => {
+    // A press value is a key name and a navigate value is a URL bounded by
+    // allowed_origins; requiring a page source for either would break every run.
+    const recovery = new StepRecovery('submit the form');
+    expect(recovery.refusalFor({ action: 'press', value: 'Enter', reasoning: 'submit' })).toBeUndefined();
+    expect(recovery.refusalFor({ action: 'navigate', value: '/orders', reasoning: 'go' })).toBeUndefined();
+  });
+
+  it('does not carry pages across step boundaries', () => {
+    // One instance per step is the whole of that rule; this pins that the new
+    // accumulator obeys it too, not only the commit record beside it.
+    const first = new StepRecovery('read the order number');
+    first.observe('- text "#BP-1001"');
+    const second = new StepRecovery('search for it');
+    expect(second.refusalFor(fill('#BP-1001'))).toBeDefined();
+  });
+});
+
 describe('StepRecovery commit keys', () => {
   const perform = (action: AgentAction) => {
-    const recovery = new StepRecovery();
+    const recovery = new StepRecovery('press the key');
     recovery.record(action, describeAction(action), 'ok');
     return recovery.refusalFor(action);
   };
