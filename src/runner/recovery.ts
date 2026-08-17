@@ -1,4 +1,5 @@
 import type { AgentAction } from '../llm/schemas.js';
+import { referencedEnvVars } from './env.js';
 
 /**
  * The actions that commit — the point at which a side effect lands in the
@@ -36,8 +37,27 @@ const COMMIT_KEYS: ReadonlySet<string> = new Set(['Enter', 'NumpadEnter', ' ', '
  */
 const SOURCED_VALUE_ACTIONS: ReadonlySet<string> = new Set(['fill', 'select']);
 
-/** A value the model must pass through untouched; substitution happens later. */
-const ENV_PLACEHOLDER = /^\s*\{\{env\.[A-Za-z_][A-Za-z0-9_]*\}\}\s*$/;
+/**
+ * Whether every `{{env.*}}` variable `value` references is one `step` references
+ * (design env-placeholder-must-be-named, D1).
+ *
+ * `referencedEnvVars` is deliberately the same function that decides what gets
+ * substituted and what gets registered for masking (D2). This file used to carry
+ * its own regex, and the two had already drifted: `{{ env.TOKEN }}` and
+ * `Bearer {{env.TOKEN}}` are substituted by one and were not recognised by the
+ * other. A value must not be able to expand under one definition of a
+ * placeholder and be admitted under a different one.
+ *
+ * Names are compared exactly. Case is presentation for a typed value and is
+ * normalised away everywhere else here, but `TOKEN` and `token` are two
+ * variables holding two different secrets, so folding them together in the one
+ * place that decides which secret gets typed would be a bug wearing a
+ * convenience.
+ */
+function referencesOnlyNamedVars(value: string, step: string): boolean {
+  const named = new Set(referencedEnvVars(step));
+  return referencedEnvVars(value).every((name) => named.has(name));
+}
 
 /**
  * Case and spacing are presentation, so they are normalised away before any
@@ -123,8 +143,17 @@ export class StepRecovery {
    * step — which is also the whole of the "does not cross steps" rule.
    */
   private readonly readable: string[];
+  /**
+   * The step exactly as written, for deciding which `{{env.*}}` variables it
+   * names (design env-placeholder-must-be-named, D3). Kept alongside the
+   * normalised copy rather than derived from it: `readable` is lowercased, and
+   * environment variable names are case-sensitive, so `TOKEN` and `token` must
+   * stay distinguishable in the one place that decides which secret gets typed.
+   */
+  private readonly step: string;
 
   constructor(step: string) {
+    this.step = step;
     this.readable = [normalise(step)];
   }
 
@@ -208,11 +237,28 @@ export class StepRecovery {
     if (!SOURCED_VALUE_ACTIONS.has(action.action)) return undefined;
     const value = action.value;
     if (!value) return undefined;
-    // Checked before any comparison: substitution happens inside `performAction`,
-    // after this point, so the placeholder is all there is to see — and a masked
-    // value could match neither the step nor the page, so treating it as
-    // unsourced would refuse every authenticated test (D3).
-    if (ENV_PLACEHOLDER.test(value)) return undefined;
+    // A variable the step never names is one the test never pointed at this
+    // field, whatever else the value contains (design
+    // env-placeholder-must-be-named, D1). Checked first and separately from the
+    // exemption below, because this is the half the original design missed: it
+    // asked whether a value was a placeholder, when what makes one legitimate is
+    // whether the test asked for that secret. A model that produces a variable
+    // name nobody showed it guessed, and the guess is what gets refused.
+    if (!referencesOnlyNamedVars(value, this.step)) {
+      const named = referencedEnvVars(this.step);
+      return (
+        `refused: the value "${value}" was NOT typed, because this step does not reference that {{env.*}} ` +
+        `variable. ${named.length > 0 ? `This step references ${named.map((n) => `{{env.${n}}}`).join(', ')}.` : 'This step references no environment variable.'} ` +
+        `A placeholder is a source only when the step names it — otherwise the test never asked for that secret ` +
+        `to be typed here. Use a value this step supplies, or fail the step and say it supplies none.`
+      );
+    }
+    // Now the exemption, and only now: substitution happens inside
+    // `performAction`, after this point, so the placeholder is all there is to
+    // see — and a masked value could match neither the step nor the page, so
+    // comparing it as text would refuse every authenticated test
+    // (refuse-an-invented-value, D3).
+    if (referencedEnvVars(value).length > 0) return undefined;
     const needle = normalise(value);
     if (needle === '') return undefined;
     if (this.readable.some((source) => source.includes(needle))) return undefined;

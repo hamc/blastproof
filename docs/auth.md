@@ -91,6 +91,14 @@ prompt and is substituted at the moment of typing — the real value exists
 between the substitution and the keystroke, and never enters a page snapshot, a
 step record, a log line or a report.
 
+**A step may only use a variable it names.** The agent cannot type
+`{{env.API_TOKEN}}` into a field unless the step it is executing references
+`{{env.API_TOKEN}}`. This is enforced, not asked: a placeholder naming any other
+variable is refused and never substituted. Without it, an agent facing a step
+that supplies no value could name a variable of its own — and a secret nobody
+pointed at that field is also a secret the redaction above was never told to
+protect, since it registers the values your steps and your recipe reference.
+
 Every value your tests or auth recipe reference is redacted from everything else
 crossing into a prompt, in both literal and percent-encoded form. Redaction
 matches known values, so treat it as a strong default rather than a guarantee

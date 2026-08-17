@@ -1294,7 +1294,9 @@ describe('executeTest recovery containment', () => {
 
     await executeTest(
       page,
-      makeTest(),
+      // Names the variable it uses: a step that named none would now be refused
+      // for that instead (#66), and this test is about the unresolved record.
+      makeTest({ steps: ['sign in with {{env.PW}}'] }),
       baseOptions(brain, {
         resolveValue: (v) => v.replace('{{env.PW}}', 's3cret'),
         mask: (s) => s.replaceAll('s3cret', '***'),
@@ -1332,6 +1334,104 @@ describe('executeTest recovery containment', () => {
     expect(secondTurn?.stepHistory).toHaveLength(1);
     expect(JSON.stringify(secondTurn?.stepHistory)).not.toContain('s3cret');
     expect(secondTurn?.stepHistory?.[0]?.action).toContain('***');
+  });
+});
+
+describe('executeTest refuses a placeholder the step never named (#66)', () => {
+  const fillPw = (value: string): AgentAction => ({
+    action: 'fill',
+    target: { role: 'textbox', name: 'Password' },
+    value,
+    reasoning: 'type',
+  });
+
+  it('reproduces the adversarial case: the secret is never typed', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Password');
+    // The step names no value. Facing that, the model supplied the placeholder
+    // itself — and 0.14.0 exempted it, so the real password was typed.
+    const brain = scriptedBrain([fillPw('{{env.ACTUAL_PASSWORD}}'), { action: 'fail', reasoning: 'gave up' }], []);
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the Password field'] }),
+      baseOptions(brain, {
+        snapshot: async () => '- textbox "Password"',
+        resolveValue: (v) => v.replace('{{env.ACTUAL_PASSWORD}}', 'testpass123'),
+        onEvent: (e) => events.push(e),
+      }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(page.calls.filter((c) => c.startsWith('fill'))).toHaveLength(0);
+    expect(JSON.stringify(page.calls)).not.toContain('testpass123');
+    expect(events.filter((e) => e.type === 'action' && e.result.startsWith('refused:'))).toHaveLength(1);
+  });
+
+  it('is what keeps a substituted value always a masked value', async () => {
+    // The property the issue was really about. buildRunMask registers only the
+    // variables the config and the parsed tests reference, so a variable that is
+    // set but named by no step would be substituted and NOT redacted — reaching
+    // the model's next prompt and the run's artifacts in the clear. Verified
+    // before the fix; this pins that it cannot come back.
+    const page = new FakePage();
+    page.visible.add('role:textbox|Search');
+    const leak = (value: string): AgentAction => ({
+      action: 'fill',
+      target: { role: 'textbox', name: 'Search' },
+      value,
+      reasoning: 'type',
+    });
+    // Records what the model is actually shown, so the assertion below is about
+    // the prompt rather than about a list nobody filled.
+    const prompts: string[] = [];
+    const script: AgentAction[] = [leak('{{env.STRIPE_KEY}}'), { action: 'fail', reasoning: 'gave up' }];
+    let turn = 0;
+    const brain: AgentBrain = {
+      async nextAction(input): Promise<AgentAction> {
+        prompts.push(input.snapshot);
+        return script[turn++]!;
+      },
+      async judge(): Promise<AssertJudgment> {
+        throw new Error('no judgment expected');
+      },
+    };
+
+    await executeTest(
+      page,
+      // No step anywhere names STRIPE_KEY, so no mask would ever know its value.
+      makeTest({ steps: ['fill the search box'] }),
+      baseOptions(brain, {
+        // A text input shows what was typed into it, as a real a11y tree does.
+        snapshot: async () =>
+          `- textbox "Search" [${(page.calls.find((c) => c.startsWith('fill ')) ?? '=').split('=')[1]}]`,
+        resolveValue: (v) => v.replace('{{env.STRIPE_KEY}}', 'sk-live-abc123'),
+        onEvent: () => {},
+      }),
+    );
+
+    expect(page.calls.filter((c) => c.startsWith('fill'))).toHaveLength(0);
+    expect(JSON.stringify(prompts)).not.toContain('sk-live-abc123');
+  });
+
+  it('leaves an authenticated step that names its variable alone', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Password');
+    const brain = scriptedBrain([fillPw('{{env.TEST_PASSWORD}}'), { action: 'done', reasoning: 'typed' }], []);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the Password field with {{env.TEST_PASSWORD}}'] }),
+      baseOptions(brain, {
+        snapshot: async () => '- textbox "Password"',
+        resolveValue: (v) => v.replace('{{env.TEST_PASSWORD}}', 'sealed'),
+        mask: (t) => t.replaceAll('sealed', '***'),
+      }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(page.calls).toContain('fill role:textbox|Password=sealed');
   });
 });
 
@@ -1469,13 +1569,58 @@ describe('StepRecovery unsourced values', () => {
     expect(recovery.refusalFor(fill('#BP-1001'))).toBeUndefined();
   });
 
-  it('allows an {{env.*}} placeholder without comparing anything', () => {
+  it('allows an {{env.*}} placeholder the step names, without comparing anything', () => {
     // Substitution happens after this point, so the placeholder is all there is
     // to see — and a masked value matches neither step nor page, so treating it
     // as unsourced would refuse every authenticated test (design D3).
-    const recovery = new StepRecovery('fill the password field');
+    const recovery = new StepRecovery('fill the password field with {{env.TEST_PASSWORD}}');
     recovery.observe('- textbox "Password"');
     expect(recovery.refusalFor(fill('{{env.TEST_PASSWORD}}'))).toBeUndefined();
+  });
+
+  it('refuses a placeholder the step never named', () => {
+    // This test asserted the opposite until #66. The original read the exemption
+    // as "a placeholder is always sourced", which let a model facing a valueless
+    // step supply {{env.ACTUAL_PASSWORD}} itself — and the real password was
+    // typed into a field the test never pointed a secret at.
+    const recovery = new StepRecovery('fill the Password field');
+    recovery.observe('- textbox "Password"');
+    const refusal = recovery.refusalFor(fill('{{env.ACTUAL_PASSWORD}}'));
+    expect(refusal).toContain('refused:');
+    expect(refusal).toContain('does not reference that {{env.*}} variable');
+    // Says what the step does reference, rather than inviting another guess.
+    expect(refusal).toContain('references no environment variable');
+  });
+
+  it('compares variable names exactly, because case names a different secret', () => {
+    const recovery = new StepRecovery('fill the field with {{env.TOKEN}}');
+    expect(recovery.refusalFor(fill('{{env.TOKEN}}'))).toBeUndefined();
+    expect(recovery.refusalFor(fill('{{env.token}}'))).toBeDefined();
+  });
+
+  it('judges an embedded or spaced placeholder by the same rule as a bare one', () => {
+    // recovery.ts used to carry its own regex, which recognised neither of these
+    // while env.ts substituted both (#66, design D2). One definition now.
+    const named = new StepRecovery('send {{env.TOKEN}} as the bearer token');
+    expect(named.refusalFor(fill('Bearer {{env.TOKEN}}'))).toBeUndefined();
+    expect(named.refusalFor(fill('{{ env.TOKEN }}'))).toBeUndefined();
+
+    const unnamed = new StepRecovery('send the bearer token');
+    expect(unnamed.refusalFor(fill('Bearer {{env.TOKEN}}'))).toBeDefined();
+    expect(unnamed.refusalFor(fill('{{ env.TOKEN }}'))).toBeDefined();
+  });
+
+  it('requires every variable a value references, not just one of them', () => {
+    const recovery = new StepRecovery('sign in with {{env.USER}}');
+    expect(recovery.refusalFor(fill('{{env.USER}}'))).toBeUndefined();
+    expect(recovery.refusalFor(fill('{{env.USER}}:{{env.PASS}}'))).toBeDefined();
+  });
+
+  it('does not inherit the previous step\'s variables', () => {
+    const first = new StepRecovery('fill the password with {{env.PW}}');
+    expect(first.refusalFor(fill('{{env.PW}}'))).toBeUndefined();
+    const second = new StepRecovery('fill the confirmation field');
+    expect(second.refusalFor(fill('{{env.PW}}'))).toBeDefined();
   });
 
   it('treats case and spacing as presentation, not invention', () => {
