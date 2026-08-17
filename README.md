@@ -145,6 +145,8 @@ The agent is **forbidden from inventing values** — one it types must come from
 
 The rule used to live only in the prompt, and a prompt instructs rather than enforces. Run against a real model, `fill the note field` did not fail — the agent made a value up, filled it, and the step **passed**, producing "This is a test note." on two runs and "This is a new note" on a third. A test going green over a value nobody wrote, differing between runs, is worse than a failure.
 
+A placeholder counts as a source **only when the step names that variable**. `fill the password field with {{env.TEST_PASSWORD}}` works; `fill the password field` does not become valid because the agent supplies `{{env.SOMETHING}}` itself. An agent cannot know the name of a variable nobody showed it, so one it produces is a guess — and a guessed variable would put a live credential into a field your test never pointed one at, in output that cannot redact a secret it was never told about.
+
 Two limits worth knowing. A value the page shows in one format and the field wants in another — `1234` in the step, `1,234.00` in the box — is refused, and the fix is to write the value the way it is typed. And a very short value (`3`) appears somewhere in almost any page, so it will pass; this closes fabricated content, not every fabricated character.
 
 `run` also warns about it first — the same rule caught earlier, from the test file, on every path, before launching a browser or asking for a key:
