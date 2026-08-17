@@ -19,4 +19,18 @@
 
 ## 4. Verification
 - [x] 4.1 `npm run build`, `npm run typecheck`, `npm test` green.
-- [ ] 4.2 Against `examples/demo-app` with a real model: the reproduction from #57 — a test whose only step is `fill the note field` — is refused rather than passed, and the full shipped suite still scores as it did before. **Both halves are required.** The first proves the defect is closed; the second proves the check does not break the suites this project ships, which is the only measured evidence about false positives.
+- [x] 4.2 Against `examples/demo-app` with a real model: the reproduction from #57 — a test whose only step is `fill the note field` — is refused rather than passed, and the full shipped suite still scores as it did before. **Both halves are required.** The first proves the defect is closed; the second proves the check does not break the suites this project ships, which is the only measured evidence about false positives.
+
+  **Measured** (`anthropic/claude-haiku-4.5` via OpenRouter). The #57 reproduction — a test whose
+  only step is `fill the note field` — went from Score 100 to **Score 0**: the model proposed
+  "This is a new note", was refused, and returned `fail` with the honest reason that the step
+  supplies no value. The shipped suite scores **100** on the routes it covers, with every `fill`
+  performed untouched, because every step names its value.
+
+  Worth recording, because it cost time to tell apart: a first full-suite run scored 89 with the
+  notes test failing. The cause was neither this change nor the suite — the demo app holds its
+  notes in memory with no reset, and the reproduction runs above had left three notes behind,
+  including the invented `This is a test note.`, so a step asserting one note on file could not
+  pass. Re-run against a second, clean instance on another port, the notes test passes at 100 and
+  the `fill` is not refused. A stateful fixture makes "the check broke it" and "the previous run
+  broke it" look identical from the summary line.
