@@ -190,10 +190,17 @@ describe('the authoring rule reads the same everywhere it is stated', () => {
   });
 
   it('never claims such a step cannot be carried out', async () => {
-    // It can, and does. Measured against the real demo app with a real model:
-    // `fill the note field` was filled with an invented value three times out of
-    // three and the step passed every time. The claim shipped in 0.12.0 and is
-    // corrected here; this test exists so it cannot come back by paraphrase.
+    // The reason has changed and the guard has not. 0.12.0 claimed the step was
+    // impossible while nothing enforced the rule — measured, `fill the note
+    // field` ran three times out of three with an invented value and passed
+    // every time. `refuse-an-invented-value` now enforces it, so the claim is
+    // much closer to true — and still an overclaim, which is why this stays.
+    //
+    // The refusal is a text comparison against the step, the pages seen and
+    // `{{env.*}}`. A model that types something the page happens to contain, or
+    // a value short enough to appear anywhere (`3`), is not refused. So such a
+    // step usually fails, not always, and an absolute statement would be the
+    // same kind of unmeasured promise as the one this test was written to kill.
     const surfaces = await Promise.all(
       ['README.md', 'CHANGELOG.md', 'src/commands/run.ts', 'src/llm/prompts.ts'].map(
         async (file) => [file, await readFile(path.join(root, file), 'utf8')] as const,
@@ -204,6 +211,23 @@ describe('the authoring rule reads the same everywhere it is stated', () => {
       .map(([file]) => file);
 
     expect(offending, `these still claim the step is impossible: ${offending.join(', ')}`).toEqual([]);
+  });
+
+  it('says the rule is enforced, not merely stated, everywhere it appears', async () => {
+    // The inverse guard, and the one that would have caught this defect years
+    // earlier if it had existed: every surface describing the rule must say the
+    // runner acts on it. A surface that only tells the model not to invent is a
+    // surface describing the state #57 was filed about.
+    const surfaces = await Promise.all(
+      ['README.md', 'src/commands/run.ts', 'src/llm/prompts.ts'].map(
+        async (file) => [file, await readFile(path.join(root, file), 'utf8')] as const,
+      ),
+    );
+    const silent = surfaces
+      .filter(([, contents]) => !/refuse[sd]?\b|enforces it/.test(contents))
+      .map(([file]) => file);
+
+    expect(silent, `these state the rule without saying it is enforced: ${silent.join(', ')}`).toEqual([]);
   });
 
   it('states the English-only limit in both the README and the message', async () => {
