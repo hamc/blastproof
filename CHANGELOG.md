@@ -3,6 +3,47 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.15.0] — 2026-08-18
+
+### Fixed
+- **An `{{env.*}}` placeholder is a source only when the step names it.** 0.14.0 stopped the agent
+  typing a value it could not trace to the step, the pages it was shown, or a value it had already
+  typed — and exempted any well-formed `{{env.*}}` placeholder from that check.
+
+  The exemption is necessary: substitution happens after the check, so a placeholder is all there is
+  to see, and the masked page shows `***` where the secret is. Comparing it as text would refuse
+  every authenticated test. But it asked *is this a placeholder?* when what makes one legitimate is
+  *did the test point this secret here?* Nothing checked the second. Given `fill the Password field`
+  with no value, an adversarial run's model supplied `{{env.ACTUAL_PASSWORD}}` itself, nothing
+  refused it, and the real password was typed into a field nobody aimed a secret at.
+
+  **It also defeated the secrets mask.** The mask registers the variables your config and your tests
+  reference, and only those. A variable set in the environment but named by no step was substituted
+  *and never registered* — so it reached the model's next prompt and the run's reports unredacted.
+
+  A value may now reference only the `{{env.*}}` variables its own step references. Anything else is
+  refused, never substituted, at the same choke point and on the same retry budget:
+
+  ```
+  refused: the value "{{env.PASSWORD}}" was NOT typed, because this step does not reference that
+  {{env.*}} variable. This step references no environment variable. A placeholder is a source only
+  when the step names it …
+  ```
+
+  Names compare **exactly**: `TOKEN` and `token` are two different secrets, so unlike ordinary values
+  they are not case-folded. Scope is the step being executed — not the test, not the run, since
+  run-wide scope is what disguised this in the first place.
+
+  Verified by the adversarial pass that found it, on the unreleased build: the guessed placeholder is
+  refused and the model gives up honestly, and a full nine-test authenticated suite saw **zero**
+  refusals with every legitimate placeholder accepted. Reported by an external adversarial QA pass
+  against Actual Budget v26.8.1.
+
+### Internal
+- `runner/recovery.ts` no longer carries its own idea of what a placeholder is. It shares
+  `referencedEnvVars` with substitution and masking, closing a drift where `{{ env.X }}` and
+  `Bearer {{env.X}}` were substituted by one rule and unrecognised by the other.
+
 ## [0.14.0] — 2026-08-17
 
 ### Fixed
