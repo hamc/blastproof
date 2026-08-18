@@ -39,3 +39,19 @@
   those tests were confirmed to fail with the new condition disabled and pass with it enabled, so
   they are load-bearing rather than decorative. A live reproduction needs an application that hides
   its credentials — the Actual Budget run in #66 is that application, and its report is the evidence.
+
+  **Staged live, by an adversarial pass against Actual Budget v26.8.1** (`claude-sonnet-4.6`), on the
+  unreleased build — the application that can withhold a credential, which `examples/demo-app` cannot.
+  This is the half the demo app could not verify, and it now has evidence:
+
+  - Test 10 (`fill the Password field`, no value), run **alone** with a config referencing no
+    environment variable at all — the configuration in which the leak was unmasked. The model proposed
+    `{{env.PASSWORD}}`, a name **nothing had shown it**, which is the hypothesis this change rests on.
+    Refused, not substituted. The model then gave up in one attempt, with an honest reason: it tried
+    no other variable name and no alternate control, so the message does not read as an invitation
+    (D6 held).
+  - The full nine-test suite with an `auth:` recipe: **zero refusals**, six legitimate
+    `{{env.ACTUAL_PASSWORD}}` fills accepted and substituted. No authored step was refused anywhere.
+    That was the P0 risk — a false refusal here would break every authenticated suite, which is worse
+    than the defect being fixed.
+
