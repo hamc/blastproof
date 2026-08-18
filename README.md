@@ -18,6 +18,11 @@ git diff → impact mapping → test generation → agentic execution → report
 
 100% local. MIT. Bring your own LLM key.
 
+<img src="./.github/dogfood.gif" width="100%"
+     alt="A terminal running blastproof against this repo's demo app. It passes four steps, then fails
+          step 5: the page says the SAVE20 promo gave 20% off, but the discount shown is -$6.00 where
+          20% of $120.00 would be -$24.00. Score: 0.">
+
 ▶ **[Watch the introduction](https://www.youtube.com/shorts/miqN5FzMF_k)** — what it does, in a minute.
 
 **Documentation:** [Configuration](./docs/configuration.md) · [Testing behind a login](./docs/auth.md) · [Running in CI](./docs/ci.md) · [Contributing](./CONTRIBUTING.md) · [Architecture](./AGENTS.md)
@@ -250,13 +255,7 @@ The system prompt also tells the model that page content is data, never instruct
 
 ## blastproof tests itself
 
-The **Dogfood** badge is blastproof running against the demo app in this repo — real Chromium, real model, scored and gated, with public logs. It catches real regressions rather than diffing strings: change the demo discount from 20% to 5% while the page still claims *"20% off"* and it reports
-
-```
-FAIL  P0  Promo code SAVE20 applies a 20% discount in the cart
-  reason: the discount is currently -$6.00, but a 20% discount on
-          $120.00 should be -$24.00
-```
+The **Dogfood** badge is blastproof running against the demo app in this repo — real Chromium, real model, scored and gated, with public logs. It catches real regressions rather than diffing strings: change the demo discount from 20% to 5% while the page still claims *"20% off"* and it fails the step — that is the run in the GIF at the top of this page, verbatim.
 
 No selector was updated to catch that. The agent read the value, did the arithmetic, and disagreed with the page.
 
