@@ -69,8 +69,13 @@ function codeSpans(markdown: string): string[] {
   //
   // Raw <pre> is deliberately not handled: no document in this repository uses
   // an HTML block, and adding a parser for one would be speculative surface.
-  const fence = /(?:```|~~~)[^\n]*\n([\s\S]*?)(?:```|~~~|$)/g;
-  const fenced = [...markdown.matchAll(fence)].map(([, body]) => body ?? '');
+  // Anchored at line start, both ends. Unanchored, a fence written inline —
+  // `Shorthand: ```cmd``` ` — opens a block mid-sentence and shifts open/close
+  // pairing for the whole rest of the file, so every later block stops being
+  // scanned and nothing says so. The info string is scanned too, since an
+  // invocation left up there renders as nothing at all.
+  const fence = /^[ \t]*(?:```|~~~)([^\n]*)\n([\s\S]*?)(?:^[ \t]*(?:```|~~~)|(?![\s\S]))/gm;
+  const fenced = [...markdown.matchAll(fence)].flatMap(([, info, body]) => [info ?? '', body ?? '']);
   const prose = markdown.replace(fence, '\n');
   const indented = prose.split('\n').filter((line) => /^(?: {4,}|\t)\s*\S/.test(line));
   const inline = [...prose.matchAll(/`([^`\n]+)`/g)].map(([, body]) => body ?? '');
@@ -122,6 +127,11 @@ function commandLines(markdown: string, file: string): CommandLine[] {
     }
   }
   return lines;
+}
+
+/** Lines whose first non-blank characters open or close a fence. */
+function fenceMarkers(markdown: string): string[] {
+  return markdown.split('\n').filter((line) => /^[ \t]*(?:```|~~~)/.test(line));
 }
 
 /** Lines that mean to invoke the CLI and that the parser could not read. */
@@ -220,6 +230,17 @@ describe('the blastproof skill', () => {
       );
       expect(invocations.length).toBeGreaterThan(5);
       expect(perFile.map(rel)).toContain('skills/blastproof/SKILL.md');
+    });
+
+    it('sits in a document whose fences pair, so no block silently stops being scanned', () => {
+      // Anchoring fixes a fence opened mid-line; it does not fix one never
+      // closed, which swallows the rest of the file just as quietly. Both
+      // shapes remove coverage that already existed, which is the failure this
+      // guard has shipped with three times.
+      const odd = files
+        .filter((file) => fenceMarkers(sources.get(file) ?? '').length % 2 !== 0)
+        .map((file) => `unpaired fence marker in ${rel(file)}`);
+      expect(odd).toEqual([]);
     });
 
     it('is parsed, or the test says so — an unreadable line must not read as absent', () => {
