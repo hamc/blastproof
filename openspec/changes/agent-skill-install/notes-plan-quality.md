@@ -73,3 +73,72 @@ each step name a control and an outcome that exist on the page.
 flash-lite pricing. One route costs 15 model calls including the login journey.
 This is one tiny static app and one cheap model; it is a floor, not a figure to
 quote.
+
+---
+
+# Adversarial QA of the written skill (task 7)
+
+A separate reviewer with no context followed the skill literally against the demo
+app and tried to break it. Eight findings; six were accepted and fixed, two were
+overstated and corrected in a different direction than proposed.
+
+## The one that is a product defect, not a skill defect
+
+A step that names an action but no outcome, against a control that does not
+exist, is closed as `done` and the test passes:
+
+```
+step 2/2: enter a value in the promo code field
+    -> done :: The current page does not contain a promo code field, so this
+               step cannot be completed.
+
+PASS    P0    Score: 100
+```
+
+Reproduced independently. The model states in plain text that it could not carry
+out the step, and the runner accepts `done` anyway. The `fail` action exists and
+the model did not choose it.
+
+**This generalises the fix deferred on #72 and makes it worth more.** The rule
+under discussion there — a verification may not close on `done` having emitted no
+assertion — is the same rule this needs: *a step may not close on `done` having
+emitted no action at all*. One structural check, no semantics, covering both
+shapes. Worth a separate issue and worth reconsidering the deferral.
+
+## Corrected, rather than accepted as reported
+
+**"Unnamed controls block resolution" was wrong in our own text.** They do not
+block it — the runner falls back to matching literal text and often gets there.
+What they do is make the run expensive and unstable: 219s and 15 model calls
+against a page of `div` click handlers, versus 4–11s and 3 calls for the same
+page with real buttons, plus one element that still failed to resolve. The skill
+now states the cost, not a false absolute.
+
+**The canonical rules block was claimed to be something it is not.** It said
+"quoted verbatim … so the two copies can be compared mechanically" while
+silently omitting a planner-only rule and truncating the bolded rules to their
+lead sentence. Both omissions are deliberate and defensible; the claim around
+them was not. The text now says exactly what is quoted, what is left out, and
+what the test does and does not enforce.
+
+## Fixed in the skill
+
+- The workflow never told anyone to install Chromium — it lived only in the CLI
+  reference. On a cold machine that is the longest step in the whole setup.
+- `init` writes a fixed `base_url` and detects nothing; the skill implied
+  otherwise.
+- Step 6 gained the two failure shapes the QA reproduced: an assertion true of a
+  broken feature (a cart test asserting `-$0.00` that never adds an item), and an
+  action step with no verify clause. Both had been described only in
+  `authoring.md`, which an agent working from the workflow can skip.
+- Step 7 led with "append" and buried the idempotency rule after the code block.
+  It now checks for the marker first and verifies one block afterwards.
+- `cli.md` had `--junit <path>` and `--html <path>` as required; both are
+  optional with defaults. `--tag` is repeatable and did not say so.
+
+## Timing
+
+Server start to first green run, following the workflow: **~119s**, with an API
+key already set and Chromium already cached. Chromium's download is not in that
+number and dominates a cold machine. Curation is real work — nearly every
+non-trivial draft needed at least one correction against the live page.

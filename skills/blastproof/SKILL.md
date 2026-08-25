@@ -38,7 +38,9 @@ Look for:
 
 **Canvas and iframe are structural.** No labelling reaches inside them. Say so, do not offer a repair, and stop — scaffold nothing.
 
-**Everything else is repairable, and repairing it is the first task.** Report how many elements block resolution and offer to give them accessible names. This is a small, local, safe edit, and afterwards the application is testable. A misfit here is work, not a rejection.
+**Everything else is repairable, and repairing it is the first task.** Report how many elements lack an accessible name and offer to give them one. This is a small, local, safe edit, and a misfit here is work rather than a rejection.
+
+Be accurate about what an unnamed control costs. It does not always fail outright — the runner can fall back to matching literal text and sometimes gets there. What it does reliably is make the run expensive and unstable: measured against a page of `div` click handlers, one test took **219s and 15 model calls**, against **4–11s and 3 calls** for the same page with real `button` elements, and one element still failed to resolve. Repair it for cost and reliability, not because the page is otherwise untestable.
 
 ### 2. Choose a model provider
 
@@ -55,13 +57,21 @@ If neither is set, offer both paths and describe them accurately:
 blastproof init
 ```
 
-Then set `base_url` in `.blastproof/config.yaml` to the address the app serves on. Detect it from the project's dev server script rather than guessing.
+Then set `base_url` in `.blastproof/config.yaml` to the address the app serves on. Read it from the project's dev server script — `init` writes a fixed default and does not detect anything, so a port that happens to match is a coincidence, not a check.
 
 ```
 blastproof run --dry-run
 ```
 
 This proves the wiring — config parsed, tests discovered, routes resolved — without launching a browser or spending a model call.
+
+Then install the browser, because nothing from step 4 onward works without it:
+
+```
+npx playwright install chromium
+```
+
+Chromium is not bundled. On a cold machine this download is the longest part of the whole setup. Skipping it produces a browser-launch failure at step 4 that looks unrelated to anything the workflow just did.
 
 ### 4. Confirm fit against the running application
 
@@ -87,10 +97,13 @@ One route at a time, for the primary journeys. `--write` never overwrites an exi
 
 ### 6. Curate — this is the step that matters
 
-Read every generated step against `references/authoring.md`. Drafts routinely contain:
+Read every generated step against `references/authoring.md`. This is fact-checking against the live page, not a read-through — nearly every non-trivial draft needs at least one correction. Drafts routinely contain:
 
+- **assertions that are true of a broken feature.** The most common and the hardest to spot, because it looks specific. A generated cart test asserted `the discount is shown as -$0.00` and `the total is $0.00` — and never added an item to the cart. It passes. It would pass just as well with the discount logic deleted. Ask of every verification: *could a broken version of this feature also satisfy this sentence?*
+- **action steps with no verify clause.** `enter a value in the promo code field` on a page that has no promo code field is closed as `done` — the model reports it cannot do it, and the step passes anyway. Every action step must name the outcome that proves it happened.
 - steps that assert nothing, or whose assertion was truncated mid-sentence
 - assertions about pages the planner never looked at, invented from context
+- headings and messages quoted approximately — `"Cart"` where the page says `"Your cart"`
 - paths that do not exist, taken from the route name rather than the app
 
 Fix them, then run:
@@ -105,7 +118,9 @@ Present the test files and the result. Do not commit.
 
 The project keeps being built after this. Without a written constraint the next screens arrive as unlabelled `div`s and the suite decays into red.
 
-Append to the project's `AGENTS.md` — or `CLAUDE.md`, if that is what the project uses:
+**Check for the marker first.** If `<!-- blastproof:accessibility-contract -->` is already present, replace everything between the markers and stop — never append a second copy. Afterwards, confirm the file contains exactly one opening marker.
+
+Otherwise append to the project's `AGENTS.md` — or `CLAUDE.md`, if that is what the project uses:
 
 ```markdown
 <!-- blastproof:accessibility-contract -->
@@ -121,7 +136,7 @@ these makes its own feature untestable:
 <!-- /blastproof:accessibility-contract -->
 ```
 
-**Ask before modifying a file you did not create.** On a later run, replace the content between the markers instead of appending a second copy.
+**Ask before modifying a file you did not create.**
 
 ### 8. Seed the impact mapping
 

@@ -6,7 +6,9 @@ The measurement: an outside evaluation took **the same application, the same sui
 
 ## The canonical rules
 
-These are quoted verbatim from `plannerSystemPrompt()` in `src/llm/prompts.ts`, which is the text the runner's own planner is given. They are reproduced here rather than paraphrased so the two copies can be compared mechanically; a test fails when they disagree. Do not reword them.
+Each line below is quoted verbatim from `plannerSystemPrompt()` in `src/llm/prompts.ts`, the text the runner's own planner is given. Quoting rather than paraphrasing is what lets the two copies be compared mechanically: `tests/skill-manifest.test.ts` fails when a rule the prompt marks in bold is missing here, and when a rule quoted here is not in the prompt. **Do not reword them.**
+
+Two things this block is not. It is not the complete prompt: one rule that only makes sense to the planner — prefer the journey the changed files touch — is left out, because you are not generating from a diff. And the three bolded rules appear here as their lead sentence only; the worked examples that follow them in the prompt are unpacked below instead of inlined.
 
 <!-- canonical:rules -->
 - Write steps a human tester could follow without looking at the code. One move per step — a single action together with what it should produce, or a single check. Never two unrelated actions in one step.

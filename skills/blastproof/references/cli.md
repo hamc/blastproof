@@ -24,7 +24,7 @@ Executes tests and reports a priority-weighted score.
 
 | flag | effect |
 |---|---|
-| `--tag <tag>` | only tests carrying this tag |
+| `--tag <tag>` | only tests carrying this tag; repeatable |
 | `--priority <p>` | only tests at this priority |
 | `--query <text>` | only tests whose summary matches |
 | `--impacted` | only tests whose routes the diff touches |
@@ -32,8 +32,8 @@ Executes tests and reports a priority-weighted score.
 | `--url <url>` | override `base_url` for this run; the config file is untouched |
 | `--dry-run` | resolve selection and print it; no browser, no model call |
 | `--min-score <n>` | exit 1 below this score |
-| `--junit <path>` | write a JUnit report |
-| `--html <path>` | write an HTML report |
+| `--junit [path]` | write a JUnit report; the path is optional and defaults to `.blastproof/reports/<session>/junit.xml` |
+| `--html [path]` | write a self-contained HTML report; the path is optional and defaults to `.blastproof/reports/<session>/report.html` |
 | `--fail-on-unmapped` | exit 1 when a changed file matches neither `routes:` nor `ignore:` |
 | `--fail-on-authoring` | turn authoring warnings into exit 1 |
 | `--concurrency <n>` | tests in parallel; **default 1, and raising it is a decision for whoever knows the suite** — these are journeys against one running app, so two tests that write to it can see each other's data |
@@ -70,7 +70,7 @@ Diff to verdict in one command: plan for affected routes, then run.
 | `--url <url>` | override `base_url` for this run |
 | `--write` | persist generated drafts |
 | `--min-score <n>` | exit 1 below this score |
-| `--junit <path>` `--html <path>` | reports |
+| `--junit [path]` `--html [path]` | reports; both paths are optional and default under `.blastproof/reports/` |
 | `--fail-on-unmapped` | exit 1 on an unclassified changed file |
 | `--fail-on-authoring` | turn authoring warnings into exit 1 |
 | `--max-llm-calls <n>` `--max-tokens <n>` `--max-duration <seconds>` | budget, as above |

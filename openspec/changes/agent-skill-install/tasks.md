@@ -52,14 +52,15 @@
 
 ## 7. End-to-end check
 
-- [ ] 7.1 Install the skill into a scratch copy of `examples/demo-app` with `npx skills add`, follow it from an agent, and record the wall-clock time from install to a passing test
-- [ ] 7.2 Repeat the fit gate against a page with unlabelled controls and confirm the skill offers the repair, applies it, and then passes the re-check
-- [ ] 7.2a Repeat against a canvas-based page and confirm it stops before scaffolding, with evidence and no repair attempt
-- [ ] 7.2b Change a file under `src/` with no `routes:` entry, run `--fail-on-unmapped`, and confirm the skill maps it rather than adding it to `ignore:`
-- [ ] 7.3 Run the skill twice in the same project and confirm the accessibility block is updated, not duplicated
+- [x] 7.1 Follow the skill from a separate agent with no context, against a scratch copy of `examples/demo-app`, and record the wall-clock time from install to a passing test — **~119s**, with a key already set and Chromium already cached; the browser download is not in that number and dominates a cold machine
+- [x] 7.2 Repeat the fit gate against a page with unlabelled controls and confirm the skill offers the repair, applies it, and then passes the re-check
+- [x] 7.2a Repeat against a canvas-based page and confirm it stops before scaffolding, with evidence and no repair attempt
+- [ ] 7.2b Change a file under `src/` with no `routes:` entry, run `--fail-on-unmapped`, and confirm the skill maps it rather than adding it to `ignore:` — **not exercised**; the adversarial pass covered fit, curation, idempotency and the CLI claims, and left the `ignore:` discipline (D10) untested
+- [x] 7.4 Adversarial pass: eight findings, six fixed in the skill, two corrected in a different direction than reported, one escalated as a product defect. See `notes-plan-quality.md`
+- [x] 7.3 Run the skill twice in the same project and confirm the accessibility block is updated, not duplicated
 
 ## 8. Verification
 
-- [ ] 8.1 `npm run build`
-- [ ] 8.2 `npm run typecheck`
-- [ ] 8.3 `npm test` — including the new `skill-manifest` test
+- [x] 8.1 `npm run build`
+- [x] 8.2 `npm run typecheck`
+- [x] 8.3 `npm test` — including the new `skill-manifest` test
