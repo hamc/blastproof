@@ -61,11 +61,24 @@ async function optionsOf(command: string): Promise<string[]> {
  * while seeing none of the fenced lines an agent actually executes.
  */
 function codeSpans(markdown: string): string[] {
-  const fence = /```[a-z]*\n([\s\S]*?)```/g;
+  // Any info string, not just a bare lowercase one: ```bash title="x" renders
+  // as code and hid a whole block from an earlier version of this check.
+  const fence = /```[^\n]*\n([\s\S]*?)```/g;
   const fenced = [...markdown.matchAll(fence)].map(([, body]) => body ?? '');
   const prose = markdown.replace(fence, '\n');
+  // Four-space indentation is a code block too, with no fence to key on.
+  const indented = prose.split('\n').filter((line) => / {4,}\S/.test(line) && /^ /.test(line));
   const inline = [...prose.matchAll(/`([^`\n]+)`/g)].map(([, body]) => body ?? '');
-  return [...fenced, ...inline];
+  return [...fenced, ...indented, ...inline];
+}
+
+/**
+ * A shell line continued with a trailing backslash is one command. Left
+ * unfolded, its later lines carry flags that belong to the command on the
+ * first line while looking like nothing at all.
+ */
+function foldContinuations(span: string): string {
+  return span.replace(/\\\n\s*/g, ' ');
 }
 
 /**
@@ -90,7 +103,7 @@ const LOOKS_LIKE_INVOCATION = /blastproof(?:@\S+)?\s+\S/;
 function commandLines(markdown: string, file: string): CommandLine[] {
   const lines: CommandLine[] = [];
   for (const span of codeSpans(markdown)) {
-    for (const line of span.split('\n')) {
+    for (const line of foldContinuations(span).split('\n')) {
       const match = INVOCATION.exec(line);
       if (match === null) continue;
       lines.push({
@@ -106,7 +119,7 @@ function commandLines(markdown: string, file: string): CommandLine[] {
 /** Lines that mean to invoke the CLI and that the parser could not read. */
 function unparsedInvocations(markdown: string): string[] {
   return codeSpans(markdown)
-    .flatMap((span) => span.split('\n'))
+    .flatMap((span) => foldContinuations(span).split('\n'))
     .filter((line) => LOOKS_LIKE_INVOCATION.test(line) && INVOCATION.exec(line) === null);
 }
 

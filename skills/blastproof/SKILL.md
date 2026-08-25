@@ -60,7 +60,7 @@ blastproof init
 `init` writes fixed defaults and detects nothing, so three edits to `.blastproof/config.yaml` are always required:
 
 - **`base_url`** — the address the app serves on, read from the project's dev server script. A port that happens to match the default is a coincidence, not a check.
-- **`routes:`** — delete the scaffolded entries. They map `src/auth/**` and `src/cart/**`, which are examples from someone else's project, and leaving them makes the impact mapping in step 8 report on globs nobody chose.
+- **`routes:`** — remove the whole block, **including the `routes:` key itself**. It maps `src/auth/**` and `src/cart/**`, examples from somebody else's project, and leaving them makes step 8 report on globs nobody chose. Removing only the entries leaves the key with no value, which fails config validation and exits 2.
 - **`llm.provider` and `llm.api_key_env`** — set to whatever step 2 chose. `init` writes `provider: anthropic` and `api_key_env: ANTHROPIC_API_KEY`; leaving that in place on a machine holding only `OPENAI_API_KEY` fails at step 4 with a missing-key error, at the moment the workflow is trying to show the tool works. For OpenAI, `provider: openai` and `api_key_env: OPENAI_API_KEY`. For a local model, `provider: ollama` and no key at all.
 
 ```
@@ -69,7 +69,7 @@ blastproof run --dry-run
 
 This proves the wiring — config parsed, tests discovered, routes resolved — without launching a browser or spending a model call.
 
-It also prints a **route drift** warning to stderr, because the scaffolded sample test declares `/` and no mapping covers it. That is expected here and step 8 resolves it. Do not treat it as a broken setup, and do not fix it now by inventing a mapping.
+No route-drift warning appears at this point, and its absence is not a signal: the check is skipped entirely while `routes:` declares nothing. It becomes live in step 8, where a mapping exists and a test can then declare a route the mapping does not cover.
 
 Then install the browser, because nothing from step 4 onward works without it:
 
