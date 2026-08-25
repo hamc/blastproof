@@ -27,6 +27,20 @@ git diff → impact mapping → test generation → agentic execution → report
 
 **Documentation:** [Configuration](./docs/configuration.md) · [Testing behind a login](./docs/auth.md) · [Running in CI](./docs/ci.md) · [Contributing](./CONTRIBUTING.md) · [Architecture](./AGENTS.md)
 
+## Set it up with your coding agent
+
+Most of what the setup asks — which stack, which port, which journeys matter — is a question your coding agent can already answer by looking at your project. So let it answer them:
+
+```bash
+npx skills add hamc/blastproof
+```
+
+Then tell your agent: **"set up e2e tests"**. The skill installs for whichever agents you have — Claude Code, Cursor, Codex and others — and walks the whole path: check whether your markup is reachable at all, pick a provider, scaffold, generate drafts from your *running* app, curate them, run them, and write down the accessibility constraints that keep the suite alive as the project grows.
+
+Two things it deliberately will not do, so their absence does not read as a defect: it does not configure [authentication](./docs/auth.md), and it does not wire up [CI](./docs/ci.md). Both are worth doing after you have seen a green run on your own machine.
+
+The skill lives in [`skills/blastproof/`](./skills/blastproof/) and is worth reading even if you never install it. [`references/authoring.md`](./skills/blastproof/references/authoring.md) sets out what separates a test that detects something from one that reports Score 100 and detects nothing — including two drafts this tool generated that passed unedited and were worth nothing.
+
 ## Quick start
 
 ```bash
