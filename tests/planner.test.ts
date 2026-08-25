@@ -259,6 +259,38 @@ describe('writeDraft', () => {
     );
     await expect(readFile(existing, 'utf8')).resolves.toContain('do not clobber me');
   });
+
+  it('creates the tests directory if it does not exist', async () => {
+    // dir is created by beforeEach, but not .blastproof/tests
+    const freshDir = await mkdtemp(path.join(tmpdir(), 'blastproof-write-fresh-'));
+    try {
+      const draft: TestDraft = { ...DRAFT, routes: ['/cart/discount'] };
+      const file = await writeDraft(freshDir, draft, { route: '/cart/discount', base: 'main' });
+      
+      expect(path.relative(freshDir, file)).toBe(path.join('.blastproof', 'tests', 'cart-discount.yaml'));
+      const parsed = await parseTestFile(file);
+      expect(parsed.routes).toEqual(['/cart/discount']);
+    } finally {
+      await rm(freshDir, { recursive: true, force: true });
+    }
+  });
+
+  it('wraps filesystem errors in PlannerError with path and remedy', async () => {
+    const freshDir = await mkdtemp(path.join(tmpdir(), 'blastproof-write-fail-'));
+    try {
+      // Create a file where the directory should be
+      const testsDir = path.join(freshDir, '.blastproof', 'tests');
+      await mkdir(path.join(freshDir, '.blastproof'));
+      await writeFile(testsDir, 'not a directory');
+
+      const draft: TestDraft = { ...DRAFT, routes: ['/cart'] };
+      await expect(writeDraft(freshDir, draft, { route: '/cart', base: 'main' })).rejects.toThrow(
+        /Cannot write draft to .*cart.yaml.*Check that .*tests is a directory you can write to, not a file./
+      );
+    } finally {
+      await rm(freshDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('coveredRoutes', () => {
