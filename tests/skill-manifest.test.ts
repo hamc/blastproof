@@ -61,13 +61,18 @@ async function optionsOf(command: string): Promise<string[]> {
  * while seeing none of the fenced lines an agent actually executes.
  */
 function codeSpans(markdown: string): string[] {
-  // Any info string, not just a bare lowercase one: ```bash title="x" renders
-  // as code and hid a whole block from an earlier version of this check.
-  const fence = /```[^\n]*\n([\s\S]*?)```/g;
+  // Every CommonMark spelling of a code block, because each one that is missed
+  // is invisible rather than merely unparsed — and an invisible line does not
+  // reach the by-name failure below either. Backticks and tildes fence; any
+  // info string; an unterminated fence runs to the end of the file; and
+  // indentation is four spaces or a tab.
+  //
+  // Raw <pre> is deliberately not handled: no document in this repository uses
+  // an HTML block, and adding a parser for one would be speculative surface.
+  const fence = /(?:```|~~~)[^\n]*\n([\s\S]*?)(?:```|~~~|$)/g;
   const fenced = [...markdown.matchAll(fence)].map(([, body]) => body ?? '');
   const prose = markdown.replace(fence, '\n');
-  // Four-space indentation is a code block too, with no fence to key on.
-  const indented = prose.split('\n').filter((line) => / {4,}\S/.test(line) && /^ /.test(line));
+  const indented = prose.split('\n').filter((line) => /^(?: {4,}|\t)\s*\S/.test(line));
   const inline = [...prose.matchAll(/`([^`\n]+)`/g)].map(([, body]) => body ?? '');
   return [...fenced, ...indented, ...inline];
 }
@@ -109,7 +114,10 @@ function commandLines(markdown: string, file: string): CommandLine[] {
       lines.push({
         file,
         command: match[1] ?? '',
-        flags: [...(match[2] ?? '').matchAll(/(--[a-z0-9-]+)/g)].map(([, flag]) => flag ?? ''),
+        // Case-insensitive on purpose: the CLI declares only lowercase flags,
+        // so `--Bogus-Flag` must be captured in order to be rejected. Matching
+        // lowercase only meant it was never seen at all.
+        flags: [...(match[2] ?? '').matchAll(/(--[A-Za-z0-9-]+)/g)].map(([, flag]) => flag ?? ''),
       });
     }
   }
@@ -126,7 +134,7 @@ function unparsedInvocations(markdown: string): string[] {
 /** Every flag the document names anywhere it presents as code. */
 function namedFlags(markdown: string): string[] {
   return codeSpans(markdown).flatMap((span) =>
-    [...span.matchAll(/(--[a-z0-9-]+)/g)].map(([, flag]) => flag ?? ''),
+    [...span.matchAll(/(--[A-Za-z0-9-]+)/g)].map(([, flag]) => flag ?? ''),
   );
 }
 
