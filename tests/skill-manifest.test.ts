@@ -175,6 +175,7 @@ describe('the blastproof skill', () => {
   let files: string[];
   let sources: Map<string, string>;
   let canonical: string[];
+  let canonicalBody: string;
   let flagsOf: Map<string, Set<string>>;
   let allFlags: Set<string>;
 
@@ -198,10 +199,8 @@ describe('the blastproof skill', () => {
       start >= 0 && end > start,
       `${CANONICAL_OPEN} … ${CANONICAL_CLOSE} must fence the quoted rules in authoring.md`,
     ).toBe(true);
-    canonical = authoring
-      .slice(start + CANONICAL_OPEN.length, end)
-      .split('\n')
-      .filter((line) => line.startsWith('- '));
+    canonicalBody = authoring.slice(start + CANONICAL_OPEN.length, end);
+    canonical = canonicalBody.split('\n').filter((line) => line.startsWith('- '));
     flagsOf = new Map(
       await Promise.all(
         COMMANDS.map(
@@ -346,6 +345,19 @@ describe('the blastproof skill', () => {
       expect(expected.length, 'no rule found in the prompt — the pattern stopped matching').toBeGreaterThan(0);
       expect(canonical.length, 'the canonical block is empty').toBeGreaterThan(0);
       expect([...canonical].sort()).toEqual([...expected].sort());
+    });
+
+    it('holds nothing but those rules — no note, no exception, no sub-bullet', () => {
+      // Set equality compares the lines that start with `- ` and discards the
+      // rest, so anything else between the markers rides along unread. The
+      // block sits four lines under "copied character for character … do not
+      // edit them", which is what makes an exception planted here worse than
+      // one written anywhere else: it reads as canon and is enforced by
+      // nothing. Same threat as a second marker pair, inside the first.
+      const stray = canonicalBody
+        .split('\n')
+        .filter((line) => line.trim() !== '' && !line.startsWith('- '));
+      expect(stray).toEqual([]);
     });
 
     it('omits the planner-only rule, and says which one it is', () => {
