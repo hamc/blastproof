@@ -36,12 +36,13 @@
 
 ## 5. Drift guard
 
-- [ ] 5.1 `tests/skill-manifest.test.ts` — extract every `blastproof <command>` and `--flag` named in `skills/blastproof/**/*.md`, assert each command exists and each flag appears in that command's `--help`, matching on a word boundary so `--min-scores` cannot pass as `--min-score` (design D8, mirroring `tests/action-manifest.test.ts`)
-- [ ] 5.1a Anchor the command pattern on backticked `` `blastproof <cmd>` ``, not bare prose. A first pass over the written skill matched `blastproof runs`, `blastproof reaches` and `blastproof repository` as commands — the loose-match failure #30 was fixed for
-- [ ] 5.2 Same test — extract the **bolded** rules from `plannerSystemPrompt()`, which is what the prompt marks as load-bearing and is exactly the set that is universal rather than planner-only and assert each appears verbatim in `references/authoring.md`, so a rule added to the prompt fails until the skill carries it (design D8)
-- [ ] 5.3 Same test, reverse direction — assert the skill quotes no canonical rule the prompt does not state, so it cannot teach a rule the tool does not enforce
-- [ ] 5.4 Assert both extractions found something, so a regex that stops matching cannot pass as a clean run
-- [ ] 5.5 Verify the test fails, four ways: rename a flag in `references/cli.md`; add a rule to the prompt; reword a quoted rule in the skill; invent a rule in the skill. Each failure must name what disagreed and the file that says it
+- [x] 5.1 `tests/skill-manifest.test.ts` — extract every `blastproof <command>` and `--flag` named in `skills/blastproof/**/*.md`, assert each command exists and each flag appears in that command's `--help`, matching on a word boundary so `--min-scores` cannot pass as `--min-score` (design D8, mirroring `tests/action-manifest.test.ts`)
+- [x] 5.1a Anchor the command pattern on backticked `` `blastproof <cmd>` ``, not bare prose. A first pass over the written skill matched `blastproof runs`, `blastproof reaches` and `blastproof repository` as commands — the loose-match failure #30 was fixed for
+- [x] 5.2 Same test — extract the **bolded** rules from `plannerSystemPrompt()`, which is what the prompt marks as load-bearing and is exactly the set that is universal rather than planner-only and assert each appears verbatim in `references/authoring.md`, so a rule added to the prompt fails until the skill carries it (design D8)
+- [x] 5.3 Same test, reverse direction — assert the skill quotes no canonical rule the prompt does not state, so it cannot teach a rule the tool does not enforce
+- [x] 5.4 Assert both extractions found something, so a regex that stops matching cannot pass as a clean run
+- [x] 5.5 Verify the test fails, four ways: rename a flag in `references/cli.md`; add a rule to the prompt; reword a quoted rule in the skill; invent a rule in the skill. Each failure must name what disagreed and the file that says it
+- [x] 5.6 A fifth mutation, for the per-command check: document a real flag under the wrong command. The union check waves it through — `--tag` exists, just not on `plan` — so this is the assertion that earns its place
 
 ## 6. Repo surface
 
