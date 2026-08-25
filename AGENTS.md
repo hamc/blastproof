@@ -33,7 +33,7 @@ Pipeline: `git diff → impact mapping → test generation → agentic execution
 - **LLM**: Vercel AI SDK (`generateObject` + Zod schemas) — providers: Anthropic, OpenAI, Ollama (OpenAI-compatible)
 - **CLI**: commander · **Config/tests**: `yaml` · **Git**: simple-git · **Build**: tsup · **Tests**: vitest
 - **SDD**: OpenSpec (`openspec/` + slash commands `/opsx:*`)
-- **Distribution**: published to npm as `blastproof`; the consumable composite action is `action.yml` at the repository root
+- **Distribution**: published to npm as `blastproof`; the consumable composite action is `action.yml` at the repository root; the agent skill is `skills/blastproof/`, installed straight from this repository by `skills add` and never shipped in the npm tarball (`files` is `["dist"]`)
 
 ## Target architecture (`src/`)
 
@@ -77,6 +77,7 @@ src/
 - **Test files** (the product's, not ours): `.blastproof/tests/**/*.yaml` — fields `summary` (required), `steps` (required, plain English), `priority` (P0–P2), `tags`, `routes`, optional `setup`, `auth` (default true; a login test must set `false`), `{{env.VAR}}` placeholders for secrets
 - **Config**: `.blastproof/config.yaml` — `base_url`, `llm.{provider,model,api_key_env}`, `browser`, `routes` (glob→URLs impact hints), `ignore`, `allowed_origins`, `max_retries_per_step`, `budget`, `concurrency` (default 1, opt-in — see below), optional `auth` recipe (one of `steps` | `storage_state` | `headers`/`cookies`, plus optional `verify` and `cache`). Overridable from the environment via `BLASTPROOF_*`
 - No static selectors anywhere in generated tests or runner state — resolution is always live via accessibility tree
+- **`skills/` is user-facing content, held to the same drift guard as `action.yml`.** `skills/blastproof/**` is installed into other people's projects by `skills add` and read by their coding agent, so a stale flag name there is not a confusing sentence someone reports — it is confident wrong instructions a machine follows without complaint. `tests/skill-manifest.test.ts` fails when the skill names a command or flag the CLI does not declare, when it documents a flag under the wrong command, or when its quoted authoring rules stop matching `plannerSystemPrompt()` in either direction. The rules are **quoted verbatim rather than restated** for exactly that reason: a paraphrase cannot be compared mechanically. This bounds the duplication #45 describes without resolving it — collapsing the copies to one generated source is the real fix and needs its own proposal
 - `npm run typecheck` covers `tests/` as well as `src/` (`tsconfig.typecheck.json`). Vitest transpiles with esbuild, which strips type annotations without checking them, so a test asserting on a field that does not exist reads `undefined` — and the negative forms (`toBeUndefined`, `not.toBe`) pass silently rather than failing. `tsconfig.json` stays `src`-only because it carries the build's `rootDir`
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:` …), one-line subject
 - Secrets never enter a prompt: `{{env.*}}` placeholders survive to action time and are substituted immediately before use. Values are also masked in reports.

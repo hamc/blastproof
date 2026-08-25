@@ -46,9 +46,9 @@
 
 ## 6. Repo surface
 
-- [ ] 6.1 `README.md` — install line `npx skills add hamc/blastproof` and a short section on the agent path, placed before the manual quick start
-- [ ] 6.2 `README.md` — state that the skill will not configure auth or CI, so the omission does not read as a defect
-- [ ] 6.3 `AGENTS.md` — record that `skills/` is user-facing content held to the same drift guard as `action.yml`
+- [x] 6.1 `README.md` — install line `npx skills add hamc/blastproof` and a short section on the agent path, placed before the manual quick start
+- [x] 6.2 `README.md` — state that the skill will not configure auth or CI, so the omission does not read as a defect
+- [x] 6.3 `AGENTS.md` — record that `skills/` is user-facing content held to the same drift guard as `action.yml`
 
 ## 7. End-to-end check
 
