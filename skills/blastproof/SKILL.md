@@ -57,7 +57,10 @@ If neither is set, offer both paths and describe them accurately:
 blastproof init
 ```
 
-Then set `base_url` in `.blastproof/config.yaml` to the address the app serves on. Read it from the project's dev server script — `init` writes a fixed default and does not detect anything, so a port that happens to match is a coincidence, not a check.
+`init` writes a fixed `base_url` and a fixed provider. It detects nothing, so two edits to `.blastproof/config.yaml` are always required:
+
+- **`base_url`** — the address the app serves on, read from the project's dev server script. A port that happens to match the default is a coincidence, not a check.
+- **`llm.provider` and `llm.api_key_env`** — set to whatever step 2 chose. `init` writes `provider: anthropic` and `api_key_env: ANTHROPIC_API_KEY`; leaving that in place on a machine holding only `OPENAI_API_KEY` fails at step 4 with a missing-key error, at the moment the workflow is trying to show the tool works. For OpenAI, `provider: openai` and `api_key_env: OPENAI_API_KEY`. For a local model, `provider: ollama` and no key at all.
 
 ```
 blastproof run --dry-run
@@ -106,6 +109,8 @@ Read every generated step against `references/authoring.md`. This is fact-checki
 - headings and messages quoted approximately — `"Cart"` where the page says `"Your cart"`
 - paths that do not exist, taken from the route name rather than the app
 
+Curate `app-load.yaml` too, or delete it. `init` scaffolds it with a single step — `verify the home page loads and shows a heading` — which is exactly the shape this reference calls worthless: a broken home page with any heading at all satisfies it. It is P1, so it weighs 2 in the score you are about to present.
+
 Fix them, then run:
 
 ```
@@ -118,7 +123,7 @@ Present the test files and the result. Do not commit.
 
 The project keeps being built after this. Without a written constraint the next screens arrive as unlabelled `div`s and the suite decays into red.
 
-**Check for the marker first.** If `<!-- blastproof:accessibility-contract -->` is already present, replace everything between the markers and stop — never append a second copy. Afterwards, confirm the file contains exactly one opening marker.
+**Check for the marker first.** If `<!-- blastproof:accessibility-contract -->` is already present, replace everything between the markers and do not append. Either way, confirm afterwards that the file contains exactly one opening marker.
 
 Otherwise append to the project's `AGENTS.md` — or `CLAUDE.md`, if that is what the project uses:
 
@@ -140,12 +145,20 @@ these makes its own feature untestable:
 
 ### 8. Seed the impact mapping
 
-Add the routes the tests cover to `routes:` in `.blastproof/config.yaml`. Read `references/mapping.md` first — `ignore:` has a boundary that matters, and getting it wrong silences the check permanently.
+Add the routes the tests cover to `routes:` in `.blastproof/config.yaml`, then close the loop:
+
+```
+blastproof run --impacted --fail-on-unmapped --dry-run
+```
+
+That reports every changed file no glob classifies. It needs no browser and no key, and `--fail-on-unmapped` has no effect without `--impacted`.
+
+Read `references/mapping.md` before answering what it reports. `ignore:` has a boundary that matters, and the cheapest way to make this check green is the one that silences it permanently.
 
 ### 9. Hand off
 
 Name what was deliberately left undone:
 
-- Routes behind a login are untested. Authentication is configured by hand — `docs/auth.md`.
-- No CI is wired up — `docs/ci.md`.
+- Routes behind a login are untested. Authentication is configured by hand — <https://github.com/hamc/blastproof/blob/main/docs/auth.md>.
+- No CI is wired up — <https://github.com/hamc/blastproof/blob/main/docs/ci.md>.
 - Any route the scan found that no test covers yet.

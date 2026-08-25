@@ -25,16 +25,16 @@ Executes tests and reports a priority-weighted score.
 | flag | effect |
 |---|---|
 | `--tag <tag>` | only tests carrying this tag; repeatable |
-| `--priority <p>` | only tests at this priority |
+| `--priority <p>` | only tests at this priority — `P0`, `P1` or `P2` |
 | `--query <text>` | only tests whose summary matches |
 | `--impacted` | only tests whose routes the diff touches |
-| `--base <ref>` | git ref the diff is taken against |
+| `--base <ref>` | git ref the diff is taken against; defaults to `main`, so a repository whose trunk is `master` must pass it |
 | `--url <url>` | override `base_url` for this run; the config file is untouched |
 | `--dry-run` | resolve selection and print it; no browser, no model call |
-| `--min-score <n>` | exit 1 below this score |
+| `--min-score <n>` | exit 1 below this score; 0–100 |
 | `--junit [path]` | write a JUnit report; the path is optional and defaults to `.blastproof/reports/<session>/junit.xml` |
 | `--html [path]` | write a self-contained HTML report; the path is optional and defaults to `.blastproof/reports/<session>/report.html` |
-| `--fail-on-unmapped` | exit 1 when a changed file matches neither `routes:` nor `ignore:` |
+| `--fail-on-unmapped` | exit 1 when a changed file matches neither `routes:` nor `ignore:`. **Requires `--impacted`** — without it the run exits 2 |
 | `--fail-on-authoring` | turn authoring warnings into exit 1 |
 | `--concurrency <n>` | tests in parallel; **default 1, and raising it is a decision for whoever knows the suite** — these are journeys against one running app, so two tests that write to it can see each other's data |
 | `--max-llm-calls <n>` | stop after this many model calls, reported as incomplete |
@@ -48,7 +48,7 @@ Generates plain-English YAML drafts for routes, reading the rendered accessibili
 | flag | effect |
 |---|---|
 | `--route <route>` | generate for this route, bypassing the diff; repeatable |
-| `--base <ref>` | git ref the diff is taken against |
+| `--base <ref>` | git ref the diff is taken against; defaults to `main`, so a repository whose trunk is `master` must pass it |
 | `--url <url>` | override `base_url` for this run |
 | `--write` | persist drafts under `.blastproof/tests/` instead of previewing |
 | `--dry-run` | print which routes would generate drafts; no browser, no model call |
@@ -66,10 +66,10 @@ Diff to verdict in one command: plan for affected routes, then run.
 
 | flag | effect |
 |---|---|
-| `--base <ref>` | git ref the diff is taken against |
+| `--base <ref>` | git ref the diff is taken against; defaults to `main`, so a repository whose trunk is `master` must pass it |
 | `--url <url>` | override `base_url` for this run |
 | `--write` | persist generated drafts |
-| `--min-score <n>` | exit 1 below this score |
+| `--min-score <n>` | exit 1 below this score; 0–100 |
 | `--junit [path]` `--html [path]` | reports; both paths are optional and default under `.blastproof/reports/` |
 | `--fail-on-unmapped` | exit 1 on an unclassified changed file |
 | `--fail-on-authoring` | turn authoring warnings into exit 1 |
@@ -78,6 +78,8 @@ Diff to verdict in one command: plan for affected routes, then run.
 ## Score and exit codes
 
 Each test contributes its priority weight: **P0 = 3, P1 = 2, P2 = 1.** The score is the percentage of available weight that passed, so failing one P0 costs more than failing one P2.
+
+Two properties of that number matter before quoting it. Only **executed** tests count — a test that never ran is not in the denominator rather than being a zero. And **an empty selection scores 100**, printed as `Score: 100 (no tests executed)`. A filter that matches nothing therefore produces the most reassuring number the tool can print.
 
 | code | meaning |
 |---|---|

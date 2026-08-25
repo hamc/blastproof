@@ -65,11 +65,11 @@ The `description` gets the triggers that actually name this tool and the task �
 ### D8: A test keeps the skill from drifting, on both kinds of claim it makes
 The skill makes two kinds of claim, and both can go stale without anyone noticing, because the reader is a machine that will not report a contradiction.
 
-**The CLI's surface.** `tests/action-manifest.test.ts` already asserts that every flag `action.yml` sends is a flag the CLI declares. The skill is the same class of artifact — a file outside `src/` describing that surface — so it gets the same guard: every `blastproof <command>` and `--flag` named anywhere under `skills/` must appear in that command's `--help`.
+**The CLI's surface.** `tests/action-manifest.test.ts` already asserts that every flag `action.yml` sends is a flag the CLI declares. The skill is the same class of artifact — a file outside `src/` describing that surface — so it gets the same guard: in every fenced block and inline span under `skills/` — never in prose — a `blastproof <command>` must be a command the CLI has, and the flags on that line must be ones that command declares.
 
 **The authoring rules.** These already exist in two hand-maintained copies (`plannerSystemPrompt` in `src/llm/prompts.ts` and the README's *Writing tests*), they have drifted once, and nothing fails when they disagree. A third copy written freehand would make that worse, and it is the copy that reaches the agents writing most of the tests.
 
-So the skill does not paraphrase the rules — it quotes the prompt's sentences verbatim, and the test asserts every rule the prompt marks as load-bearing appears in the skill. The direction is deliberate: adding a rule to the prompt then fails until the skill carries it, which is the failure worth having. The reverse direction is checked too, so the skill cannot teach a rule the tool does not enforce.
+So the skill does not paraphrase the rules — it copies the prompt's rule lines whole, and the test asserts the two sets are **equal**, one named planner-only rule aside. Set equality rather than containment is deliberate: a containment check in either direction lets a rule be truncated to a prefix and still pass, and a check keyed on the prompt's bold markers lets a rule be un-bolded quietly out of coverage. Equality has neither hole, and it fails on a rule added to the prompt, dropped from the skill, or reworded on either side.
 
 Quoting rather than restating was chosen over prose written for the agent's benefit. The README already restates them in a human's words and that is right for a human; an agent gains nothing from a second phrasing and loses the one property that makes the copy checkable.
 
@@ -89,8 +89,33 @@ The second half is ordering. The mapping is written in the same change as the co
 
 Enforcing this in the runner — warning when `ignore:` gains a path under a source directory — was considered and left out. It is a change to `src/` in a content-only slice, and it deserves its own proposal with its own thought about false positives.
 
+## Rejected alternatives
+
+- **A `blastproof init --agent` subcommand** — puts guidance behind a release cycle and duplicates a per-agent install table the `skills` CLI already maintains (D1)
+- **A separate skills repository** — guarantees silent drift from the CLI it documents (D1)
+- **Stopping on every misfit** — throws away the agent standing right there who can add the accessible names (D2)
+- **Offering a repair for every misfit** — a canvas cannot be labelled into reachability, and trying spends the user's key to arrive where it started (D2)
+- **Configuring first, letting the first run fail** — surfaces as red tests, which reads as a broken tool rather than an unreachable application (D2)
+- **One large `SKILL.md`** — loaded on every turn its description matches, most of which need one line of it (D7)
+- **A keyword-stuffed `description`** — buys triggering at the cost of firing on unrelated work, which teaches the user to uninstall it (D7)
+- **Paraphrasing the authoring rules for the agent's benefit** — a paraphrase cannot be compared mechanically, which is the only property that keeps a third copy honest (D8)
+- **Warning in the runner when `ignore:` gains a source path** — a change to `src/` inside a content-only slice; needs its own proposal and its own thought about false positives (D10)
+
 ## Risks / Trade-offs
 
 - **The skill is prose, and prose about a moving CLI rots.** D8 covers the flags and the authoring rules, which are the claims that break loudly. Wording around them — the workflow's ordering, the fit heuristics, what the skill says about providers — is not covered and needs a human reading it at release time.
-- **`plan` quality decides whether the install delights or disappoints.** The skill's value rests on drafts being worth curating. If they are not, the fastest path is worse than the manual one and the skill amplifies the defect. Measuring `plan` against `examples/demo-app` is part of the task list for that reason.
+- **`plan` quality decides whether the install delights or disappoints.** Measured (task 1, `notes-plan-quality.md`): drafts are worth curating, but only because step 6 exists. Of three drafts, one was truncated mid-sentence, asserted nothing, ran unedited and scored 100; another asserted a cart total on a cart nothing had been added to. Both passed. The risk is therefore not that drafts are useless — it is that they are plausible, and that the run's own verdict cannot tell you which kind you have.
 - **A second agent-facing instruction file in user projects.** D6 writes into `AGENTS.md`, which the project may already be using heavily. Appending a marked block, asking first, and keeping it to four lines is the mitigation.
+
+## Migration Plan
+
+Nothing to migrate. The change adds files and breaks no existing surface: `skills/` is new, `package.json` is untouched so the npm tarball is unchanged, and no `src/` behaviour moves. A user who never runs `skills add` sees only a new README section.
+
+Rollback is deleting `skills/`, `tests/skill-manifest.test.ts` and the two documentation sections. The skill carries no state and installs into the user's project by copy or symlink, so an installed copy keeps working after a rollback here and is removed by the same tool that installed it.
+
+## Open Questions
+
+- **Does `plan` hold up outside a static demo app?** Every measurement so far is against `examples/demo-app`, which we wrote and made accessible. A framework app with a real login is the case that decides whether step 5 is worth running.
+- **Is the accessibility contract (D6) obeyed once written?** It is prevention with no detection behind it; only the suite going red weeks later would tell us, and nobody has watched that happen.
+- **Does the `ignore:` discipline (D10) survive contact with an agent optimising for green?** Task 7.2b is unexercised — the reasoning is sound and the behaviour is unobserved.
+- **Is quoting the right long-term answer to #45?** Generating the skill's rules from one source removes the copy instead of policing it. Left for that issue's own proposal.

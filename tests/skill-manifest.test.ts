@@ -10,13 +10,26 @@ const run = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'dist', 'cli.js');
 const skillDir = path.join(root, 'skills', 'blastproof');
-const authoringFile = path.join(skillDir, 'references', 'authoring.md');
 
 const COMMANDS = ['init', 'run', 'plan', 'test'] as const;
+type Command = (typeof COMMANDS)[number];
 
-/** Markers in authoring.md fencing the block quoted from the planner prompt. */
+/** Markers in authoring.md fencing the block copied from the planner prompt. */
 const CANONICAL_OPEN = '<!-- canonical:rules -->';
 const CANONICAL_CLOSE = '<!-- /canonical:rules -->';
+
+/**
+ * The one prompt rule the skill deliberately omits: it only means something
+ * when generating from a diff, which the skill's reader is not doing. Named
+ * here rather than inferred, so a second rule cannot go missing quietly.
+ */
+const PLANNER_ONLY = 'Prefer the journey the changed files touch';
+
+interface CommandLine {
+  file: string;
+  command: string;
+  flags: string[];
+}
 
 async function markdownFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -41,31 +54,59 @@ async function optionsOf(command: string): Promise<string[]> {
 }
 
 /**
- * Only ever from inside backticks. A first pass over the written skill read
- * `blastproof runs`, `blastproof reaches` and `blastproof repository` as
- * commands — prose, every one of them. A test that passes for the wrong reason
- * is worse than no test (#30), so the code span is the boundary.
+ * Everything the document presents as code: fenced blocks first, then inline
+ * spans from what is left. Prose is excluded by construction, which is the
+ * whole point — an earlier version keyed on a backtick immediately preceding
+ * the word and therefore read `blastproof runs end-to-end tests` as a command
+ * while seeing none of the fenced lines an agent actually executes.
  */
-function backtickedCommands(markdown: string): string[] {
-  return [...markdown.matchAll(/`blastproof ([a-z][a-z-]*)/g)].map(([, command]) => command ?? '');
+function codeSpans(markdown: string): string[] {
+  const fence = /```[a-z]*\n([\s\S]*?)```/g;
+  const fenced = [...markdown.matchAll(fence)].map(([, body]) => body ?? '');
+  const prose = markdown.replace(fence, '\n');
+  const inline = [...prose.matchAll(/`([^`\n]+)`/g)].map(([, body]) => body ?? '');
+  return [...fenced, ...inline];
 }
 
-function backtickedFlags(markdown: string): string[] {
-  return [...markdown.matchAll(/`(--[a-z0-9-]+)/g)].map(([, flag]) => flag ?? '');
+/** Invocations: a command and the flags used on that same line. */
+function commandLines(markdown: string, file: string): CommandLine[] {
+  const lines: CommandLine[] = [];
+  for (const span of codeSpans(markdown)) {
+    for (const line of span.split('\n')) {
+      const match = /^\s*blastproof ([a-z][a-z-]*)(.*)$/.exec(line);
+      if (match === null) continue;
+      lines.push({
+        file,
+        command: match[1] ?? '',
+        flags: [...(match[2] ?? '').matchAll(/(--[a-z0-9-]+)/g)].map(([, flag]) => flag ?? ''),
+      });
+    }
+  }
+  return lines;
 }
 
-/** The rules the prompt marks in bold: what it treats as load-bearing. */
-function boldedRules(prompt: string): string[] {
-  return [...prompt.matchAll(/\*\*(.+?)\*\*/g)].map(([, rule]) => rule ?? '');
+/** Every flag the document names anywhere it presents as code. */
+function namedFlags(markdown: string): string[] {
+  return codeSpans(markdown).flatMap((span) =>
+    [...span.matchAll(/(--[a-z0-9-]+)/g)].map(([, flag]) => flag ?? ''),
+  );
+}
+
+/** The prompt's rules, one per line, as the model receives them. */
+function promptRules(): string[] {
+  return plannerSystemPrompt()
+    .split('\n')
+    .filter((line) => line.startsWith('- '));
 }
 
 describe('the blastproof skill', () => {
   let files: string[];
-  let corpus: string;
-  let authoring: string;
-  let canonical: string;
+  let sources: Map<string, string>;
+  let canonical: string[];
   let flagsOf: Map<string, Set<string>>;
   let allFlags: Set<string>;
+
+  const rel = (file: string): string => path.relative(root, file);
 
   beforeAll(async () => {
     await expect(
@@ -73,16 +114,22 @@ describe('the blastproof skill', () => {
       `${cli} is missing — run \`npm run build\` before the tests; this one reads the built CLI's --help`,
     ).resolves.toBeUndefined();
     files = await markdownFiles(skillDir);
-    const contents = await Promise.all(files.map((file) => readFile(file, 'utf8')));
-    corpus = contents.join('\n');
-    authoring = await readFile(authoringFile, 'utf8');
+    sources = new Map(
+      await Promise.all(
+        files.map(async (file) => [file, await readFile(file, 'utf8')] as [string, string]),
+      ),
+    );
+    const authoring = sources.get(path.join(skillDir, 'references', 'authoring.md')) ?? '';
     const start = authoring.indexOf(CANONICAL_OPEN);
     const end = authoring.indexOf(CANONICAL_CLOSE);
     expect(
       start >= 0 && end > start,
       `${CANONICAL_OPEN} … ${CANONICAL_CLOSE} must fence the quoted rules in authoring.md`,
     ).toBe(true);
-    canonical = authoring.slice(start + CANONICAL_OPEN.length, end);
+    canonical = authoring
+      .slice(start + CANONICAL_OPEN.length, end)
+      .split('\n')
+      .filter((line) => line.startsWith('- '));
     flagsOf = new Map(
       await Promise.all(
         COMMANDS.map(
@@ -93,49 +140,78 @@ describe('the blastproof skill', () => {
     allFlags = new Set([...flagsOf.values()].flatMap((set) => [...set]));
   });
 
-  it('ships a SKILL.md the installer can find', async () => {
+  it('ships a SKILL.md the installer can find', () => {
     // `skills add <owner>/<repo>` walks skills/<name>/SKILL.md. A rename here
     // does not fail anything at build time — it just stops being installable.
-    const skill = await readFile(path.join(skillDir, 'SKILL.md'), 'utf8');
+    const skill = sources.get(path.join(skillDir, 'SKILL.md')) ?? '';
     expect(skill.startsWith('---\n')).toBe(true);
     const frontMatter = skill.slice(4, skill.indexOf('\n---', 4));
     expect(frontMatter).toMatch(/^name: blastproof$/m);
     expect(frontMatter).toMatch(/^description: .{40,}/m);
   });
 
-  it('names no command the CLI does not have', async () => {
-    const named = backtickedCommands(corpus);
-    expect(
-      named.length,
-      'no `blastproof <command>` found — the pattern stopped matching',
-    ).toBeGreaterThan(0);
-    // Reported per file, so a failure names the file that says it rather than
-    // leaving someone to grep four documents for the offending word.
-    const unknown: string[] = [];
-    for (const file of files) {
-      const markdown = await readFile(file, 'utf8');
-      for (const command of backtickedCommands(markdown)) {
-        if (!COMMANDS.includes(command as (typeof COMMANDS)[number])) {
-          unknown.push(`${command} in ${path.relative(root, file)}`);
+  it('stays out of the npm tarball', async () => {
+    // The skill is installed from the repository, never from the package, and
+    // proposal.md and AGENTS.md both say so. `files` is what makes that true.
+    const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')) as {
+      files: string[];
+    };
+    expect(manifest.files).toEqual(['dist']);
+  });
+
+  describe('every invocation it prints', () => {
+    let invocations: CommandLine[];
+
+    beforeAll(() => {
+      invocations = files.flatMap((file) => commandLines(sources.get(file) ?? '', file));
+    });
+
+    it('is found at all — the extractor covers fenced blocks, not only inline spans', () => {
+      // Without this the suite goes quietly empty and every assertion below
+      // passes on nothing. It is the failure the previous version shipped with.
+      const perFile = files.filter(
+        (file) => commandLines(sources.get(file) ?? '', file).length > 0,
+      );
+      expect(invocations.length).toBeGreaterThan(5);
+      expect(perFile.map(rel)).toContain('skills/blastproof/SKILL.md');
+    });
+
+    it('names a command the CLI has', () => {
+      const unknown = invocations
+        .filter(({ command }) => !COMMANDS.includes(command as Command))
+        .map(({ command, file }) => `${command} in ${rel(file)}`);
+      expect(unknown).toEqual([]);
+    });
+
+    it('uses only flags the command it invokes declares', () => {
+      // Per command, not against the union: `--tag` is a real flag and is still
+      // wrong on `plan`, and a union check waves that through.
+      const wrong: string[] = [];
+      for (const { command, flags, file } of invocations) {
+        const declared = flagsOf.get(command) ?? new Set<string>();
+        for (const flag of flags) {
+          if (!declared.has(flag)) wrong.push(`${flag} on \`blastproof ${command}\` in ${rel(file)}`);
         }
       }
-    }
+      expect(wrong).toEqual([]);
+    });
+  });
+
+  it('names no flag the CLI does not declare, anywhere it presents as code', () => {
+    const named = files.flatMap((file) =>
+      namedFlags(sources.get(file) ?? '').map((flag) => ({ flag, file })),
+    );
+    expect(named.length, 'no `--flag` found — the pattern stopped matching').toBeGreaterThan(0);
+    const unknown = named
+      .filter(({ flag }) => !allFlags.has(flag))
+      .map(({ flag, file }) => `${flag} in ${rel(file)}`);
     expect(unknown).toEqual([]);
   });
 
-  it('names no flag the CLI does not declare', () => {
-    const named = backtickedFlags(corpus);
-    expect(named.length, 'no `--flag` found — the pattern stopped matching').toBeGreaterThan(0);
-    // Word boundary is implicit: the pattern captures the whole flag, so
-    // `--min-scores` is captured whole and cannot pass as `--min-score`.
-    expect(named.filter((flag) => !allFlags.has(flag))).toEqual([]);
-  });
-
-  it('documents each flag under a command that actually declares it', async () => {
-    // Stronger than the union check above: cli.md documents flags in per-command
-    // sections, so a flag listed under the wrong command is a real error the
-    // union would wave through.
-    const cliReference = await readFile(path.join(skillDir, 'references', 'cli.md'), 'utf8');
+  it('documents each flag under a command that actually declares it', () => {
+    // cli.md documents flags in per-command sections, where they appear in
+    // tables rather than on an invocation line the check above would see.
+    const cliReference = sources.get(path.join(skillDir, 'references', 'cli.md')) ?? '';
     const sections = cliReference.split(/^## /m).filter((section) => section.startsWith('`blast'));
     expect(sections.length).toBe(COMMANDS.length);
     const misplaced: string[] = [];
@@ -143,30 +219,29 @@ describe('the blastproof skill', () => {
       const command = /^`blastproof ([a-z]+)`/.exec(section)?.[1];
       if (command === undefined) continue;
       const declared = flagsOf.get(command) ?? new Set<string>();
-      for (const flag of backtickedFlags(section)) {
-        if (!declared.has(flag)) misplaced.push(`${flag} under \`${command}\``);
+      for (const flag of namedFlags(section)) {
+        if (!declared.has(flag)) misplaced.push(`${flag} under \`${command}\` in references/cli.md`);
       }
     }
     expect(misplaced).toEqual([]);
   });
 
-  it('carries every rule the planner prompt marks as load-bearing', () => {
-    const rules = boldedRules(plannerSystemPrompt());
-    expect(rules.length, 'no bolded rule found in the prompt — the pattern stopped matching').toBeGreaterThan(0);
-    // Verbatim, not paraphrased: the quote is what makes the two copies
-    // comparable at all (design D8). A reworded rule fails here.
-    expect(rules.filter((rule) => !canonical.includes(rule))).toEqual([]);
-  });
+  describe('the authoring rules it quotes', () => {
+    it('are exactly the prompt rules, minus the one planner-only rule', () => {
+      // Set equality both ways, on whole rules. A substring check in either
+      // direction lets a rule be truncated to a prefix and still pass, and a
+      // check keyed on bold lets a rule be un-bolded out of coverage.
+      const expected = promptRules().filter((rule) => !rule.includes(PLANNER_ONLY));
+      expect(expected.length, 'no rule found in the prompt — the pattern stopped matching').toBeGreaterThan(0);
+      expect(canonical.length, 'the canonical block is empty').toBeGreaterThan(0);
+      expect([...canonical].sort()).toEqual([...expected].sort());
+    });
 
-  it('quotes no rule the planner prompt does not state', () => {
-    const prompt = plannerSystemPrompt();
-    const quoted = canonical
-      .split('\n')
-      .filter((line) => line.startsWith('- '))
-      .map((line) => line.slice(2).trim().replaceAll('**', ''));
-    expect(quoted.length, 'the canonical block is empty').toBeGreaterThan(0);
-    // Otherwise the skill teaches a rule the tool does not enforce, which is
-    // the failure mode this file exists to prevent, pointed the other way.
-    expect(quoted.filter((rule) => !prompt.replaceAll('**', '').includes(rule))).toEqual([]);
+    it('omits the planner-only rule, and says which one it is', () => {
+      // The exclusion is allowed because it is named. If the prompt stops
+      // carrying that rule, this allowlist is stale and must be revisited.
+      expect(promptRules().filter((rule) => rule.includes(PLANNER_ONLY))).toHaveLength(1);
+      expect(canonical.filter((rule) => rule.includes(PLANNER_ONLY))).toEqual([]);
+    });
   });
 });

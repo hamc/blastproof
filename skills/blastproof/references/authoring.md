@@ -6,26 +6,22 @@ The measurement: an outside evaluation took **the same application, the same sui
 
 ## The canonical rules
 
-Each line below is quoted verbatim from `plannerSystemPrompt()` in `src/llm/prompts.ts`, the text the runner's own planner is given. Quoting rather than paraphrasing is what lets the two copies be compared mechanically: `tests/skill-manifest.test.ts` fails when a rule the prompt marks in bold is missing here, and when a rule quoted here is not in the prompt. **Do not reword them.**
+Every line below is a complete rule, copied character for character from `plannerSystemPrompt()` in `src/llm/prompts.ts` — the text the runner's own planner is given. Quoting rather than paraphrasing is what lets the two copies be compared mechanically: `tests/skill-manifest.test.ts` asserts the two sets are equal, so a rule added to the prompt, dropped from here, or reworded on either side fails the build. **Do not edit them.**
 
-Two things this block is not. It is not the complete prompt: one rule that only makes sense to the planner — prefer the journey the changed files touch — is left out, because you are not generating from a diff. And the three bolded rules appear here as their lead sentence only; the worked examples that follow them in the prompt are unpacked below instead of inlined.
+One rule of the prompt's nine is deliberately absent — *prefer the journey the changed files touch* — because it only means something when generating from a diff. The test carries that exclusion by name; nothing else may go missing.
 
 <!-- canonical:rules -->
 - Write steps a human tester could follow without looking at the code. One move per step — a single action together with what it should produce, or a single check. Never two unrelated actions in one step.
 - Refer to controls by the accessible name shown in the snapshot, spelled exactly. Never invent buttons, fields or links that are not in the snapshot.
 - Never write CSS selectors, XPath, IDs or any code — the runner resolves elements live from the accessibility tree.
-- **The test starts at the application's base URL, not at this route.**
-- **Every step says what it should produce.**
-- **A step that enters a value writes the value.**
+- **The test starts at the application's base URL, not at this route.** Begin with a step that navigates to the route and says what should be visible once it loads — "navigate to /support and verify the heading "Contact support" is shown". Without it the run opens the home page and every later step looks for controls that are not there.
+- **Every step says what it should produce.** Name what must be true once the step has been carried out, not the action alone: "submit the support form and verify the confirmation page shows the ticket number", never "submit the support form". A step that names an action without an outcome asks the runner to judge whether something happened while looking at the page that succeeding produces — a submitted form comes back empty, a redirect moves the URL — and that is the shape behind several real failures.
+- **A step that enters a value writes the value.** "fill the subject field with Order not received", never "enter a subject". The runner is forbidden from inventing values, and enforces it: a fill whose value is in neither the step nor the page is refused, so a step that supplies none cannot be relied on to run.
 - If a step needs a credential or any secret, write it as a placeholder like {{env.TEST_PASSWORD}}. Never write a real or invented password, token or key.
 - Keep the whole test to a handful of steps: one journey, not an exhaustive suite.
 <!-- /canonical:rules -->
 
-Two of them need unpacking.
-
-**The test starts at the base URL.** Every test begins by navigating, and the navigation step says what should be visible once the page loads: `navigate to /support and verify the heading "Contact support" is shown`. Without it the run opens the home page and every later step hunts for controls that are not there.
-
-**Every step says what it should produce.** Name what must be true after the step, not the action alone:
+The second of the bolded rules is the one that decides whether a suite works, so it is worth seeing as a diff:
 
 ```yaml
 # Fragile — a bare action. Nothing says what should be true afterwards.
@@ -35,16 +31,13 @@ Two of them need unpacking.
 - submit the support form and verify the confirmation page shows the ticket number
 ```
 
-A bare action asks the runner to judge whether something happened while looking at the page that succeeding produces — a submitted form comes back empty, a redirect moves the URL. That ambiguity is the shape behind several real failures.
-
 ## What is enforced, and what is not
 
 Being precise about this matters more than it looks. A rule you believe is checked, but is not, is worse than one you know is yours to keep.
 
 | rule | enforced how |
 |---|---|
-| A step that enters a value writes the value | **Guaranteed by the runner.** A fill whose value is in neither the step nor the page is refused at run time. |
-| A step that enters a value writes the value | Also warned at authoring time by a grammar check; `--fail-on-authoring` makes it exit 1. |
+| A step that enters a value writes the value | **Guaranteed by the runner** — a fill whose value is in neither the step nor the page is refused at run time — and warned about at authoring time by a grammar check, which `--fail-on-authoring` turns into exit 1. |
 | Every step says what it should produce | **Not enforced.** Nothing fails when a step is a bare action. |
 | A verification names an outcome only a correct page satisfies | **Not enforced.** See below. |
 

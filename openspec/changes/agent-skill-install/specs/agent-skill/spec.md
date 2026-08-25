@@ -92,19 +92,31 @@ The skill SHALL NOT configure authentication or a CI workflow, and SHALL name wh
 - **THEN** the skill reports that routes behind the login are out of reach for now and points at `docs/auth.md`
 
 ### Requirement: The skill cannot drift from the CLI it describes
-Every `blastproof` command and flag named in the skill SHALL appear in that command's `--help`. The skill SHALL quote the load-bearing authoring rules verbatim from the planner prompt rather than paraphrasing them, and SHALL state no canonical rule the prompt does not. Both SHALL be enforced by a test.
+Wherever the skill presents text as code, every `blastproof` command SHALL be one the CLI has and every flag on that line SHALL be one that command declares. The skill SHALL copy the planner prompt's authoring rules whole rather than paraphrasing them, and the two sets SHALL be equal apart from rules the test excludes by name. Both SHALL be enforced by a test.
 
 #### Scenario: Flag renamed in the CLI
 - **WHEN** a flag the skill names is renamed or removed
 - **THEN** the test fails, naming the flag and the file that names it
 
+#### Scenario: Command inside a fenced block
+- **WHEN** a command or flag appears only in a fenced code block, which is where every command an agent executes appears
+- **THEN** it is checked exactly as one written inline
+
+#### Scenario: Flag used on the wrong command
+- **WHEN** the skill invokes a real flag on a command that does not declare it
+- **THEN** the test fails, naming the flag, the command and the file
+
 #### Scenario: Rule added to the planner prompt
-- **WHEN** a load-bearing rule is added to the planner prompt and the skill does not carry it
+- **WHEN** a rule is added to the planner prompt and the skill does not carry it
 - **THEN** the test fails, naming the rule
 
-#### Scenario: Rule reworded in the skill
-- **WHEN** the skill states a canonical rule in different words, or states one the prompt does not
-- **THEN** the test fails, naming the rule and the file that states it
+#### Scenario: Rule reworded, truncated or dropped
+- **WHEN** the skill states a rule in different words, keeps only its first sentence, drops it, or states one the prompt does not
+- **THEN** the test fails, naming the rule
+
+#### Scenario: Excluded rule
+- **WHEN** a rule of the prompt is deliberately absent from the skill
+- **THEN** the test names that exclusion explicitly, so a second rule cannot go missing under it
 
 ### Requirement: Impact mapping is written with the change, and `ignore:` is bounded
 The skill SHALL state that `ignore:` covers files with no user-visible effect, SHALL require a written reason in the pull request when a path under a source directory enters `ignore:`, and SHALL instruct that `routes:` is updated in the same change as the code rather than as a repair after a failing check.

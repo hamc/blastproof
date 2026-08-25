@@ -29,7 +29,7 @@ git diff → impact mapping → test generation → agentic execution → report
 
 ## Set it up with your coding agent
 
-Most of what the setup asks — which stack, which port, which journeys matter — is a question your coding agent can already answer by looking at your project. So hand it the answers:
+Most of what the setup asks — which stack, which port, which journeys matter — is a question your coding agent can already answer by looking at your project. So let it answer them:
 
 ```bash
 npx skills add hamc/blastproof
@@ -39,7 +39,7 @@ Then tell your agent: **"set up e2e tests"**. The skill installs for whichever a
 
 Two things it deliberately will not do, so their absence does not read as a defect: it does not configure [authentication](./docs/auth.md), and it does not wire up [CI](./docs/ci.md). Both are worth doing after you have seen a green run on your own machine.
 
-The skill lives in [`skills/blastproof/`](./skills/blastproof/) and is worth reading even if you never install it — [`references/authoring.md`](./skills/blastproof/references/authoring.md) is the shortest honest account of what separates a test that detects something from one that reports Score 100 and detects nothing.
+The skill lives in [`skills/blastproof/`](./skills/blastproof/) and is worth reading even if you never install it. [`references/authoring.md`](./skills/blastproof/references/authoring.md) sets out what separates a test that detects something from one that reports Score 100 and detects nothing — including two drafts this tool generated that passed unedited and were worth nothing.
 
 ## Quick start
 

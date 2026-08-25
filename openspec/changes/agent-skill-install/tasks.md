@@ -2,9 +2,9 @@
 
 ## 1. Measure what the skill will promise
 
-- [ ] 1.1 Run `blastproof plan --route /` against `examples/demo-app` and record the draft, unedited, in this change's notes — the skill's value rests on drafts being worth curating (design risk 2)
-- [ ] 1.2 Repeat with `--write` and run the drafts; record how many pass unedited and what had to change to make the rest pass
-- [ ] 1.3 If drafts are not worth curating, stop and reopen the design — the workflow in D3 depends on this and no wording fixes it
+- [x] 1.1 Run `blastproof plan --route /` against `examples/demo-app` and record the draft, unedited, in this change's notes — the skill's value rests on drafts being worth curating (design risk 2)
+- [x] 1.2 Repeat with `--write`, then judge each draft by the criterion a human applies: **does every step name a control and an outcome that exist on the page?** Not "how many pass unedited" — the drafts measured here passed unedited and two of them were worthless, because the model that wrote the assertion is the one that judged it
+- [x] 1.3 If drafts are not worth curating, stop and reopen the design. **Outcome: they are worth curating, but only because step 6 exists.** Folded into design risk 2
 
 ## 2. Skill skeleton
 
@@ -18,13 +18,13 @@
 - [x] 3.2 Step 2 — provider: reuse `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` when set; otherwise offer a hosted key or Ollama with the unmeasured-quality caveat stated (D5)
 - [x] 3.3 Step 3 — scaffold: `blastproof init`, then set `base_url` from the detected dev server; `blastproof run --dry-run` to prove the wiring without a browser or a key
 - [x] 3.4 Step 4 — fit, confirming pass: `blastproof plan --route <route>` **without** `--write` against the running app. `plan` needs `.blastproof/config.yaml` and a provider, which is why this pass follows the scaffold rather than opening the workflow (D2)
-- [x] 3.4a Step 4, repairable branch — report how many elements block resolution, offer to add accessible names, re-check after the repair; the misfit is the first task, not a rejection (D2)
-- [x] 3.4b Step 4, structural branch — stop, say why, write no test file, state that `.blastproof/` can be deleted (D2)
-- [x] 3.5 Step 5 — generate: `blastproof plan --route <route> --write` for the primary routes
-- [x] 3.6 Step 6 — curate: edit each draft against `references/authoring.md`, run them, present files and result without committing (D4)
-- [x] 3.7 Step 7 — contract: append the marked accessibility block to `AGENTS.md` or `CLAUDE.md`, asking before touching an existing file and updating in place on a second run (D6)
-- [x] 3.8 Step 8 — mapping: seed `routes:` from the routes the drafts cover, and state the rule that it is updated in the same change as the code (D10)
-- [x] 3.9 Step 9 — hand-off: name what was left out — auth behind a login (`docs/auth.md`), CI (`docs/ci.md`)
+- [x] 3.5 Step 4, repairable branch — report how many elements block resolution, offer to add accessible names, re-check after the repair; the misfit is the first task, not a rejection (D2)
+- [x] 3.6 Step 4, structural branch — stop, say why, write no test file, state that `.blastproof/` can be deleted (D2)
+- [x] 3.7 Step 7 — generate: `blastproof plan --route <route> --write` for the primary routes
+- [x] 3.8 Step 8 — curate: edit each draft against `references/authoring.md`, run them, present files and result without committing (D4)
+- [x] 3.9 Step 9 — contract: append the marked accessibility block to `AGENTS.md` or `CLAUDE.md`, asking before touching an existing file and updating in place on a second run (D6)
+- [x] 3.10 Step 10 — mapping: seed `routes:` from the routes the drafts cover, and state the rule that it is updated in the same change as the code (D10)
+- [x] 3.11 Step 11 — hand-off: name what was left out — auth behind a login (`docs/auth.md`), CI (`docs/ci.md`)
 
 ## 4. References
 
@@ -36,13 +36,13 @@
 
 ## 5. Drift guard
 
-- [x] 5.1 `tests/skill-manifest.test.ts` — extract every `blastproof <command>` and `--flag` named in `skills/blastproof/**/*.md`, assert each command exists and each flag appears in that command's `--help`, matching on a word boundary so `--min-scores` cannot pass as `--min-score` (design D8, mirroring `tests/action-manifest.test.ts`)
-- [x] 5.1a Anchor the command pattern on backticked `` `blastproof <cmd>` ``, not bare prose. A first pass over the written skill matched `blastproof runs`, `blastproof reaches` and `blastproof repository` as commands — the loose-match failure #30 was fixed for
-- [x] 5.2 Same test — extract the **bolded** rules from `plannerSystemPrompt()`, which is what the prompt marks as load-bearing and is exactly the set that is universal rather than planner-only and assert each appears verbatim in `references/authoring.md`, so a rule added to the prompt fails until the skill carries it (design D8)
-- [x] 5.3 Same test, reverse direction — assert the skill quotes no canonical rule the prompt does not state, so it cannot teach a rule the tool does not enforce
-- [x] 5.4 Assert both extractions found something, so a regex that stops matching cannot pass as a clean run
-- [x] 5.5 Verify the test fails, four ways: rename a flag in `references/cli.md`; add a rule to the prompt; reword a quoted rule in the skill; invent a rule in the skill. Each failure must name what disagreed and the file that says it
-- [x] 5.6 A fifth mutation, for the per-command check: document a real flag under the wrong command. The union check waves it through — `--tag` exists, just not on `plan` — so this is the assertion that earns its place
+- [x] 5.1 `tests/skill-manifest.test.ts` — extract from every fenced block and inline span under `skills/blastproof/**/*.md`, never from prose (design D8, mirroring `tests/action-manifest.test.ts`)
+- [x] 5.2 Assert every `blastproof <command>` is a command the CLI has, and that the flags on that same line are ones **that command** declares — not the union, since `--tag` is real and still wrong on `plan`
+- [x] 5.3 Assert `cli.md`'s per-command tables document no flag outside the command whose section they sit in
+- [x] 5.4 Assert the rules quoted in `references/authoring.md` are **set-equal** to `plannerSystemPrompt()`'s, minus one planner-only rule excluded by name. Equality rather than containment: containment in either direction lets a rule be truncated to a prefix and pass, and keying on the prompt's bold markers lets a rule be un-bolded quietly out of coverage
+- [x] 5.5 Assert both extractions found something, so a regex that stops matching cannot pass as a clean run
+- [x] 5.6 Verify the test fails, seven ways, each naming what disagreed and where: unknown command and unknown flag **in a fenced block of `SKILL.md`**; a real flag on the wrong command; a flag renamed in `cli.md`; a canonical rule truncated to a prefix; a canonical rule dropped; a rule added to the prompt
+- [x] 5.7 The first version of this guard read only inline code spans. Every command in `SKILL.md` is in a fenced block, so the file an agent executes from was entirely unchecked while the test stayed green — and the original four mutations all landed in `cli.md`, the one file where the guard worked. Mutate the file that matters, not the file that is easy
 
 ## 6. Repo surface
 
@@ -54,10 +54,10 @@
 
 - [x] 7.1 Follow the skill from a separate agent with no context, against a scratch copy of `examples/demo-app`, and record the wall-clock time from install to a passing test — **~119s**, with a key already set and Chromium already cached; the browser download is not in that number and dominates a cold machine
 - [x] 7.2 Repeat the fit gate against a page with unlabelled controls and confirm the skill offers the repair, applies it, and then passes the re-check
-- [x] 7.2a Repeat against a canvas-based page and confirm it stops before scaffolding, with evidence and no repair attempt
-- [ ] 7.2b Change a file under `src/` with no `routes:` entry, run `--fail-on-unmapped`, and confirm the skill maps it rather than adding it to `ignore:` — **not exercised**; the adversarial pass covered fit, curation, idempotency and the CLI claims, and left the `ignore:` discipline (D10) untested
-- [x] 7.4 Adversarial pass: eight findings, six fixed in the skill, two corrected in a different direction than reported, one escalated as a product defect. See `notes-plan-quality.md`
-- [x] 7.3 Run the skill twice in the same project and confirm the accessibility block is updated, not duplicated
+- [x] 7.3 Repeat against a canvas-based page and confirm it stops before scaffolding, with evidence and no repair attempt
+- [ ] 7.4 Change a file under `src/` with no `routes:` entry, run `--fail-on-unmapped`, and confirm the skill maps it rather than adding it to `ignore:` — **not exercised**; the adversarial pass covered fit, curation, idempotency and the CLI claims, and left the `ignore:` discipline (D10) untested
+- [x] 7.5 Adversarial pass, agent with no context: eight findings — five fixed as reported, two corrected in a different direction, one escalated as a product defect. See `notes-plan-quality.md`
+- [x] 7.6 Run the skill twice in the same project and confirm the accessibility block is updated, not duplicated
 
 ## 8. Verification
 

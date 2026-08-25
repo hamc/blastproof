@@ -15,8 +15,21 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
  * `action-manifest.test.ts`: assert the links resolve, in CI, before a merge.
  */
 
-/** Markdown files that are part of the published documentation surface. */
-const DOC_ROOTS = ['README.md', 'CONTRIBUTING.md', 'AGENTS.md'];
+/**
+ * Markdown files that are part of the published documentation surface. The
+ * skill is in here because AGENTS.md declares it user-facing content held to
+ * the same bar as `action.yml`, and because its reader is a coding agent that
+ * will follow a broken relative link without reporting anything.
+ */
+const DOC_ROOTS = [
+  'README.md',
+  'CONTRIBUTING.md',
+  'AGENTS.md',
+  'skills/blastproof/SKILL.md',
+  'skills/blastproof/references/authoring.md',
+  'skills/blastproof/references/cli.md',
+  'skills/blastproof/references/mapping.md',
+];
 
 /**
  * GitHub's heading-anchor algorithm, reduced to what our headings actually use:
