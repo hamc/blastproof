@@ -69,13 +69,29 @@ function codeSpans(markdown: string): string[] {
   //
   // Raw <pre> is deliberately not handled: no document in this repository uses
   // an HTML block, and adding a parser for one would be speculative surface.
-  // Anchored at line start, both ends. Unanchored, a fence written inline —
-  // `Shorthand: ```cmd``` ` — opens a block mid-sentence and shifts open/close
-  // pairing for the whole rest of the file, so every later block stops being
-  // scanned and nothing says so. The info string is scanned too, since an
-  // invocation left up there renders as nothing at all.
-  const fence = /^[ \t]*(?:```|~~~)([^\n]*)\n([\s\S]*?)(?:^[ \t]*(?:```|~~~)|(?![\s\S]))/gm;
-  const fenced = [...markdown.matchAll(fence)].flatMap(([, info, body]) => [info ?? '', body ?? '']);
+  // Paired the way CommonMark pairs them, which is not "the next marker of any
+  // kind": a fence closes only on its own character, at least as long, indented
+  // by at most three spaces and followed by nothing else. Treating the two as
+  // interchangeable split one real block into two spans and dropped the lines
+  // between them into prose — so a ``` block containing ~~~ lines, a ````
+  // block wrapping a ``` example, and a closing fence indented four spaces all
+  // hid a command in plain sight while fence-marker parity stayed even.
+  //
+  // The closer is matched on equal length rather than "at least as long"
+  // deliberately: a longer marker then fails to close, the block runs to end of
+  // file, and everything after it is scanned. That errs toward reading too
+  // much, which is the only safe direction for this check.
+  //
+  // Anchoring matters on its own account. Unanchored, a fence written inline —
+  // `Shorthand: ```cmd``` ` — opens a block mid-sentence and shifts pairing for
+  // the rest of the file. The info string is scanned too, since an invocation
+  // left up there renders as nothing at all.
+  const fence =
+    /^ {0,3}(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)(?:^ {0,3}\1[ \t]*$|(?![\s\S]))/gm;
+  const fenced = [...markdown.matchAll(fence)].flatMap(([, , info, body]) => [
+    info ?? '',
+    body ?? '',
+  ]);
   const prose = markdown.replace(fence, '\n');
   const indented = prose.split('\n').filter((line) => /^(?: {4,}|\t)\s*\S/.test(line));
   const inline = [...prose.matchAll(/`([^`\n]+)`/g)].map(([, body]) => body ?? '');
@@ -204,6 +220,21 @@ describe('the blastproof skill', () => {
     const frontMatter = skill.slice(4, skill.indexOf('\n---', 4));
     expect(frontMatter).toMatch(/^name: blastproof$/m);
     expect(frontMatter).toMatch(/^description: .{40,}/m);
+  });
+
+  it('quotes the canonical rules in exactly one place', () => {
+    // The rules are compared only where the markers are, so a second block
+    // anywhere in the skill is unguarded — free to say the opposite of the
+    // first, in the register of something the runner enforces. That is the
+    // duplication risk this whole block exists to bound, reappearing inside it.
+    const opens = files.map(
+      (file) => (sources.get(file) ?? '').split(CANONICAL_OPEN).length - 1,
+    );
+    const closes = files.map(
+      (file) => (sources.get(file) ?? '').split(CANONICAL_CLOSE).length - 1,
+    );
+    const total = (counts: number[]): number => counts.reduce((sum, n) => sum + n, 0);
+    expect({ opens: total(opens), closes: total(closes) }).toEqual({ opens: 1, closes: 1 });
   });
 
   it('stays out of the npm tarball', async () => {
