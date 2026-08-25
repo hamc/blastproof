@@ -62,7 +62,9 @@ Without `--write` nothing is written. `--write` refuses to overwrite an existing
 
 ## `blastproof test`
 
-Diff to verdict in one command: plan for affected routes, then run.
+One command over a diff: it **runs** the tests covering the affected routes first, and then **drafts** tests for the routes nothing covered.
+
+The order matters and so does the boundary: **the drafts it produces are not executed and do not affect the score.** They are a report of what is uncovered, to be read and curated like any other `plan` output. `test` exits 1 when the gate fails, and also when a draft cannot be generated or `--write` meets a file that already exists.
 
 | flag | effect |
 |---|---|
@@ -87,7 +89,7 @@ Two properties of that number matter before quoting it. Only **executed** tests 
 | `1` | the gate failed |
 | `2` | usage or configuration error |
 
-A budget stop ends the run as **incomplete**, never as a failed test.
+A budget stop ends the run as **incomplete**, never as a failed test — but it still exits **1**, regardless of `--min-score`. So exit 1 alone does not mean the gate failed; read the summary line before reporting one. `run --dry-run` also exits 1 when `--fail-on-unmapped` finds an unclassified file, which is the check step 8 of the skill runs.
 
 ## Without a browser or a key
 

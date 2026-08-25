@@ -37,7 +37,7 @@ Being precise about this matters more than it looks. A rule you believe is check
 
 | rule | enforced how |
 |---|---|
-| A step that enters a value writes the value | **Guaranteed by the runner** — a fill whose value is in neither the step nor the page is refused at run time — and warned about at authoring time by a grammar check, which `--fail-on-authoring` turns into exit 1. |
+| A step that enters a value writes the value | **Guaranteed by the runner** — a fill or a select whose value is in neither the step nor the page is refused at run time — and warned about at authoring time by a grammar check, which `--fail-on-authoring` turns into exit 1. |
 | Every step says what it should produce | **Not enforced.** Nothing fails when a step is a bare action. |
 | A verification names an outcome only a correct page satisfies | **Not enforced.** See below. |
 

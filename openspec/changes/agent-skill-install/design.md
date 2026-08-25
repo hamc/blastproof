@@ -115,7 +115,7 @@ Rollback is deleting `skills/`, `tests/skill-manifest.test.ts` and the two docum
 
 ## Open Questions
 
-- **Does `plan` hold up outside a static demo app?** Every measurement so far is against `examples/demo-app`, which we wrote and made accessible. A framework app with a real login is the case that decides whether step 5 is worth running.
+- **Does `plan` hold up outside a static demo app?** Every measurement so far is against `examples/demo-app`, which we wrote and made accessible. A framework app with a real login is the case that decides whether step 4's confirming pass is worth its model call.
 - **Is the accessibility contract (D6) obeyed once written?** It is prevention with no detection behind it; only the suite going red weeks later would tell us, and nobody has watched that happen.
-- **Does the `ignore:` discipline (D10) survive contact with an agent optimising for green?** Task 7.2b is unexercised — the reasoning is sound and the behaviour is unobserved.
+- **Does the `ignore:` discipline (D10) survive contact with an agent optimising for green?** Task 7.4 is unexercised — the reasoning is sound and the behaviour is unobserved.
 - **Is quoting the right long-term answer to #45?** Generating the skill's rules from one source removes the copy instead of policing it. Left for that issue's own proposal.

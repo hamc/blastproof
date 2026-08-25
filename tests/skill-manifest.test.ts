@@ -68,12 +68,30 @@ function codeSpans(markdown: string): string[] {
   return [...fenced, ...inline];
 }
 
+/**
+ * A line that invokes the CLI, however it is spelled. `cli.md` tells the reader
+ * to run it as `npx blastproof`, and an earlier version anchored on `blastproof`
+ * at the start of the line — so the documented form escaped the check entirely,
+ * taking its flags with it.
+ */
+const INVOCATION =
+  /^\s*(?:\$\s*)?(?:(?:npx|bunx|pnpm\s+dlx|yarn\s+dlx)(?:\s+-{1,2}[a-z-]+)*\s+)?blastproof(?:@[\w.^~-]+)?\s+([a-z][a-z-]*)(.*)$/;
+
+/**
+ * Any line that means to invoke the CLI, parsed or not — deliberately looser
+ * than INVOCATION and anchored on nothing, so a path-qualified binary or a
+ * prefix nobody has thought of yet still has to be accounted for. Paths like
+ * `.blastproof/tests` do not match: what follows the name there is a slash,
+ * not the whitespace a command argument needs.
+ */
+const LOOKS_LIKE_INVOCATION = /blastproof(?:@\S+)?\s+\S/;
+
 /** Invocations: a command and the flags used on that same line. */
 function commandLines(markdown: string, file: string): CommandLine[] {
   const lines: CommandLine[] = [];
   for (const span of codeSpans(markdown)) {
     for (const line of span.split('\n')) {
-      const match = /^\s*blastproof ([a-z][a-z-]*)(.*)$/.exec(line);
+      const match = INVOCATION.exec(line);
       if (match === null) continue;
       lines.push({
         file,
@@ -83,6 +101,13 @@ function commandLines(markdown: string, file: string): CommandLine[] {
     }
   }
   return lines;
+}
+
+/** Lines that mean to invoke the CLI and that the parser could not read. */
+function unparsedInvocations(markdown: string): string[] {
+  return codeSpans(markdown)
+    .flatMap((span) => span.split('\n'))
+    .filter((line) => LOOKS_LIKE_INVOCATION.test(line) && INVOCATION.exec(line) === null);
 }
 
 /** Every flag the document names anywhere it presents as code. */
@@ -168,12 +193,25 @@ describe('the blastproof skill', () => {
 
     it('is found at all — the extractor covers fenced blocks, not only inline spans', () => {
       // Without this the suite goes quietly empty and every assertion below
-      // passes on nothing. It is the failure the previous version shipped with.
+      // passes on nothing. It is the failure the first version shipped with.
       const perFile = files.filter(
         (file) => commandLines(sources.get(file) ?? '', file).length > 0,
       );
       expect(invocations.length).toBeGreaterThan(5);
       expect(perFile.map(rel)).toContain('skills/blastproof/SKILL.md');
+    });
+
+    it('is parsed, or the test says so — an unreadable line must not read as absent', () => {
+      // The class, not the instance. Twice now a line the extractor could not
+      // read was indistinguishable from a line that was not a command, and both
+      // times the guard stayed green over a file that was wrong. Anything
+      // spelled like an invocation must either parse or fail here.
+      const unparsed = files.flatMap((file) =>
+        unparsedInvocations(sources.get(file) ?? '').map(
+          (line) => `${line.trim()} in ${rel(file)}`,
+        ),
+      );
+      expect(unparsed).toEqual([]);
     });
 
     it('names a command the CLI has', () => {

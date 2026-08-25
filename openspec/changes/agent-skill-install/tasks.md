@@ -16,15 +16,17 @@
 
 - [x] 3.1 Step 1 — fit, free pass: source scan for canvas or iframe on a primary flow, click handlers on non-interactive elements, unlabelled inputs. No config, no browser, no key. Structural shapes stop here, before anything is written (D2)
 - [x] 3.2 Step 2 — provider: reuse `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` when set; otherwise offer a hosted key or Ollama with the unmeasured-quality caveat stated (D5)
-- [x] 3.3 Step 3 — scaffold: `blastproof init`, then set `base_url` from the detected dev server; `blastproof run --dry-run` to prove the wiring without a browser or a key
+- [x] 3.3 Step 3 — scaffold: `blastproof init`, then settle the three things it cannot detect — `base_url`, the provider chosen in step 2, and the example `routes:` globs, which belong to somebody else's project. Prove the wiring with `blastproof run --dry-run`, and say that its route-drift warning is expected until step 8
 - [x] 3.4 Step 4 — fit, confirming pass: `blastproof plan --route <route>` **without** `--write` against the running app. `plan` needs `.blastproof/config.yaml` and a provider, which is why this pass follows the scaffold rather than opening the workflow (D2)
-- [x] 3.5 Step 4, repairable branch — report how many elements block resolution, offer to add accessible names, re-check after the repair; the misfit is the first task, not a rejection (D2)
+- [x] 3.5 Step 4, repairable branch — report how many controls lack an accessible name, offer to add them, re-check after the repair; the misfit is the first task, not a rejection (D2)
 - [x] 3.6 Step 4, structural branch — stop, say why, write no test file, state that `.blastproof/` can be deleted (D2)
-- [x] 3.7 Step 7 — generate: `blastproof plan --route <route> --write` for the primary routes
-- [x] 3.8 Step 8 — curate: edit each draft against `references/authoring.md`, run them, present files and result without committing (D4)
-- [x] 3.9 Step 9 — contract: append the marked accessibility block to `AGENTS.md` or `CLAUDE.md`, asking before touching an existing file and updating in place on a second run (D6)
-- [x] 3.10 Step 10 — mapping: seed `routes:` from the routes the drafts cover, and state the rule that it is updated in the same change as the code (D10)
-- [x] 3.11 Step 11 — hand-off: name what was left out — auth behind a login (`docs/auth.md`), CI (`docs/ci.md`)
+- [x] 3.7 Step 4, login wall — a draft describing a sign-in page for a route that is not the login route means the route is behind auth. `plan` files a draft under the route requested, not the page reached, so this is a test that passes and covers nothing. Do not `--write`; hand it off instead (spec: login wall found)
+- [x] 3.8 Step 5 — generate: `blastproof plan --route <route> --write`, **one route unless the person named more**. Curation is what runs out first, and the measurement in task 1 is the argument
+- [x] 3.9 Step 6 — curate: edit each draft against `references/authoring.md`, run them, present files and result without committing (D4)
+- [x] 3.10 Step 6, red run — name the three things a failure can be, and forbid the fourth: weakening the assertion. It is always cheapest and always available, and it turns a tool that found a defect into a suite reporting 100 over one
+- [x] 3.11 Step 7 — contract: replace between the markers in the target file, or append; ask before touching a file the skill did not create (D6)
+- [x] 3.12 Step 8 — mapping: `routes:` is a map keyed by file glob, stated before the edit rather than after; then run `--impacted --fail-on-unmapped --dry-run` to close the loop D10 argues for
+- [x] 3.13 Step 9 — hand-off: routes behind a login, routes no test covers, auth and CI by URL
 
 ## 4. References
 

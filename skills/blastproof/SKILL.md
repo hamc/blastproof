@@ -57,9 +57,10 @@ If neither is set, offer both paths and describe them accurately:
 blastproof init
 ```
 
-`init` writes a fixed `base_url` and a fixed provider. It detects nothing, so two edits to `.blastproof/config.yaml` are always required:
+`init` writes fixed defaults and detects nothing, so three edits to `.blastproof/config.yaml` are always required:
 
 - **`base_url`** — the address the app serves on, read from the project's dev server script. A port that happens to match the default is a coincidence, not a check.
+- **`routes:`** — delete the scaffolded entries. They map `src/auth/**` and `src/cart/**`, which are examples from someone else's project, and leaving them makes the impact mapping in step 8 report on globs nobody chose.
 - **`llm.provider` and `llm.api_key_env`** — set to whatever step 2 chose. `init` writes `provider: anthropic` and `api_key_env: ANTHROPIC_API_KEY`; leaving that in place on a machine holding only `OPENAI_API_KEY` fails at step 4 with a missing-key error, at the moment the workflow is trying to show the tool works. For OpenAI, `provider: openai` and `api_key_env: OPENAI_API_KEY`. For a local model, `provider: ollama` and no key at all.
 
 ```
@@ -67,6 +68,8 @@ blastproof run --dry-run
 ```
 
 This proves the wiring — config parsed, tests discovered, routes resolved — without launching a browser or spending a model call.
+
+It also prints a **route drift** warning to stderr, because the scaffolded sample test declares `/` and no mapping covers it. That is expected here and step 8 resolves it. Do not treat it as a broken setup, and do not fix it now by inventing a mapping.
 
 Then install the browser, because nothing from step 4 onward works without it:
 
@@ -90,13 +93,19 @@ This pass comes after scaffolding because `plan` needs `.blastproof/config.yaml`
 
 If the draft shows the application is not reachable after all, say so and say that `.blastproof/` can be deleted.
 
+**Watch for a login wall.** `plan` snapshots whatever the browser lands on, and files the draft under the route you asked for regardless of where it ended up. So a draft that describes a sign-in page, for a route that is not the login route, means that route is behind authentication — the draft covers the login screen while claiming to cover the feature. Do not `--write` it. List the route in the step 9 hand-off instead.
+
 ### 5. Generate
 
 ```
 blastproof plan --route <route> --write
 ```
 
-One route at a time, for the primary journeys. `--write` never overwrites an existing file.
+**One route, unless the person named more.** Every other route the scan found goes into the step 9 hand-off as uncovered, not into a draft nobody asked for.
+
+The reason is measured, not stylistic: of three drafts generated against a demo app, one asserted nothing and another asserted a cart total on a cart nothing had been added to. Both ran unedited and both scored 100. Drafts are worth having only in proportion to the curation spent on them, and curation is what runs out first.
+
+`--write` never overwrites an existing file.
 
 ### 6. Curate — this is the step that matters
 
@@ -119,11 +128,19 @@ blastproof run
 
 Present the test files and the result. Do not commit.
 
+**When a step goes red, find out which of three things it is. Never a fourth.**
+
+1. **The application is wrong.** Report it and leave the test alone — this is the tool working.
+2. **The step is mis-authored** — a name that does not match the page, a path that does not exist, an assertion about a page the test never reached. Fix it against `references/authoring.md`.
+3. **A control will not resolve.** Back to step 1: give it an accessible name.
+
+Never the fourth: weakening the assertion until it passes. It is always available and always cheapest, and it converts a tool that found a defect into a suite that reports Score 100 over one. A test you have loosened is worth less than the red run you started with.
+
 ### 7. Record the accessibility contract
 
 The project keeps being built after this. Without a written constraint the next screens arrive as unlabelled `div`s and the suite decays into red.
 
-**Check for the marker first.** If `<!-- blastproof:accessibility-contract -->` is already present, replace everything between the markers and do not append. Either way, confirm afterwards that the file contains exactly one opening marker.
+**Check for the marker first, in the target file only** — this skill's own text contains it too, so a repository-wide search always finds one. If it is already present in that file, replace everything between the markers and do not append. Either way, confirm afterwards that the file contains exactly one opening marker.
 
 Otherwise append to the project's `AGENTS.md` — or `CLAUDE.md`, if that is what the project uses:
 
@@ -145,15 +162,17 @@ these makes its own feature untestable:
 
 ### 8. Seed the impact mapping
 
-Add the routes the tests cover to `routes:` in `.blastproof/config.yaml`, then close the loop:
+Read `references/mapping.md` before editing anything here. `routes:` is a **map keyed by file glob**, whose value is the routes that glob puts at risk — not a list of routes. The two are easy to swap and the CLI rejects the inverted form, so getting it backwards costs a round trip.
+
+Map each glob to the routes its changes endanger, then close the loop:
 
 ```
 blastproof run --impacted --fail-on-unmapped --dry-run
 ```
 
-That reports every changed file no glob classifies. It needs no browser and no key, and `--fail-on-unmapped` has no effect without `--impacted`.
+That reports every changed file no glob classifies. It needs no browser and no key. `--fail-on-unmapped` **requires** `--impacted` — on its own it exits 2, because without a diff there is nothing to classify.
 
-Read `references/mapping.md` before answering what it reports. `ignore:` has a boundary that matters, and the cheapest way to make this check green is the one that silences it permanently.
+`ignore:` has a boundary that matters when answering what it reports: the cheapest way to make this check green is the one that silences it permanently.
 
 ### 9. Hand off
 
