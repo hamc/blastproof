@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blastproof Demo Shop — Consent</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /*
+      The obstruction. A plain `div` with no role and no accessible name, so it
+      never appears in an aria snapshot: the only evidence it exists is
+      Playwright's "intercepts pointer events".
+
+      Deliberately NOT `aria-hidden` on the content behind it. A CDK modal hides
+      the rest of the page, which hands the agent an obvious hint — the snapshot
+      contains nothing but the overlay. Here the product list stays fully in the
+      tree, looking perfectly actionable, which is the harder and more common
+      case: a consent wall that dims the page without removing it.
+    */
+    .consent-backdrop {
+      position: fixed;
+      inset: 0;
+      background: #0006;
+      z-index: 10;
+    }
+
+    .consent-bar {
+      position: fixed;
+      inset-inline: 0;
+      bottom: 0;
+      z-index: 11;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 1rem;
+      background: Canvas;
+      border-top: 1px solid #8884;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="login.html">Login</a>
+      <a href="cart.html">Cart</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Consent Wall Shop</h1>
+    <p>The same shop, behind a cookie wall that has to be accepted before anything on the page can be used.</p>
+
+    <section aria-label="Products">
+      <h2>Products</h2>
+      <ul class="products">
+        <li>
+          <article>
+            <h3>Mechanical Keyboard</h3>
+            <p class="price" data-price="120">$120.00</p>
+            <button type="button" data-add-to-cart data-name="Mechanical Keyboard" data-price="120">
+              Add to cart
+            </button>
+          </article>
+        </li>
+      </ul>
+    </section>
+
+    <p id="cart-feedback" role="status" aria-live="polite"></p>
+  </main>
+
+  <div class="consent-backdrop" id="consent-backdrop"></div>
+  <div class="consent-bar" role="region" aria-label="Cookie consent">
+    <p>We use cookies. Choose an option to continue.</p>
+    <button type="button" id="accept-cookies">Accept cookies</button>
+    <a href="https://example.com/cookies">Learn more about cookies</a>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // No `keydown` handler anywhere on this page, and that is the point.
+    //
+    // A verification of `name-what-blocks-the-click` against OWASP Juice Shop
+    // could not separate the fixed build from the published one, because the
+    // published one recovered on its own four times out of four: handed only
+    // Playwright's raw call log, the model guessed `Escape`, and Angular CDK's
+    // dialog closes on `Escape` by default. The guess fit.
+    //
+    // A consent wall is the ordinary case where it does not. There is no key
+    // that dismisses this, exactly as there is none for a `disableClose`
+    // dialog, a sticky cookie bar or a loading shade. The only way past it is
+    // the control that says so, and finding that control is what a named
+    // blocker is supposed to make possible and a generic guess is not.
+    document.getElementById('accept-cookies').addEventListener('click', function () {
+      document.getElementById('consent-backdrop').remove();
+      document.querySelector('.consent-bar').remove();
+    });
+  </script>
+</body>
+</html>

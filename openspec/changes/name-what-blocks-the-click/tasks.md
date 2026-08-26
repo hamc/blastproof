@@ -66,10 +66,47 @@
 
 ## 5. Follow-ups this verification produced
 
-- [ ] 5.1 The experiment that would actually settle the value: a fixture in `examples/demo-app`
-  carrying an overlay `Escape` cannot close — a non-modal cookie bar, or a dialog with
-  `disableClose`. That is the failure baseline this A/B never had, and it is where the argument
-  for a named blocker over a generic guess is either confirmed or dropped.
+- [x] 5.1 The experiment that would actually settle the value: a fixture in `examples/demo-app`
+  carrying an overlay `Escape` cannot close. That is the failure baseline the A/B never had, and
+  it is where the argument for a named blocker over a generic guess is either confirmed or
+  dropped.
+
+  **`examples/demo-app/consent.html`** — a consent wall over the ordinary product page. Three
+  properties, each chosen against something the Juice Shop verification could not test, and all
+  three confirmed with Playwright directly:
+
+  - **`Escape` does nothing.** No `keydown` handler exists on the page. This is the whole point:
+    the published build cleared the Juice Shop block four times out of four by guessing `Escape`,
+    which works because a CDK dialog closes on it by default. A cookie wall, a `disableClose`
+    dialog and a loading shade do not, and the guess has nowhere to go.
+  - **The blocked target stays fully in the accessibility tree.** The backdrop is a bare `div`
+    with no role and no name, so it never appears in a snapshot, and the content behind it is
+    deliberately **not** `aria-hidden` — unlike a CDK modal, which hides the rest of the page and
+    thereby hands the agent an obvious hint. Verified: the snapshot contains `button "Add to
+    cart"` and nothing resembling the backdrop. The agent's only evidence of the obstruction is
+    the failure message, which is precisely the condition this change exists for.
+  - **The dismiss control is present and named** (`button "Accept cookies"`), alongside a decoy
+    `link "Learn more about cookies"` — the shape the evaluation's weaker model clicked by
+    mistake.
+
+  **Verified end to end through `performAction`, against the live page.** A cold click is
+  refused with the real message, naming the real blocker:
+
+  ```
+  blocked: the click on role=button name="Add to cart" was NOT performed. The target was found
+  and is visible, enabled and stable — nothing about it is wrong. <div id="consent-backdrop"
+  class="consent-backdrop"> is on top of it and received the pointer event instead. […]
+  ```
+
+  A `press Escape` changes nothing and the click is refused identically. A click on `Accept
+  cookies` clears the wall and the original click then returns `ok: clicked role=button
+  name="Add to cart"`. So the fixture is a genuine failure baseline: unlike Juice Shop, it cannot
+  be cleared by the move the published build got lucky with.
+
+  Noted rather than fixed: the message offers `Escape` as one of its two exits, and on this page
+  that exit is a dead end. It is listed second, after the overlay's own control, and a wasted
+  attempt on it still leaves the step inside its retry budget. If a live run shows models
+  reaching for it first anyway, the ordering is the thing to revisit.
 - [ ] 5.2 Adjacent gap, confirmed live and belonging to **#13** (`the report says what failed,
   never what happened`), not to #78 which is about scoring: the HTML report renders only the step
   text and its verdict. `StepResult` already carries `iterations` and `failedAttempts`
