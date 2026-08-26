@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { stringify } from 'yaml';
 import type { PlannerBrain } from './llm/brain.js';
@@ -6,6 +6,7 @@ import type { GeneratedTest } from './llm/schemas.js';
 import type { PageLike } from './runner/actions.js';
 import { defaultSnapshot } from './runner/executor.js';
 import { TESTS_RELATIVE_DIR, type TestFile } from './runner/testfile.js';
+import { fsReason } from './report/errors.js';
 
 export class PlannerError extends Error {
   constructor(message: string) {
@@ -154,18 +155,23 @@ export async function writeDraft(
   draft: TestDraft,
   meta: ProvenanceMeta,
 ): Promise<string> {
-  const file = path.join(cwd, TESTS_RELATIVE_DIR, `${routeToSlug(meta.route)}.yaml`);
+  const dir = path.join(cwd, TESTS_RELATIVE_DIR);
+  const file = path.join(dir, `${routeToSlug(meta.route)}.yaml`);
   try {
+    await mkdir(dir, { recursive: true });
     // 'wx' fails if the file exists — atomic, so a concurrent write cannot slip through.
     await writeFile(file, renderTestYaml(draft, meta), { flag: 'wx' });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'EEXIST' && err.syscall !== 'mkdir') {
       throw new PlannerError(
         `Refusing to overwrite ${path.relative(cwd, file)} (route ${meta.route}). ` +
           'Delete or rename it to regenerate.',
       );
     }
-    throw error;
+    throw new PlannerError(
+      `Cannot write draft to ${file}: ${fsReason(error)}. Check that ${path.dirname(file)} is a directory you can write to, not a file.`
+    );
   }
   return file;
 }
