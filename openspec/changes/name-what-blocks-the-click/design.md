@@ -6,10 +6,13 @@ The executor's error path is uniform and deliberately so: `performAction` throws
 
 The loop works when the message is about the target. `Element not found: role=button name="Dismiss"` tells the model to pick something else, and it does. An interception failure is the opposite instruction wearing the same clothes: the target was correct, and picking something else is the one move that cannot help. Playwright's own text says so — `element is visible, enabled and stable`, then `<div …> intercepts pointer events` — but it says it inside a forty-line call log that arrives with a `Timeout 30000ms exceeded` headline, and the model reads the headline.
 
+**How badly it reads the headline is not settled, and the retest is why** (task 4.2). One evaluation watched a model spend three attempts re-targeting the same correct element. A controlled retest of the same block, same model, same application, watched four out of four runs guess `Escape` and recover unaided. Both are real observations of the same message; what separates them is not known, and the step's own wording is a candidate as much as sampling is. So this design is not built on "the model cannot recover" — it is built on the model having nothing to recover *from*, which is true in both observations.
+
 ## Goals / Non-Goals
 
 **Goals:**
 - Make an obstruction distinguishable from a bad target, in the one channel the model reads
+- Replace a generic guess that fits one kind of overlay with a diagnosis that fits every kind
 - Name the obstructing element, so the model can find it in the snapshot
 - State the recovery once, in the prompt, rather than hoping it is inferred from the message each time
 - Cost nothing when no overlay is involved
@@ -56,4 +59,6 @@ Tempting, and wrong. A cookie consent dialog is a legitimate part of some applic
 
 - **The pattern is coupled to Playwright's call-log wording.** If that string changes, the translation silently stops firing and behaviour reverts to today's. Mitigated by a unit test that pins the message shape as Playwright emits it, so the coupling is visible and fails loudly on upgrade rather than degrading quietly.
 - **A model may now dismiss a dialog that was the point of the test.** The step is still the question and the judge still decides it, so a test about a consent dialog that the model clears fails on its own assertion. Preferable to today, where it fails on a timeout that says nothing.
-- **This does not make Juice Shop pass.** It removes the reason the runner could not get past the first screen. Whether the drafts that `plan` writes against an obstructed page are worth running is a separate question, deliberately left to its own change.
+- **This does not make Juice Shop pass, and it is now known that Juice Shop passed without it.** Four replicas of the published build cleared the same block unaided. This change is not load-bearing for that application, and the proposal says so rather than claiming a result the measurement refused to give.
+- **The value asserted here is untested.** That an explicit diagnosis beats a lucky `Escape` follows from `Escape` not closing a non-modal overlay or a dialog that declines to close — but no such case was run. The honest acceptance criterion for this change is the one the retest could check: with the diagnosis in hand the model went `Escape` -> repeat the original click, three replicas out of three, and never once re-targeted. That is a directed recovery replacing a guess, which is a real improvement and a smaller one than a pass-rate claim would be.
+- **The verification that produced the null result had a flaw worth recording, so it is not repeated.** The reproduction test was a reconstruction of the draft that originally failed, not that draft itself, and its step read `click … to dismiss the cookie message and verify the cookie banner is gone` — wording that plausibly primes the very dismissal being measured. Worse, no failure baseline was established before the A/B, so a positive result on both sides could never have distinguished the two builds. `notes-plan-quality.md` had already reached this conclusion for `plan` ("pass rate is the wrong acceptance criterion") and it was not applied here.
