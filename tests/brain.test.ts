@@ -40,6 +40,23 @@ describe('prompts', () => {
     expect(prompt).toContain('Never return "fail" because the work appears to have been done already');
   });
 
+  it('system prompt separates a blocked action from a wrong target', () => {
+    // The rule beside it — "choose an alternative element" — is correct for a
+    // missing target and precisely wrong for a blocked one, which is why this
+    // is stated as its own exception rather than folded into that one (design
+    // name-what-blocks-the-click, D4). Against Juice Shop a real model applied
+    // the general rule three times, re-resolving the correct element under
+    // three names while the dialog on top of it went untouched.
+    const prompt = agentSystemPrompt();
+    expect(prompt).toContain('"blocked"');
+    expect(prompt).toContain('not that you picked the wrong target');
+    expect(prompt).toContain('Re-targeting cannot fix it');
+    expect(prompt).toContain('pressing Escape with no target');
+    // Juice Shop stacked two. A model that clears one and is blocked again must
+    // read that as progress, not as evidence that dismissing does not work.
+    expect(prompt).toContain('Overlays can be stacked');
+  });
+
   it('user prompt includes step, snapshot, last result and budget', () => {
     const prompt = agentUserPrompt({
       step: 'add item to cart',

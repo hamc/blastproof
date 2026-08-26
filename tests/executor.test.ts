@@ -64,9 +64,32 @@ class FakeLocator implements LocatorLike {
     throw new Error(`not visible: ${key}`);
   }
 
+  /**
+   * A key in `page.intercepted` resolves and is actionable, and then something
+   * on top of it takes the event (name-what-blocks-the-click). That ordering is
+   * the whole point: `resolve()` runs first, so the fake reproduces the case the
+   * translation exists for — a correct target, not a missing one.
+   */
+  private intercept(): void {
+    const key = `${this.kind}:${this.query}`;
+    if (!this.page.intercepted.has(key)) return;
+    throw new Error(
+      [
+        'locator.click: Timeout 30000ms exceeded.',
+        'Call log:',
+        `  - waiting for ${key}`,
+        '  -   element is visible, enabled and stable',
+        '  -   <div class="overlay-backdrop"></div> intercepts pointer events',
+        '  - retrying click action, attempt #1',
+      ].join('\n'),
+    );
+  }
+
   async click(): Promise<void> {
     this.resolve();
+    this.intercept();
     this.page.calls.push(`click ${this.kind}:${this.query}`);
+    this.page.onClick?.(`${this.kind}:${this.query}`);
   }
 
   async fill(value: string): Promise<void> {
@@ -92,6 +115,13 @@ class FakePage implements PageLike {
   /** key ("role:button|Checkout") → ms the requested `waitFor` timeout must meet
    *  or exceed to resolve (browser-patience regression tests). */
   delayedVisible = new Map<string, number>();
+  /** Keys that resolve and are actionable, but whose action another element takes
+   *  (name-what-blocks-the-click). */
+  intercepted = new Set<string>();
+  /** Run after a successful click, so a test can model a dismissal that changes
+   *  the page — the only way an overlay ever goes away here, since the runner
+   *  never clears one itself (name-what-blocks-the-click, D5). */
+  onClick: ((key: string) => void) | undefined = undefined;
   screenshots: string[] = [];
   currentUrl = 'about:blank';
   /** Every `timeout` passed to `goto`, in call order (browser-patience task 2.4). */
@@ -1898,5 +1928,95 @@ describe('executeTest judge inputs', () => {
     // The only judgment happens in step two, which did nothing of its own.
     expect(brain.judged[0]?.step).toBe('two');
     expect(brain.judged[0]?.history ?? []).toHaveLength(0);
+  });
+});
+
+// An overlay on top of a correct target produced zero passing tests across two
+// full runs against OWASP Juice Shop, on the application's first screen. The
+// model retried the same element under three different accessible names,
+// because a bare `Timeout 30000ms exceeded` is a message about the target. These
+// pin the two halves of what replaced that: the failure now says what it is, and
+// what it says reaches the next prompt.
+
+describe('an action blocked by an overlay', () => {
+  /** A brain whose every `nextAction` input is captured, for prompt assertions. */
+  function recording(script: AgentAction[]): AgentBrain & { inputs: AgentIterationInput[] } {
+    let calls = 0;
+    const inputs: AgentIterationInput[] = [];
+    return {
+      inputs,
+      async nextAction(input: AgentIterationInput): Promise<AgentAction> {
+        inputs.push(input);
+        const next = script[calls++];
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(): Promise<AssertJudgment> {
+        throw new Error('not judged in these tests');
+      },
+    };
+  }
+
+  it('reaches the next prompt as an obstruction naming the blocker', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Me want it!');
+    page.intercepted.add('role:button|Me want it!');
+    const brain = recording([click('Me want it!'), { action: 'done', reasoning: 'gave up' }]);
+
+    await executeTest(page, makeTest(), baseOptions(brain));
+
+    const retry = brain.inputs[1];
+    expect(retry?.lastResult).toContain('blocked:');
+    expect(retry?.lastResult).toContain('overlay-backdrop');
+    expect(retry?.lastResult).toContain('Choosing a different name for the same target cannot help');
+    // The raw call log is what the model used to read, and is what made
+    // re-targeting the only available conclusion.
+    expect(retry?.lastResult).not.toContain('Timeout 30000ms exceeded');
+  });
+
+  it('costs one failed attempt, like any other action failure', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Me want it!');
+    page.intercepted.add('role:button|Me want it!');
+    const brain = recording([click('Me want it!'), { action: 'done', reasoning: 'gave up' }]);
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(result.steps[0]?.failedAttempts).toBe(1);
+    // Blocked means not performed: nothing reached the page.
+    expect(page.calls).not.toContain('click role:button|Me want it!');
+  });
+
+  it('lets the model dismiss the overlay itself and go on', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Me want it!');
+    page.visible.add('role:button|Close Welcome Banner');
+    page.intercepted.add('role:button|Me want it!');
+    const brain = recording([
+      click('Me want it!'),
+      // What the message asks for: clear the thing on top, then come back.
+      click('Close Welcome Banner'),
+      click('Me want it!'),
+      { action: 'done', reasoning: 'accepted' },
+    ]);
+
+    // The dismissal is what unblocks it, and only the dismissal: the runner
+    // clears no overlay of its own (D5). Until that click lands, the target
+    // stays blocked however many times it is retried.
+    page.onClick = (key) => {
+      if (key === 'role:button|Close Welcome Banner') page.intercepted.clear();
+    };
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(result.status).toBe('passed');
+    // Exactly two clicks, in this order: the blocked one was never performed,
+    // and the target was reached only after the overlay went away.
+    expect(page.calls.filter((call) => call.startsWith('click'))).toEqual([
+      'click role:button|Close Welcome Banner',
+      'click role:button|Me want it!',
+    ]);
+    // One blocked attempt, then the recovery — the budget was not what ended it.
+    expect(result.steps[0]?.failedAttempts).toBe(1);
   });
 });
