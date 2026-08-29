@@ -97,6 +97,16 @@ return malformed actions, which a step spends from its retry budget — expect m
 retries than a hosted model, and prefer tests whose steps state their outcomes
 plainly.
 
+### Temperature is not configurable, on purpose
+
+There is no `temperature` key. The call that judges a step is pinned to 0 in the source; the calls that choose an action and draft a test are left at the provider's default.
+
+They want opposite things. Judging is a decision, and two decisions about one page must agree — it is the number `--min-score` gates a merge on. Choosing an action is a search, and sampling is how the agent finds a route through a page the test's author never saw.
+
+A key here would be set once, forgotten, and surface months later as a gate that flips, with nobody connecting the two. If a real workload needs it, that is evidence worth reopening on.
+
+**Pinning narrows variance; it does not make a run reproducible.** Provider batching, floating point, and gateway routing between providers or quantizations all remain — and a gateway is exactly where the reported flip was measured.
+
 ## `browser` — waiting and snapshots
 
 ```yaml

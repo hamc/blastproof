@@ -240,6 +240,10 @@ blastproof run --min-score 80    # one failing P2 is tolerated
 
 `--min-score` **replaces** the all-must-pass rule rather than adding to it. Only executed tests count: filtered and unrouted tests are neither numerator nor denominator, and a run that executed nothing scores 100, so a docs-only PR is never blocked. JUnit carries the score as a `<property name="score">`, and unrouted tests appear as `<skipped/>` so the coverage gap shows up in CI rather than vanishing.
 
+**The verdict behind that number is pinned, and that is not the same as reproducible.** The model call that decides whether a step passed runs at temperature 0, so the same page and the same expectation are not re-sampled into a different answer — a gate that flips on identical input teaches people to re-run until green, which is worse than no gate. What pinning does not survive: provider-side batching, floating point, and a gateway routing two calls to different providers or quantizations. Expect far less variance, not a guarantee of the same output twice.
+
+The calls that *choose* an action, and the one that drafts a test, are deliberately left free — that latitude is what re-resolves a control after a redesign instead of failing on it.
+
 Wiring this into a pipeline, with the gating patterns worth knowing: [Running in CI](./docs/ci.md).
 
 ## Without a browser or a key
