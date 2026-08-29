@@ -236,6 +236,40 @@ describe('the blastproof skill', () => {
     expect({ opens: total(opens), closes: total(closes) }).toEqual({ opens: 1, closes: 1 });
   });
 
+  it('is the only skill the installer offers from this repository', async () => {
+    // `skills add <owner>/<repo>` walks the agent directories as well as
+    // `skills/`, so without this marker the command the README publishes
+    // installs this repository's OpenSpec tooling into other people's projects
+    // — carrying `allowed-tools: Bash(openspec:*)` and instructions to run a
+    // CLI they do not have. These files are generated, so a regeneration drops
+    // the marker silently; that is what this assertion is here to catch.
+    const dirs = ['.claude', '.cursor', '.opencode'];
+    const unmarked: string[] = [];
+    for (const dir of dirs) {
+      const base = path.join(root, dir, 'skills');
+      let entries: string[];
+      try {
+        entries = await readdir(base);
+      } catch {
+        continue; // an agent directory this checkout does not carry
+      }
+      for (const entry of entries) {
+        const file = path.join(base, entry, 'SKILL.md');
+        let source: string;
+        try {
+          source = await readFile(file, 'utf8');
+        } catch {
+          continue;
+        }
+        const frontMatter = source.slice(0, source.indexOf('\n---', 4));
+        if (!/^\s+internal: true$/m.test(frontMatter)) {
+          unmarked.push(path.relative(root, file));
+        }
+      }
+    }
+    expect(unmarked).toEqual([]);
+  });
+
   it('stays out of the npm tarball', async () => {
     // The skill is installed from the repository, never from the package, and
     // proposal.md and AGENTS.md both say so. `files` is what makes that true.
