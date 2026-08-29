@@ -58,14 +58,14 @@ each step name a control and an outcome that exist on the page.
 
 ## Defects found
 
-1. `plan --write` does not create `.blastproof/tests/`. `writeDraft`
+1. **#74** — `plan --write` does not create `.blastproof/tests/`. `writeDraft`
    (`src/planner.ts:152`) handles `EEXIST` but not `ENOENT`, and the raw Node
    error with an absolute path reaches the user — below the standard `AGENTS.md`
    sets for the prerequisite boundary.
-2. A write failure aborts the whole run. The draft already generated for an
+2. **#75** — a write failure aborts the whole run. The draft already generated for an
    earlier route is discarded and its model calls are spent for nothing.
-3. A step whose verification has no object passes both the authoring check and
-   the runner.
+3. **#72** — a step whose verification has no object passes both the authoring
+   check and the runner.
 
 ## Cost
 
@@ -99,7 +99,7 @@ Reproduced independently. The model states in plain text that it could not carry
 out the step, and the runner accepts `done` anyway. The `fail` action exists and
 the model did not choose it.
 
-**This generalises the fix deferred on #72 and makes it worth more.** The rule
+Filed as **#76**. **This generalises the fix deferred on #72 and makes it worth more.** The rule
 under discussion there — a verification may not close on `done` having emitted no
 assertion — is the same rule this needs: *a step may not close on `done` having
 emitted no action at all*. One structural check, no semantics, covering both
