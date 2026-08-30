@@ -196,11 +196,97 @@ function requireValue(action: AgentAction): string {
 }
 
 /**
+ * Playwright's own words for "the target was fine and something else took the
+ * click", written into the call log of an action that then times out
+ * (design name-what-blocks-the-click, D2).
+ *
+ * Quoted rather than re-derived: asking the page which element sits at the
+ * target's coordinates costs a second round trip, at the moment an action has
+ * just spent the whole browser timeout failing, to recompute what the error
+ * already carries.
+ *
+ * Playwright renders the blocker as a whole element — `<div class="…"></div>`
+ * — so the capture takes the **opening** tag and the rest of the rendering is
+ * skipped up to the phrase. Bounded to one line, because the call log holds a
+ * second element a few lines above (`locator resolved to <button …>`, the
+ * target itself) and a pattern allowed to cross newlines names that one
+ * instead: the wrong element, and the one this message exists to exonerate.
+ *
+ * This pattern is the coupling this translation rests on. If Playwright ever
+ * rewords the line, the translation stops firing and behaviour reverts to the
+ * raw timeout — which is why `tests/actions.test.ts` pins a real call log
+ * verbatim rather than a hand-written approximation.
+ */
+const INTERCEPTS_POINTER = /(<[^>\n]{1,400}>)[^\n]{0,400}?intercepts pointer events/;
+
+/** A framework's overlay class list is long, decorative, and about to be paid for by the token. */
+const MAX_BLOCKER_LENGTH = 80;
+
+function truncateBlocker(tag: string): string {
+  return tag.length <= MAX_BLOCKER_LENGTH ? tag : `${tag.slice(0, MAX_BLOCKER_LENGTH)}…>`;
+}
+
+/**
+ * Translates an interception into an obstruction the model can act on, or
+ * returns `undefined` for any other failure (design D1/D3).
+ *
+ * The message leads with the fact that inverts the model's default reading. A
+ * bare `locator.click: Timeout 30000ms exceeded` says the target is the
+ * problem, so a model given one does the only thing that message supports: it
+ * re-resolves the same element under a different accessible name. That was
+ * measured against a real application — three attempts, three names, all
+ * resolving to the correct element, the whole retry budget spent while the
+ * dialog on top of it was never touched. So the first thing this says is that
+ * the target was found and is fine, and the last thing it says is that trying
+ * another name cannot help.
+ *
+ * The captured tag is markup, and the model is forbidden from targeting by CSS
+ * everywhere else. It is named here as *what took the click* and never as a
+ * handle: the route to the overlay is the accessibility snapshot, where the
+ * dialog and its close control appear as roles and names.
+ */
+function obstructionFor(error: unknown, action: AgentAction): ActionError | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = INTERCEPTS_POINTER.exec(message);
+  if (!match) return undefined;
+  const where = action.target ? ` on ${describeTarget(action.target)}` : '';
+  return new ActionError(
+    `blocked: the ${action.action}${where} was NOT performed. The target was found and is visible, ` +
+      `enabled and stable — nothing about it is wrong. ${truncateBlocker(match[1]!)} is on top of it and ` +
+      `received the pointer event instead. Something is covering the page: find it in the snapshot — a ` +
+      `dialog, a cookie banner, an onboarding overlay — and dismiss it first, using its own close or ` +
+      `accept control, or by pressing Escape with no target. Then act on this target again. Choosing a ` +
+      `different name for the same target cannot help.`,
+  );
+}
+
+/**
  * Performs one agent action on the page. `assert`/`done`/`fail` are control
  * actions handled by the executor and rejected here.
  * Returns a short human-readable result string fed back into the next prompt.
+ *
+ * The obstruction translation is guarded here, over the whole action path,
+ * rather than at the four call sites that touch a locator (design D1).
+ * `click`, `fill`, `select` and a targeted `press` all wait for the same
+ * actionability and can all be intercepted; wrapping each of them is four
+ * places to forget the fifth, which is this codebase's named recurring defect
+ * — a guarantee implemented at a call site instead of over its scope.
  */
 export async function performAction(
+  page: PageLike,
+  action: AgentAction,
+  ctx: ActionContext,
+): Promise<string> {
+  try {
+    return await performResolvedAction(page, action, ctx);
+  } catch (error) {
+    // Conditional on the error text, so anything that is not an interception
+    // reaches the model byte-identical to before.
+    throw obstructionFor(error, action) ?? error;
+  }
+}
+
+async function performResolvedAction(
   page: PageLike,
   action: AgentAction,
   ctx: ActionContext,
