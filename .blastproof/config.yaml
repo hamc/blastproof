@@ -39,6 +39,11 @@ routes:
   # The one page whose mutation redirects back to itself, added to reproduce the
   # duplicate-write class from #28 (a submit that erases its own evidence).
   "examples/demo-app/notes.html": ["/notes"]
+  # The obstruction fixture (name-what-blocks-the-click, task 5.1): a consent wall
+  # Escape cannot close, over the ordinary product page. It exists to make an
+  # interception deterministic, which is why it is a route of its own rather than
+  # a variant of index.html.
+  "examples/demo-app/consent.html": ["/consent.html"]
   # Shared across every page: app.js holds all the business logic, style.css the
   # layout, serve.mjs the routing. A change to any of them can break any journey,
   # so each maps to the whole surface rather than to one page.

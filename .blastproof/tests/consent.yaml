@@ -1,0 +1,15 @@
+# Covers examples/demo-app/consent.html, the obstruction fixture. The second step
+# targets a control the backdrop covers, so reaching it requires clearing the wall
+# first — which the agent does either proactively or after the interception.
+#
+# Measured before committing: 10/10 passes across two builds. The interception
+# itself fires in roughly 1 run in 11, because a capable model dismisses the bar
+# before touching the covered target; see the change's task 5.3.
+summary: Adding to the cart works from behind the consent wall
+priority: P1
+tags: [smoke, consent]
+routes: ["/consent.html"]
+auth: false
+steps:
+  - navigate to /consent.html and verify the heading "Consent Wall Shop" is shown
+  - click the "Add to cart" button for the Mechanical Keyboard and verify the page shows "Mechanical Keyboard added to cart."
