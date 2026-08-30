@@ -34,13 +34,39 @@ The failure SHALL cost one failed attempt against the existing per-step retry bu
 ## MODIFIED Requirements
 
 ### Requirement: Per-step agentic loop
-The executor SHALL execute each plain-English step as an agentic loop: capture an accessibility snapshot, ask the LLM for exactly one structured action, perform it, and repeat until the step's outcome holds, the step fails, or the per-step iteration ceiling is reached. A failed action SHALL be returned to the model as the next iteration's previous result and SHALL cost one attempt against the configured per-step retry budget.
+The executor SHALL execute each plain-English step via a loop: capture the page accessibility snapshot, ask the LLM for a structured next action, perform the action on the page, and repeat until the step is complete or failed. A step SHALL be complete when the LLM returns `done` **or** when an `assert` judgment passes; the executor SHALL NOT request a further action once either has occurred. Where a run budget is configured, exhausting it SHALL end the run rather than fail the step, so an exhausted budget is never mistaken for a defect in the application under test.
+
+The executor SHALL allow a page navigation in flight to settle before capturing the snapshot it will act or judge on, bounded by the configured browser timeout, so that a verdict describes the page the previous action produced rather than the page it replaced.
 
 The model SHALL be instructed that an action reported as obstructed means an element is on top of its target rather than that the target was chosen wrongly, that what is covering the target appears in the snapshot and is to be dismissed before acting again, and that overlays can be stacked so clearing one may reveal another. This instruction SHALL be stated alongside — not in place of — the existing instruction to choose an alternative element after an error, because the two failures call for opposite moves.
 
-#### Scenario: One action per iteration
-- **WHEN** the LLM is asked for the next action
-- **THEN** it returns exactly one structured action, never a batch
+#### Scenario: Step completes
+- **WHEN** the LLM returns action `done` for a step
+- **THEN** the executor records the step as passed and advances to the next step
+
+#### Scenario: Step completes on a passing assertion
+- **WHEN** an `assert` action's judgment passes
+- **THEN** the executor records the step as passed and advances to the next step, without requesting a further action
+
+#### Scenario: Step fails
+- **WHEN** the LLM returns action `fail` or the retry budget is exhausted
+- **THEN** the executor records the step as failed with the LLM-provided reason, captures a screenshot, and the test is marked failed
+
+#### Scenario: A satisfied step cannot subsequently be failed
+- **WHEN** a step's assertion has passed
+- **THEN** the step is already complete, so no later `fail` can apply to it
+
+#### Scenario: Budget exhausted mid-step
+- **WHEN** the run budget is exhausted while a step is in progress
+- **THEN** the run stops and is reported as incomplete, and the step is recorded as not run rather than as failed
+
+#### Scenario: A judgment follows a server-side redirect
+- **WHEN** an action submits a form that the server answers with a redirect, and the next snapshot would otherwise be captured before that navigation completes
+- **THEN** the executor waits for the page to settle first, so the expectation is judged against the destination page rather than the page that was left
+
+#### Scenario: Settling never exceeds the configured timeout
+- **WHEN** a page never reaches a settled state
+- **THEN** waiting stops at the configured browser timeout and the loop proceeds, so a page that never settles cannot hang the run
 
 #### Scenario: A blocked action does not read as a wrong target
 - **WHEN** the previous result reports that another element intercepted the pointer event

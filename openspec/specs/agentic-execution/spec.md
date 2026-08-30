@@ -3,11 +3,15 @@
 ## Purpose
 
 TBD - created by syncing change m1-yaml-runner. Update purpose after archive.
+
 ## Requirements
+
 ### Requirement: Per-step agentic loop
 The executor SHALL execute each plain-English step via a loop: capture the page accessibility snapshot, ask the LLM for a structured next action, perform the action on the page, and repeat until the step is complete or failed. A step SHALL be complete when the LLM returns `done` **or** when an `assert` judgment passes; the executor SHALL NOT request a further action once either has occurred. Where a run budget is configured, exhausting it SHALL end the run rather than fail the step, so an exhausted budget is never mistaken for a defect in the application under test.
 
 The executor SHALL allow a page navigation in flight to settle before capturing the snapshot it will act or judge on, bounded by the configured browser timeout, so that a verdict describes the page the previous action produced rather than the page it replaced.
+
+The model SHALL be instructed that an action reported as obstructed means an element is on top of its target rather than that the target was chosen wrongly, that what is covering the target appears in the snapshot and is to be dismissed before acting again, and that overlays can be stacked so clearing one may reveal another. This instruction SHALL be stated alongside — not in place of — the existing instruction to choose an alternative element after an error, because the two failures call for opposite moves.
 
 #### Scenario: Step completes
 - **WHEN** the LLM returns action `done` for a step
@@ -36,6 +40,10 @@ The executor SHALL allow a page navigation in flight to settle before capturing 
 #### Scenario: Settling never exceeds the configured timeout
 - **WHEN** a page never reaches a settled state
 - **THEN** waiting stops at the configured browser timeout and the loop proceeds, so a page that never settles cannot hang the run
+
+#### Scenario: A blocked action does not read as a wrong target
+- **WHEN** the previous result reports that another element intercepted the pointer event
+- **THEN** the model is instructed to locate and dismiss what is covering the target rather than to re-resolve the target under another name
 
 ### Requirement: Live element resolution
 The executor SHALL resolve target elements exclusively from the current accessibility snapshot (role/name/text) on every action attempt and SHALL NOT persist selectors between steps or runs. The configured browser timeout SHALL bound how long resolution waits for a candidate element to become visible, and SHALL bound navigation, so that a slow application is waited for rather than retried at.
@@ -303,3 +311,54 @@ This requirement SHALL apply regardless of the language a step is written in, be
 #### Scenario: Refusal cannot loop
 - **WHEN** the model keeps proposing values it cannot source
 - **THEN** the failed attempts accumulate and the step fails on the existing retry budget
+
+### Requirement: A judgment is a decision, not a sample
+The model call that judges a step SHALL be made with `temperature: 0`. The calls that choose the next action and that draft a test SHALL NOT be pinned, because their latitude is what re-resolves an element the test's author did not anticipate.
+
+#### Scenario: Judging is pinned
+- **WHEN** a step's expectation is judged against a snapshot
+- **THEN** the call carries `temperature: 0`
+
+#### Scenario: Acting is not pinned
+- **WHEN** the model is asked for the next action, or for a test draft
+- **THEN** the call carries no temperature, and the provider's default applies
+
+#### Scenario: The same page reaches the same verdict
+- **WHEN** the same expectation is judged twice against the same snapshot and history
+- **THEN** the two calls are identical in everything the model receives, including the temperature
+
+### Requirement: The limit of the guarantee is documented
+The documentation SHALL state that pinning narrows verdict variance and does not make a run reproducible, naming provider batching and gateway routing as what remains.
+
+#### Scenario: A reader looks for a repeatability guarantee
+- **WHEN** the reader reaches what the documentation says about verdicts
+- **THEN** it says the judgment is pinned, and that identical output across runs is not guaranteed
+
+### Requirement: An obstructed action is reported as an obstruction, not as a bad target
+When an action fails because another element received the pointer event aimed at its target, the executor SHALL report that failure as an obstruction rather than as a resolution failure. The result returned to the model SHALL state that the target was found and is actionable, SHALL name the element that took the event, and SHALL give the ways to clear it: the overlay's own control as it appears in the accessibility snapshot, or a targetless `Escape`. The result SHALL state that retrying the same target under a different name cannot help.
+
+This SHALL apply to every action performed against a resolved element — `click`, `fill`, `select`, and a `press` carrying a target — since all of them wait for the same actionability. An error arising from any other cause SHALL reach the model unchanged.
+
+The obstruction SHALL be reported, never cleared by the executor. Dismissing an overlay SHALL remain an action the model chooses and the step records, because an overlay may be the subject of the test rather than an obstacle to it.
+
+The failure SHALL cost one failed attempt against the existing per-step retry budget, exactly as any other action failure does.
+
+#### Scenario: A backdrop over the target is named
+- **WHEN** a `click` resolves its target, the element is visible and stable, and a modal backdrop receives the pointer event
+- **THEN** the result tells the model the target is fine, names the intercepting element, and offers the overlay's own control or `Escape`
+
+#### Scenario: Re-targeting is named as the move that cannot help
+- **WHEN** an action is reported as obstructed
+- **THEN** the result says so explicitly, so that choosing a different accessible name for the same target is not the model's reading of the failure
+
+#### Scenario: A fill blocked by an overlay reads the same as a blocked click
+- **WHEN** a `fill` or a `select` fails for the same reason
+- **THEN** it is translated identically, because the guarantee is over the action path rather than over one action
+
+#### Scenario: An unrelated failure is untouched
+- **WHEN** an action fails because the element was never found, or for any reason carrying no interception
+- **THEN** the error reaches the model exactly as before
+
+#### Scenario: The obstruction is not cleared for the model
+- **WHEN** an action is blocked by a dialog
+- **THEN** the executor performs no dismissal of its own, and the page is unchanged except by actions the model chose
