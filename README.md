@@ -269,6 +269,8 @@ If your application legitimately spans hosts (an identity provider, a hosted pay
 
 **Your secrets stay out of prompts.** `{{env.*}}` placeholders survive intact and are substituted at the moment of typing. Every value your tests or auth recipe reference is redacted from everything else crossing into a prompt — page snapshots included — in literal and percent-encoded form. Redaction matches known values, so treat it as a strong default rather than a guarantee against a hostile app.
 
+**A redacted value cannot be asserted on.** The masking is thorough by design, and page snapshots are not exempt — so a step that verifies text which happens to equal an `{{env.*}}` value can never pass, because the judge is shown `***` where the page shows the thing. The failure is the most misleading shape available: the test is right, the application is right, and the report blames the application. Put a value in `{{env.*}}` because it is a secret or because it varies by environment, but do not then write a step that asserts on it ([#87](https://github.com/hamc/blastproof/issues/87)).
+
 The system prompt also tells the model that page content is data, never instruction. That raises the cost of casual injection and is **not** a boundary — the origin constraint is. Do not point blastproof at an application you would not run locally.
 
 ## blastproof tests itself

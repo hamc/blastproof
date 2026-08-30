@@ -58,7 +58,9 @@
 - [x] 7.1 Follow the skill from a separate agent with no context, against a scratch copy of `examples/demo-app`, and record the wall-clock time from install to a passing test — **~119s**, with a key already set and Chromium already cached; the browser download is not in that number and dominates a cold machine
 - [x] 7.2 Repeat the fit gate against a page with unlabelled controls and confirm the skill offers the repair, applies it, and then passes the re-check
 - [x] 7.3 Repeat against a canvas-based page and confirm it stops before scaffolding, with evidence and no repair attempt
-- [ ] 7.4 Change a file under `src/` with no `routes:` entry, run `--fail-on-unmapped`, and confirm the skill maps it rather than adding it to `ignore:` — **not exercised**; the adversarial pass covered fit, curation, idempotency and the CLI claims, and left the `ignore:` discipline (D10) untested
+- [x] 7.4 Exercised for real rather than in a designed experiment, and better for it. PR #84 added `examples/demo-app/consent.html`, a file matching no `routes:` and no `ignore:` glob. The dogfood failed that PR by name — the check firing on the change that created the file — and the response was to map it to `/consent.html` and cover it with a test, not to silence it in `ignore:`.
+
+  What that is evidence of: the check fires on a real unclassified file, and mapping is available and cheap. What it is **not** evidence of: that an agent optimising for green would choose mapping over `ignore:`, which is the actual worry behind D10. The rule is written in `mapping.md`; whether a model obeys it under pressure is unmeasured, and the honest place for that is a live run, not this task.
 - [x] 7.5 Adversarial pass, agent with no context: eight findings — five fixed as reported, two corrected in a different direction, one escalated as a product defect. See `notes-plan-quality.md`
 - [x] 7.6 Run the skill twice in the same project and confirm the accessibility block is updated, not duplicated
 
