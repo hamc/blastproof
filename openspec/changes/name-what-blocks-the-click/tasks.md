@@ -133,7 +133,27 @@
   the overlay's control — so on a wall that never yields, the ordering is the first thing to
   revisit if recovery costs more than one attempt.
 
-- [ ] 5.3 The round that would settle the rate, now that 5.1 makes it cheap: five replicas per arm
+- [x] 5.3 Five replicas per arm against the fixture, interleaved, same model and gateway. **The round did not settle the rate, and the reason is the finding.**
+
+  10/10 PASS on both arms, 7 model calls and 5 actions on every single run, timings overlapping
+  (main 12.5–16.0s, fix 12.9–14.7s). No difference, because **the interception never fired**:
+  `grep "intercepts pointer events"` returns 0 across all ten logs, and in every run the model's
+  first action was `click button "Accept cookies"`. It cleared the wall before ever touching the
+  covered target, so the translated message had nothing to translate.
+
+  A smoke run immediately before did hit it — the model tried `Add to cart` first, took the
+  30s timeout, then recovered. So on this fixture the block occurs in roughly **1 run in 11**,
+  and it is `nextAction`'s sampling that decides which. The fixture makes the obstruction
+  deterministic; it does not make the model walk into it.
+
+  **What the next attempt needs.** The accept control sits in the snapshot, so a model with any
+  sense dismisses it first — which is correct behaviour and the reason this design cannot provoke
+  the fault. Exercising the block requires either a step that gives the model a reason to touch
+  the covered target before reading the bar, or counting only the subset of runs where the
+  interception fired, which at ~9% needs roughly fifty replicas an arm to reach five events.
+
+  This is the third measurement in a row to come back inconclusive for the same underlying reason,
+  and that consistency is itself the result: the fault is real, rare, and does not appear on demand.
   against `consent.html`, run **sequentially** rather than in parallel, since contention confounded
   every anomaly in the Juice Shop round. Against Juice Shop's ~quarter failure rate, separating the
   arms at p < 0.05 needs roughly fifteen replicas each; against a wall `Escape` cannot open the
