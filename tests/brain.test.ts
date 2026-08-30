@@ -152,6 +152,43 @@ describe('createBrain', () => {
   });
 });
 
+describe('what is pinned and what is not (design D1, deterministic-verdicts)', () => {
+  it('pins the judgment, because two decisions about one page must agree', async () => {
+    const captured: { options?: { temperature?: number } } = {};
+    const brain = createBrain(fakeModel, stubGenerate({ pass: true, reason: 'ok' }, captured), new RunBudget());
+    await brain.judge('verify the total is $80', 'total shows $80', '- text "$80"');
+    expect(captured.options?.temperature).toBe(0);
+  });
+
+  it('leaves the action choice free, because that latitude is the self-healing', async () => {
+    // Asserting the absence, not just the presence elsewhere: a change that
+    // pins every call would fix the flakiness and quietly cost the behaviour
+    // the tool is built around, and nothing else would fail.
+    const captured: { options?: { temperature?: number } } = {};
+    const brain = createBrain(
+      fakeModel,
+      stubGenerate({ action: 'click', target: { role: 'button', name: 'Save' }, reasoning: 'save' }, captured),
+      new RunBudget(),
+    );
+    await brain.nextAction({ step: 'save', snapshot: '- button "Save"', retriesLeft: 3, iterationsLeft: 10 });
+    expect(captured.options).not.toHaveProperty('temperature');
+  });
+
+  it('leaves the planner free, because a person reads the draft before it runs', async () => {
+    const captured: { options?: { temperature?: number } } = {};
+    const planner = createPlanner(
+      fakeModel,
+      stubGenerate(
+        { summary: 'Cart shows the discount', steps: ['navigate to /cart and verify the heading "Your cart" is shown'], priority: 'P1', tags: ['cart'] },
+        captured,
+      ),
+      new RunBudget(),
+    );
+    await planner.planTest({ route: '/cart', snapshot: '- heading "Your cart"', changedFiles: [] });
+    expect(captured.options).not.toHaveProperty('temperature');
+  });
+});
+
 describe('createBrain budget enforcement (design D2)', () => {
   it('counts a nextAction call against the budget', async () => {
     const budget = new RunBudget({ maxCalls: 1 });

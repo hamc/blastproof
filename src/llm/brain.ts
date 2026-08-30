@@ -43,12 +43,20 @@ export interface AgentBrain {
   ): Promise<AssertJudgment>;
 }
 
-/** Narrowed signature of `generateObject` so tests can inject a stub. */
+/**
+ * Narrowed signature of `generateObject` so tests can inject a stub.
+ *
+ * `temperature` is per call rather than per model on purpose (design D3,
+ * deterministic-verdicts): one model instance has to serve a judgment that must
+ * not move and an action choice that must be free to, and that is a property of
+ * the question, not of the model.
+ */
 export type GenerateObjectFn = (options: {
   model: LanguageModel;
   schema: z.ZodTypeAny;
   system?: string;
   prompt?: string;
+  temperature?: number;
 }) => Promise<{ object: unknown; usage?: { totalTokens?: number } }>;
 
 export class MalformedModelOutputError extends Error {
@@ -92,6 +100,13 @@ export function createBrain(
 ): AgentBrain {
   return {
     async nextAction(input) {
+      // Deliberately unpinned (design D1, deterministic-verdicts). This call is
+      // searching, not deciding: it is handed a page that may have been
+      // redesigned since the test was written and asked what to do about it, and
+      // sampling is how it finds a route the author did not anticipate. That is
+      // self-healing. Pinning it would trade a visible flakiness problem for an
+      // invisible one — a suite that heals less does not fail, it starts
+      // reporting defects that are not there.
       const result = await countedGenerate(generate, budget, {
         model,
         schema: agentActionSchema,
@@ -108,11 +123,21 @@ export function createBrain(
     },
 
     async judge(step, expectation, snapshot, stepHistory) {
+      // Pinned (design D1, deterministic-verdicts). This call decides, and two
+      // decisions about one page must agree: it is the verdict `--min-score`
+      // gates a merge on. Left at the provider's default — 1.0 for all three —
+      // the same test scored 0 and then 100 against a real application with
+      // nothing changed between the runs (#81).
+      //
+      // This narrows the distribution; it does not make a run reproducible.
+      // Provider batching, floating point, and a gateway routing two calls to
+      // different providers or quantizations all survive it.
       const result = await countedGenerate(generate, budget, {
         model,
         schema: assertJudgmentSchema,
         system: assertSystemPrompt(),
         prompt: assertUserPrompt(step, expectation, snapshot, stepHistory),
+        temperature: 0,
       });
       const parsed = assertJudgmentSchema.safeParse(result.object);
       if (!parsed.success) {
@@ -141,6 +166,10 @@ export function createPlanner(
 ): PlannerBrain {
   return {
     async planTest(input) {
+      // Deliberately unpinned, like `nextAction` and for a related reason
+      // (design D1, deterministic-verdicts): a draft is read by a person before
+      // it ever runs, so variance here costs a review comment rather than a
+      // wrong verdict.
       const result = await countedGenerate(generate, budget, {
         model,
         schema: generatedTestSchema,
