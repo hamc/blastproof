@@ -18,7 +18,7 @@
 - [x] 3.1 Live, one `generateObject` per provider with the real schema: `gpt-4o-mini`, `claude-haiku-4.5` and `gemini-2.5-flash-lite` all accepted it and all parsed to an object carrying `undefined` where a field was absent
 - [x] 3.2 Live, the full search test against OWASP Juice Shop on the OpenAI default: **0 model calls before, 9 after**. The run still fails the test — `gpt-4o-mini` is a weak model on a hard journey — but it fails having been asked, which is the whole of what this change claims
 - [x] 3.2a `claude-haiku-4.5` must not regress: full test PASS, 21 calls, 49k tokens
-- [ ] 3.2b `gemini-2.5-flash-lite` full-test leg did not return in the final sweep. Its schema acceptance is measured (3.1); its end-to-end run is not
+- [x] 3.2b `gemini-2.5-flash-lite` end-to-end: the leg returned late, after the PR had been opened saying it had not. It made **3 calls** and failed the test at 275s — so the schema is accepted and the model is being asked, which is what this change is about. No before/after comparison exists for its full test: gemini accepted the schema before this change too, so there was nothing here to fix and nothing measured to regress
 - [x] 3.3 Mutation: restore one `.optional()` and confirm 1.4 fails — the JSON Schema assertion is the one that protects this, and a test that passes on the parsed value alone would not have caught the original defect
 - [x] 3.4 `npm run build`
 - [x] 3.5 `npm run typecheck`
