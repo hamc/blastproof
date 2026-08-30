@@ -14,6 +14,7 @@ import type { RunBudget } from '../runner/budget.js';
 import type { StepHistoryEntry } from '../runner/recovery.js';
 import {
   agentActionSchema,
+  parseAgentAction,
   assertJudgmentSchema,
   generatedTestSchema,
   type AgentAction,
@@ -74,13 +75,46 @@ export class MalformedModelOutputError extends Error {
  * what the budget counts against, so an unconfigured budget costs nothing extra
  * and a configured one is total by construction, not by every caller remembering.
  */
+/** A raw provider body is unbounded; a step's failure line is read in a terminal. */
+const MAX_PROVIDER_DETAIL = 300;
+
+/**
+ * Quotes the provider instead of summarising it (design portable-structured-output D2).
+ *
+ * A refusal arrives as an `AI_APICallError` whose `message` is often whatever
+ * short phrase the gateway chose — `Provider returned error` — while the
+ * explanation sits in `responseBody`, unread. That is how a schema our
+ * documented OpenAI default could never satisfy read as a broken tool for as
+ * long as it did (#85): the provider named the field, the constraint and the
+ * rule, and none of it reached anyone.
+ *
+ * Deliberately not per-case: nothing here knows what a schema rejection is, so
+ * a credit limit, a rate limit and an unknown model are all improved by the
+ * same three lines.
+ */
+function withProviderDetail(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  const body = (error as { responseBody?: unknown }).responseBody;
+  if (typeof body !== 'string' || body.length === 0) return error;
+  // Collapsed: a body arrives pretty-printed and a failure line is one line.
+  const detail = body.replace(/\s+/g, ' ').trim().slice(0, MAX_PROVIDER_DETAIL);
+  if (error.message.includes(detail)) return error;
+  error.message = `${error.message} — provider said: ${detail}`;
+  return error;
+}
+
 async function countedGenerate(
   generate: GenerateObjectFn,
   budget: RunBudget,
   options: Parameters<GenerateObjectFn>[0],
 ): ReturnType<GenerateObjectFn> {
   budget.check();
-  const result = await generate(options);
+  let result: Awaited<ReturnType<GenerateObjectFn>>;
+  try {
+    result = await generate(options);
+  } catch (error) {
+    throw withProviderDetail(error);
+  }
   // Recorded even when the output later fails schema validation: the call was
   // made and spent tokens regardless of whether the model's answer parses.
   budget.record(result.usage);
@@ -113,7 +147,7 @@ export function createBrain(
         system: agentSystemPrompt(),
         prompt: agentUserPrompt(input),
       });
-      const parsed = agentActionSchema.safeParse(result.object);
+      const parsed = parseAgentAction(result.object);
       if (!parsed.success) {
         throw new MalformedModelOutputError(
           `Model returned an invalid action: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
