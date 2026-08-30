@@ -1,7 +1,7 @@
 <h1>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./.github/logo-dark.svg">
-    <img src="./.github/logo-light.svg" alt="" width="30" height="30">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hamc/blastproof/main/.github/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/hamc/blastproof/main/.github/logo-light.svg" alt="" width="30" height="30">
   </picture>
   blastproof
 </h1>
@@ -18,7 +18,7 @@ git diff → impact mapping → test generation → agentic execution → report
 
 100% local. MIT. Bring your own LLM key.
 
-<img src="./.github/dogfood.gif" width="100%"
+<img src="https://raw.githubusercontent.com/hamc/blastproof/main/.github/dogfood.gif" width="100%"
      alt="A terminal running blastproof against this repo's demo app. It passes four steps, then fails
           step 5: the page says the SAVE20 promo gave 20% off, but the discount shown is -$6.00 where
           20% of $120.00 would be -$24.00. Score: 0.">
@@ -108,7 +108,7 @@ It is **not** a guarantee of zero duplicate writes. An agent that reaches the sa
 
 ## How it works
 
-<img src="./.github/coverage-flow.svg" width="100%"
+<img src="https://raw.githubusercontent.com/hamc/blastproof/main/.github/coverage-flow.svg" width="100%"
      alt="How a diff becomes a merge decision. In CI, unattended: changed files are matched against the routes: and ignore: globs; matched files contribute affected routes, files matching neither are reported as unclassified and fail the run only under --fail-on-unmapped. Tests declaring an affected route are executed and produce a weighted score, which --min-score gates on. An affected route no test declares is reported as a coverage gap and never fails the run. Separately and manually, outside CI: blastproof plan loads such a route in Chromium, makes one model call, and produces a YAML draft you review, edit and run before committing it.">
 
 **The boundary in the middle is the point.** Everything above it runs unattended on every pull request and ends in an exit code. Everything below it is something you choose to run, on your machine, and review before it lands.
