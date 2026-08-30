@@ -83,7 +83,7 @@ export BLASTPROOF_LLM_API_KEY_ENV=OPENROUTER_API_KEY
 blastproof run --impacted --min-score 80
 ```
 
-### Ollama, for a run that leaves the machine
+### Ollama, for a run that never leaves the machine
 
 ```yaml
 llm:
