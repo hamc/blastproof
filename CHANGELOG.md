@@ -3,6 +3,42 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.16.0] — 2026-08-31
+
+### Added
+
+- **An agent skill.** `npx skills add hamc/blastproof`, then tell your coding agent
+  "set up e2e tests". It checks whether your markup is reachable at all, scaffolds,
+  generates drafts from your running app, and writes down the accessibility
+  constraints that keep the suite alive. It deliberately does not configure
+  authentication or CI.
+
+### Fixed
+
+- **`provider: openai` works.** It never had: the schema was refused before the
+  model was asked anything, so the documented default made zero model calls and
+  reported only `Provider returned error`. Anthropic does not enforce the rule that
+  refused it, which is why this went unseen.
+- **A provider's error reaches you.** Refusals used to arrive as a short phrase with
+  the provider's own explanation discarded. It is now quoted.
+- **The verdict no longer varies between identical runs.** The call that judges a
+  step is pinned; the calls that choose an action and draft a test are deliberately
+  left free, because that latitude is the self-healing.
+- **A blocked click says what is blocking it.** An overlay over a correct target
+  used to arrive as a timeout, which reads as "wrong element" — so the agent kept
+  re-resolving the right one. It now names what took the click and says that
+  re-targeting cannot help.
+- **`plan --write` creates the directory it writes into**, and a draft that cannot be
+  written no longer ends the whole run. Thanks to @abhijeetnardele24-hash for the
+  first outside contribution.
+
+### Changed
+
+- **An absent field is now sent as `null` rather than omitted.** This is what makes
+  strict providers accept the request. A provider that omits a key instead will have
+  its answer rejected and retried — visible, not silent. Four providers were checked
+  and none does.
+
 ## [0.15.0] — 2026-08-18
 
 ### Fixed
