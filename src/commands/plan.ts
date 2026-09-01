@@ -8,7 +8,6 @@ import { createModel, MissingApiKeyError } from '../llm/provider.js';
 import {
   coveredRoutes,
   generateForRoute,
-  PlannerError,
   renderTestYaml,
   writeDraft,
   type TestDraft,
@@ -311,13 +310,15 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           written.push(path.relative(options.cwd, file));
           console.log(`  wrote ${path.relative(options.cwd, file)}`);
         } catch (error) {
-          if (error instanceof PlannerError) {
-            generated.pop();
-            failed.push({ route, reason: error.message });
-            console.log(`  X failed: ${error.message}`);
-            continue;
-          }
-          throw error;
+          // Per-route isolation (design D9) covers persistence too, and does not
+          // discriminate on the error's kind: every draft already cost a model call
+          // against a live page, so one route that cannot be written must not
+          // discard the routes still to come.
+          generated.pop();
+          const reason = error instanceof Error ? error.message : String(error);
+          failed.push({ route, reason });
+          console.log(`  X failed: ${reason}`);
+          continue;
         }
       } else {
         console.log(`\n${renderTestYaml(draft, { route, base })}`);
