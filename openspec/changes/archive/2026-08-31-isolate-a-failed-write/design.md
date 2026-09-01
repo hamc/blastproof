@@ -45,4 +45,4 @@ Nothing to migrate. Behaviour changes only on a path no current code reaches.
 
 ## Open Questions
 
-- **Should a budget stop still discard the drafts it interrupted?** Same shape as this one, larger, and out of scope. Worth an issue.
+- ~~**Should a budget stop still discard the drafts it interrupted?**~~ Answered by reading the code rather than filing the issue: it discards nothing. `generateForRoute` makes exactly one model call per route, and `countedGenerate` checks the budget *before* spending, so exhaustion is raised at the start of a route rather than between two calls of one. Every earlier route has already been written (or printed), and the interrupted route cost a page load and a snapshot — no model spend. The loop reports it under `Not attempted`, which is correct. There is no second door here; the claim was asserted in this change's PR before it was checked.
