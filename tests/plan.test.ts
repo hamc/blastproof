@@ -5,14 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffError } from '../src/diff.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
 
-const { launchMock, getChangedFilesMock, createPlannerMock, generateForRouteMock } = vi.hoisted(
-  () => ({
+const { launchMock, getChangedFilesMock, createPlannerMock, generateForRouteMock, writeDraftMock } =
+  vi.hoisted(() => ({
     launchMock: vi.fn(),
     getChangedFilesMock: vi.fn(),
     createPlannerMock: vi.fn(),
     generateForRouteMock: vi.fn(),
-  }),
-);
+    // Spy, not a stand-in: it delegates to the real writeDraft unless a test says
+    // otherwise, so the write path stays exercised for real everywhere else.
+    writeDraftMock: vi.fn(),
+  }));
 
 vi.mock('playwright', () => ({ chromium: { launch: launchMock } }));
 
@@ -28,12 +30,15 @@ vi.mock('../src/llm/brain.js', async (importOriginal) => {
 
 vi.mock('../src/planner.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/planner.js')>();
-  return { ...original, generateForRoute: generateForRouteMock };
+  return { ...original, generateForRoute: generateForRouteMock, writeDraft: writeDraftMock };
 });
 
 import { EXIT_FAILED, EXIT_OK, EXIT_USAGE } from '../src/commands/run.js';
 import { planCommand } from '../src/commands/plan.js';
 import { PlannerError } from '../src/planner.js';
+
+const { writeDraft: realWriteDraft } =
+  await vi.importActual<typeof import('../src/planner.js')>('../src/planner.js');
 
 const CART_TEST = `summary: Cart discount
 priority: P0
@@ -75,6 +80,8 @@ beforeEach(async () => {
   getChangedFilesMock.mockReset();
   createPlannerMock.mockReset();
   generateForRouteMock.mockReset();
+  writeDraftMock.mockReset();
+  writeDraftMock.mockImplementation(realWriteDraft);
 
   launchMock.mockResolvedValue(fakeBrowser());
   // Preflight probes the provider and base_url with plain `fetch`; stubbed so
@@ -345,6 +352,50 @@ describe('planCommand failure isolation', () => {
     expect(await readdir(testsDir())).toEqual(['cart.yaml']);
     expect(out()).toContain('Failed:');
     expect(out()).toContain('/settings: Cannot load /settings: timeout');
+    expect(out()).toContain('Generated: /cart');
+  });
+
+  it('keeps writing after one route cannot be persisted, and still prints the summary', async () => {
+    // /settings already exists, so its write is refused (never overwrite). Every
+    // draft is a model call against a live page: the routes after it must survive.
+    await writeProject({ 'settings.yaml': CART_TEST });
+
+    const code = await planCommand({
+      cwd: dir,
+      routes: ['/cart', '/settings', '/profile'],
+      write: true,
+    });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect((await readdir(testsDir())).sort()).toEqual(['cart.yaml', 'profile.yaml', 'settings.yaml']);
+    expect(out()).toContain('Failed:');
+    expect(out()).toContain('/settings: Refusing to overwrite');
+    // Reported as failed, not as generated: it produced no file.
+    expect(out()).toContain('Generated: /cart, /profile');
+    // The existing file is the one that was there before, untouched.
+    await expect(readFile(path.join(testsDir(), 'settings.yaml'), 'utf8')).resolves.toContain(
+      'apply a discount',
+    );
+  });
+
+  it('keeps writing after a write failure it does not recognise', async () => {
+    // No current code path produces this: writeDraft wraps every filesystem fault
+    // in a PlannerError. The isolation must belong to this loop rather than to
+    // what the function it calls happens to throw (design D3, #75).
+    await writeProject();
+    writeDraftMock.mockImplementation(
+      async (cwd: string, draft: unknown, meta: { route: string }) => {
+        if (meta.route === '/settings') throw new Error('EROFS: read-only file system');
+        return realWriteDraft(cwd, draft as never, meta as never);
+      },
+    );
+
+    const code = await planCommand({ cwd: dir, routes: ['/settings', '/cart'], write: true });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(writeDraftMock).toHaveBeenCalledTimes(2);
+    expect(await readdir(testsDir())).toEqual(['cart.yaml']);
+    expect(out()).toContain('/settings: EROFS: read-only file system');
     expect(out()).toContain('Generated: /cart');
   });
 });
