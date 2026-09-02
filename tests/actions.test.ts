@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ActionError, performAction, type LocatorLike, type PageLike } from '../src/runner/actions.js';
+import {
+  ActionError,
+  performAction,
+  resolveTarget,
+  type LocatorLike,
+  type PageLike,
+} from '../src/runner/actions.js';
 import type { AgentAction } from '../src/llm/schemas.js';
 
 const BASE = 'http://localhost:3000';
@@ -165,5 +171,155 @@ describe('an obstructed action', () => {
       waitForLoadState: async () => undefined,
     } as unknown as PageLike;
     await expect(performAction(page, CLICK, { baseUrl: BASE })).rejects.toThrow(/^Element not found:/);
+  });
+});
+
+/**
+ * A page whose elements have accessible names, so exact and substring matching are
+ * distinguishable — the doubles above return one locator whatever is asked for, which
+ * is fine for the failure paths they cover and useless here.
+ *
+ * `visible` is per element, and document order is array order, so the fake reproduces
+ * the two Playwright defaults this change is about: a name matches by substring, and
+ * `.first()` breaks a tie by position.
+ */
+interface FakeElement {
+  role: string;
+  name: string;
+  visible?: boolean;
+}
+
+function pageOf(elements: FakeElement[]): {
+  page: PageLike;
+  resolvedNames: () => string[];
+  queries: string[];
+} {
+  const queries: string[] = [];
+  const resolved: string[] = [];
+
+  const locatorFor = (matches: FakeElement[]): LocatorLike => {
+    const self: LocatorLike = {
+      click: async () => {},
+      fill: async () => {},
+      press: async () => {},
+      selectOption: async () => undefined,
+      waitFor: async () => {
+        const head = matches[0];
+        if (!head || head.visible === false) throw new Error('timeout');
+        resolved.push(head.name);
+      },
+      first: () => locatorFor(matches.slice(0, 1)),
+    };
+    return self;
+  };
+
+  const byName = (name: string, exact: boolean, role?: string): FakeElement[] =>
+    elements.filter(
+      (el) =>
+        (role === undefined || el.role === role) &&
+        (exact ? el.name === name : el.name.toLowerCase().includes(name.toLowerCase())),
+    );
+
+  const page = {
+    goto: async () => undefined,
+    getByRole: (role: string, options?: { name?: string; exact?: boolean }) => {
+      queries.push(`role:${role}:${options?.name ?? ''}:${options?.exact ? 'exact' : 'loose'}`);
+      return locatorFor(
+        options?.name === undefined
+          ? elements.filter((el) => el.role === role)
+          : byName(options.name, options.exact === true, role),
+      );
+    },
+    // No labels in this fake: the label strategy finds nothing, which is what a page
+    // of plain buttons does, and keeps these tests about role and text.
+    getByLabel: (text: string, options?: { exact?: boolean }) => {
+      queries.push(`label:${text}:${options?.exact ? 'exact' : 'loose'}`);
+      return locatorFor([]);
+    },
+    getByText: (text: string, options?: { exact?: boolean }) => {
+      queries.push(`text:${text}:${options?.exact ? 'exact' : 'loose'}`);
+      return locatorFor(byName(text, options?.exact === true));
+    },
+    keyboard: { press: async () => {} },
+    screenshot: async () => undefined,
+    url: () => BASE,
+    waitForLoadState: async () => undefined,
+  } as unknown as PageLike;
+
+  return { page, resolvedNames: () => resolved, queries };
+}
+
+describe('resolveTarget: exact accessible name before substring (spec agentic-execution: live element resolution)', () => {
+  it('does not lose an exact name to a longer one that contains it', async () => {
+    // "Add New" is first in document order, so today's substring match plus .first()
+    // clicks it — successfully, on the wrong control, with nothing able to say so.
+    const { page, resolvedNames } = pageOf([
+      { role: 'button', name: 'Add New' },
+      { role: 'button', name: 'Add' },
+    ]);
+
+    await resolveTarget(page, { role: 'button', name: 'Add' });
+
+    expect(resolvedNames()).toEqual(['Add']);
+  });
+
+  it('still resolves a name that matches nothing exactly', async () => {
+    // The forgiving behaviour the fallback exists for: a snapshot whose text differs
+    // from the accessible name by truncation still drives the page.
+    const { page, resolvedNames } = pageOf([{ role: 'button', name: 'Create a local account' }]);
+
+    await resolveTarget(page, { role: 'button', name: 'Create' });
+
+    expect(resolvedNames()).toEqual(['Create a local account']);
+  });
+
+  it('keeps strategy order above match precision', async () => {
+    // The heading matches the text strategy exactly; the field matches the role
+    // strategy only loosely. The field must win, or a step naming a field types into
+    // the heading above it.
+    const { page, resolvedNames, queries } = pageOf([
+      { role: 'heading', name: 'E-mail' },
+      { role: 'textbox', name: 'E-mail de contato' },
+    ]);
+
+    await resolveTarget(page, { role: 'textbox', name: 'E-mail' });
+
+    expect(resolvedNames()).toEqual(['E-mail de contato']);
+    // Locators are built up front and tried in order, so the text-exact query is
+    // still constructed — it simply never wins, because role comes first.
+    expect(queries.indexOf('role:textbox:E-mail:loose')).toBeLessThan(
+      queries.indexOf('text:E-mail:exact'),
+    );
+  });
+
+  it('asks for the exact match first on every strategy', async () => {
+    const { page, queries } = pageOf([]);
+
+    await expect(resolveTarget(page, { role: 'button', name: 'Ghost' })).rejects.toThrow(
+      /^Element not found:/,
+    );
+
+    expect(queries).toEqual([
+      'role:button:Ghost:exact',
+      'role:button:Ghost:loose',
+      'label:Ghost:exact',
+      'label:Ghost:loose',
+      'text:Ghost:exact',
+      'text:Ghost:loose',
+    ]);
+  });
+
+  it('resolves an ambiguous name by document order, as it did before', async () => {
+    // Not an oversight. Refusing here was designed and then measured out: on real
+    // accessible sites the .sr-only pattern gives ordinary links a visible twin, so
+    // the refusal would refuse navigation. See the change's design D2/D7.
+    const { page, resolvedNames } = pageOf([
+      { role: 'button', name: 'Excluir' },
+      { role: 'button', name: 'Excluir' },
+    ]);
+
+    await resolveTarget(page, { role: 'button', name: 'Excluir' });
+
+    expect(resolvedNames()).toEqual(['Excluir']);
   });
 });

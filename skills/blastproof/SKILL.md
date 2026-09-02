@@ -152,6 +152,7 @@ The e2e tests resolve elements from the accessibility tree. Code that breaks
 these makes its own feature untestable:
 
 - Every interactive element carries an accessible name — visible text, `aria-label`, or a `<label>`.
+- That name is unique among the controls visible at the same time. Two controls sharing one cannot be told apart, and the first on the page wins silently.
 - Use real `button`, `a`, `input` and `select` elements. Never a `div` with a click handler.
 - Every form field has a label associated with it.
 - No primary user flow lives on a `canvas` or inside an `iframe`.
