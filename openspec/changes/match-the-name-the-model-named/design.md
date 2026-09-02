@@ -33,8 +33,29 @@ The precedent is the repeated-commit refusal (`A step does not repeat a commit i
 
 `visible` is load-bearing and not a detail. A real application carries hidden duplicates constantly — a closed dropdown's options, an off-screen mobile nav, a modal not yet opened. Counting raw matches would refuse actions that are not ambiguous at all to a user, which is the expensive direction of error. Playwright's `filter({ visible: true })` is the same predicate resolution already waits on.
 
-### D3: Ambiguity is checked only where it can be acted on
-The refusal fires when the *exact* match is ambiguous. An ambiguous *loose* match is not refused — it is the fallback, reached only because nothing exact existed, and refusing there would break the forgiving behaviour D1 exists to preserve. The loose path keeps `.first()` and, being the fallback, is now reached far less often.
+### D3: Ambiguity is refused wherever it occurs, exact or loose
+The refusal fires whenever a candidate answers to more than one visible element — on the exact attempt and on the loose fallback alike.
+
+**This reverses the first version of this decision, which refused only on the exact path.** The reasoning there was that refusing on the fallback would break the forgiving behaviour D1 exists to preserve. That conflated two different things. Forgiveness is a loose match finding **one** element — a name differing by whitespace or truncation. Guessing is a loose match finding **several**. Refusing the second does not touch the first.
+
+Worse, the first version left the most common shape of this defect completely unguarded, because substring ambiguity is by its nature a *loose*-match phenomenon. Measured on a page with `Salvar o arquivo como PDF` and `Salvar o arquivo e sair`, against the name `Salvar o arquivo`:
+
+| attempt | matches | visible |
+|---|---|---|
+| `getByRole('button', { name: 'Salvar o arquivo', exact: true })` | 0 | 0 |
+| `getByRole('button', { name: 'Salvar o arquivo' })` | 2 | 2 |
+
+Exact finds nothing, the fallback finds two, and under the first version `.first()` picked one in silence — the exact defect #60 describes, surviving the change meant to fix it.
+
+The false positive that motivated the first version was measured and does not exist. Playwright matches the **smallest** element containing the text, so a `<div><p><span>` nesting counts once, not three times:
+
+```
+getByText('Salvar o arquivo', { exact: true })  ->  2 matches: SPAN, LABEL
+```
+
+Two genuinely distinct elements, not one element counted twice. There is no nesting inflation to protect against.
+
+What remains true from the first version is `visible`: hidden duplicates are real and must not count (D2).
 
 ### D4: The interfaces widen, and that is the real cost
 `PageLike.getByRole` takes `{name?}` only; `getByLabel` and `getByText` take a bare string; `LocatorLike` has no `count()` and no `filter()`. All three need widening, and the four test files implementing them (`actions`, `auth`, `containment`, `executor`) need updating.
@@ -57,12 +78,13 @@ Writing this down is the point of the change having a design. A reader who assum
 - **Normalizing whitespace and case before comparing** — reintroduces the widening this change removes, with a bespoke rule instead of Playwright's
 - **Naming the rival candidates in the refusal** — attractive, and it puts page content into a message that does not pass through the secrets mask. Deferred until that path is checked; the count alone is enough for the model to re-decide
 - **Counting all matches rather than visible ones** — refuses actions that are unambiguous to a user (D2)
+- **Refusing only when the *exact* match is ambiguous** — the first version of D3, reversed after measurement: it leaves the substring case, which is the defect in #60, entirely unguarded (D3)
 - **A CSS/XPath escape hatch for ambiguous names** — the absence of one is the product
 
 ## Risks / Trade-offs
 
 - **`count()` adds a round trip per resolution attempt.** Bounded and small next to the model call it follows, but it is on the hot path and should be measured, not assumed.
-- **A page with two visible identical controls now fails where it previously acted.** That is the intent — it previously acted on an arbitrary one — but it will be experienced as a new failure by whoever was silently getting the right one.
+- **A page with two visible controls answering to one name now fails where it previously acted.** This is the largest risk in the change and it grew with D3: refusing on the loose fallback means any suite whose step names a prefix of two controls stops working, where today `.first()` sometimes lands on the right one. That is luck, and luck that silently clicks the wrong control is the whole of #60 — but it will be experienced as a regression by whoever was lucky. Task 5.3 measures it against the demo suite before this ships.
 - **Exact-first changes which element is chosen** on any page where both an exact and a longer loose match exist. That is the fix, and it is also the only way this can surprise someone.
 
 ## Migration Plan

@@ -11,7 +11,7 @@ The loud failures are the lucky ones. The unlucky one is a substring that resolv
 ## What Changes
 
 - Resolution asks for the **exact** accessible name first and falls back to today's substring match only when the exact one finds nothing, so a page that offers a unique name is driven by it
-- When a match is **ambiguous among visible elements**, the action is refused and the model is told the name is ambiguous and how many controls answer to it, instead of `.first()` choosing in silence. It costs one failed attempt, exactly as the repeated-commit refusal does
+- When a match is **ambiguous among visible elements** — on the exact attempt or on the loose fallback — the action is refused and the model is told how many controls answer to that name, instead of `.first()` choosing in silence. It costs one failed attempt, exactly as the repeated-commit refusal does. A name that is a prefix of two controls is ambiguous precisely on the fallback, which is where this defect lives
 - The README stops promising "by role, by label, by visible text" without saying how the name is compared
 
 ## Capabilities
