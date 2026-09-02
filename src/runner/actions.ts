@@ -15,9 +15,17 @@ export interface LocatorLike {
 
 export interface PageLike {
   goto(url: string, options?: { timeout?: number }): Promise<unknown>;
-  getByRole(role: string, options?: { name?: string }): LocatorLike;
-  getByLabel(text: string): LocatorLike;
-  getByText(text: string): LocatorLike;
+  /**
+   * `exact` is passed explicitly at every call site (design match-the-name D1):
+   * Playwright's default matches an accessible name by substring, which silently
+   * widens the rule the prompt states — pick the element by its *exact* role and
+   * accessible name. An optional flag here would be the same shape that let
+   * `timeoutMs` go unset at one call site, so a double that cannot express
+   * exactness cannot support this guarantee.
+   */
+  getByRole(role: string, options?: { name?: string; exact?: boolean }): LocatorLike;
+  getByLabel(text: string, options?: { exact?: boolean }): LocatorLike;
+  getByText(text: string, options?: { exact?: boolean }): LocatorLike;
   keyboard: { press(key: string): Promise<void> };
   screenshot(options: { path: string; fullPage?: boolean }): Promise<unknown>;
   url(): string;
@@ -141,11 +149,19 @@ function describeTarget(target: AgentTarget): string {
 
 /**
  * Resolves an element from the live accessibility tree only (self-healing, design D4):
- * getByRole → getByLabel → getByText, each with a visibility wait bounded by
- * `resolveTimeoutMs` — the configured `browser.timeout_ms`, threaded here via
- * {@link ActionContext.resolveTimeoutMs} by every real caller. The `2_000` default
- * only applies to a caller that resolves a target without going through
- * `performAction`'s context (e.g. a direct unit test).
+ * getByRole → getByLabel → getByText, each tried with an **exact** accessible-name
+ * match before the substring one Playwright defaults to (design match-the-name D1),
+ * and each with a visibility wait bounded by `resolveTimeoutMs` — the configured
+ * `browser.timeout_ms`, threaded here via {@link ActionContext.resolveTimeoutMs} by
+ * every real caller. The `2_000` default only applies to a caller that resolves a
+ * target without going through `performAction`'s context (e.g. a direct unit test).
+ *
+ * An ambiguous name is still resolved by `.first()`, in document order, silently.
+ * That was designed away and then measured back in: refusing a name answering to
+ * several visible elements would refuse ordinary navigation on real accessible
+ * sites, because the `.sr-only` pattern keeps a real box and Playwright counts it
+ * visible. See the change's design (D2/D7) for the measurement and for why the
+ * answer is a wider signal set rather than a stricter visibility test.
  */
 export async function resolveTarget(
   page: PageLike,
@@ -153,14 +169,23 @@ export async function resolveTarget(
   resolveTimeoutMs = 2_000,
 ): Promise<LocatorLike> {
   const candidates: LocatorLike[] = [];
+  // Exact before loose, *within* each strategy rather than across them (design
+  // match-the-name D1). Strategy order carries the model's own reading of the
+  // snapshot and stays outermost: a role match must still beat a text match, even
+  // an exact one, or a step naming a field resolves to the heading above it.
   if (target.role) {
+    if (target.name) {
+      candidates.push(page.getByRole(target.role, { name: target.name, exact: true }));
+    }
     candidates.push(page.getByRole(target.role, target.name ? { name: target.name } : {}));
   }
   if (target.name) {
+    candidates.push(page.getByLabel(target.name, { exact: true }));
     candidates.push(page.getByLabel(target.name));
   }
   const text = target.text ?? target.name;
   if (text) {
+    candidates.push(page.getByText(text, { exact: true }));
     candidates.push(page.getByText(text));
   }
 
