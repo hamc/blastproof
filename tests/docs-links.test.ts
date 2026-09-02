@@ -19,11 +19,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
  * Markdown files that are part of the published documentation surface. The
  * skill is in here because AGENTS.md declares it user-facing content held to
  * the same bar as `action.yml`, and because its reader is a coding agent that
- * will follow a broken relative link without reporting anything.
+ * will follow a broken relative link without reporting anything. `RELEASING.md`
+ * is in here because it is reached only from `CONTRIBUTING.md`: a file nobody
+ * navigates to directly is the one whose link rots unnoticed.
  */
 const DOC_ROOTS = [
   'README.md',
   'CONTRIBUTING.md',
+  'RELEASING.md',
   'AGENTS.md',
   'skills/blastproof/SKILL.md',
   'skills/blastproof/references/authoring.md',

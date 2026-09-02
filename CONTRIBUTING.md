@@ -6,6 +6,8 @@ Thanks for considering a contribution. Please read the first section before writ
 
 **No code change lands without an approved change proposal.** Specifications are the source of truth; the code implements them. This repository uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) to keep the two in step.
 
+For small, obvious fixes — a typo, a broken link, a wrong error message — open a pull request directly and say so. Judgment is welcome; the rule exists to keep behaviour and specification from drifting, not to add ceremony.
+
 The cycle:
 
 1. **Propose** — `openspec new change <kebab-name>`, then author `proposal.md` (why and what), `design.md` (how, with the alternatives you rejected and why) and `tasks.md` (checkboxes), plus spec deltas under `specs/<capability>/spec.md`
@@ -16,8 +18,6 @@ The cycle:
 Validate at any point with `openspec validate <change-name> --strict`.
 
 Specs use `SHALL` requirements, each with at least one `WHEN`/`THEN` scenario. Scenarios need exactly four hashtags (`#### Scenario:`) — three fails silently.
-
-For small, obvious fixes — a typo, a broken link, a wrong error message — open a pull request directly and say so. Judgment is welcome; the rule exists to keep behaviour and specification from drifting, not to add ceremony.
 
 **Do not edit `CHANGELOG.md`.** It is written at release time by whoever cuts the release. Every pull request that touches it edits the same top section, so it conflicts with every other pull request that does — two open ones already did. Describe the change in the pull request instead; that is what the entry gets written from.
 
@@ -62,29 +62,9 @@ Agentic runs cost tokens and need a real provider. Everything else — unit test
 
 ## Releases
 
-Publishing runs from a tag, never from a merge — a released version can never be edited and the package name is claimed permanently, so it takes a deliberate act:
+Publishing runs from a **tag**, never from a merge: the workflow refuses to publish if the tag and the manifest version disagree, rebuilds, re-runs the full verification, and publishes with npm provenance. So the package you install is built from a commit you can name.
 
-One commit moves every version surface together — `package.json`, the changelog entry, and the Action example in `docs/ci.md` — and the tag points at it:
-
-```bash
-# in one commit: bump package.json, write the CHANGELOG entry, update every
-# `uses: hamc/blastproof@vX.Y.Z` in docs/ci.md, then
-grep -rn 'blastproof@v' README.md docs/   # nothing older than the new tag
-git tag v0.1.0 && git push origin v0.1.0
-```
-
-The Action example lived in the README until 0.12.0 and this checklist still said so afterwards —
-the grep is here because a version surface that moves is exactly the one a checklist stops finding.
-
-The changelog entry is written **here**, not in the pull requests, and it is derived from what has landed since the last tag:
-
-```bash
-git log --oneline v0.1.0..main
-```
-
-Read that list before tagging. 0.7.0 shipped without a changelog entry because nobody did, and every other surface agreed with itself — which is exactly why the one that disagreed went unnoticed.
-
-The release workflow refuses to publish if the tag and the manifest version disagree, rebuilds and re-runs the full verification, and publishes with npm provenance. It needs an `NPM_TOKEN` secret on the repository.
+Cutting one is a maintainer task and lives in [RELEASING.md](RELEASING.md). The only part that binds a pull request is the rule above: **do not edit `CHANGELOG.md`.**
 
 ## Finding something to work on
 
