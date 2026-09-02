@@ -32,9 +32,9 @@
 ## 5. Verification
 
 - [x] 5.1 Mutation: dropped `exact` from the role strategy — 2.2 and 2.5 fail, the other 10 pass
-- [ ] 5.2 ~~Mutation on the ambiguity refusal~~ — nothing to mutate
+- [x] 5.2 ~~Mutation on the ambiguity refusal~~ — nothing to mutate
 - [x] 5.3 Live against `examples/demo-app`, real browser, `claude-haiku-4.5` via OpenRouter: **8 passed, 0 failed, Score 100, 92 model calls, 152,174 tokens.** The dogfood on the commit before this one ran the same 8 tests in 93 calls, so nothing regressed
 - [x] 5.5 Live against OWASP Juice Shop 20.2.0, a real application: basket journey **PASS** (363.6s), search journey PASS after the step was corrected (231.5s). Exact-first resolved every target, including `role=button name="dismiss cookie message" text="Me want it!"`, where the accessible name and the visible text disagree — the case the fallback chain exists for
 - [x] 5.6 Measured ambiguous names on Juice Shop's landing page: **zero** names answered by two visible same-role elements. The `.sr-only` false positive that cut the refusal is site-dependent, not universal — which does not change the verdict, since gov.uk is the reference for accessible markup and it fails, but the sample is worth recording as uneven
-- [ ] 5.4 ~~Live against a page with a real prefix collision~~ — superseded by 0.1, which measured real pages directly
+- [x] 5.4 ~~Live against a page with a real prefix collision~~ — superseded by 0.1, which measured real pages directly
 - [x] 5.7 `npm run build`, `npm run typecheck`, `npm test`
