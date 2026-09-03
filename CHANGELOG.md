@@ -3,6 +3,31 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.17.0] — 2026-09-03
+
+### Fixed
+
+- **An element named `Add` is no longer lost to an `Add New` above it.** The executor
+  is told to target elements by their exact accessible name; the resolver matched
+  that name by substring and, on a tie, took the first one in the page. It clicked,
+  it succeeded, and nothing in the report could say it had acted on a control nobody
+  targeted. Each strategy now asks for the exact name first and falls back to the
+  substring match only when nothing matches exactly, so a name that differs by
+  whitespace or truncation still works.
+- **One draft that cannot be written no longer discards the rest.** `plan --write`
+  contained a generation failure and let a write failure end the run — losing every
+  route after it, and the summary that would have said which ones succeeded. Each of
+  those drafts is a model call against a live page.
+
+### Known limitation
+
+- **When several visible controls share one accessible name, the first on the page
+  still wins, silently.** Refusing instead was designed and then measured out: on
+  real accessible sites a control's screen-reader twin shares its role and name and
+  counts as visible, so the refusal would have refused ordinary navigation. Give each
+  control a name no other visible control shares — a page that cannot is one this
+  tool cannot drive unambiguously.
+
 ## [0.16.0] — 2026-08-31
 
 ### Added
