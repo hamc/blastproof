@@ -170,6 +170,24 @@ export class StepRecovery {
     this.readable.push(normalise(maskedSnapshot));
   }
 
+  /**
+   * Whether anything succeeded during this step (design close-a-step D1).
+   *
+   * Reads the history `record` already keeps rather than a flag threaded
+   * through the loop: `record` is reached at one place, after `performAction`
+   * returns without throwing, so this is "what worked" and not "what was
+   * attempted" — a click that raised is correctly absent. A separate counter
+   * would be one more thing a future branch can forget to increment, which is
+   * the shape that let `timeoutMs` and the budget go unset at a single call
+   * site while every other one set them.
+   *
+   * `observe` deliberately does not move it. Being shown a page is not doing
+   * something to it.
+   */
+  get acted(): boolean {
+    return this.history.length > 0;
+  }
+
   /** Records an action that was actually performed and succeeded. */
   record(action: AgentAction, description: string, result: string): void {
     this.performed.add(identity(action));

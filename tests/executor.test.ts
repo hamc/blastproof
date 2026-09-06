@@ -224,6 +224,27 @@ const click = (name: string, reasoning = 'r'): AgentAction => ({
   reasoning,
 });
 
+/**
+ * The two turns a step takes when its subject is something other than what the
+ * model chose: one action that succeeds, then `done`.
+ *
+ * A bare `done` used to be the convenient way to end a step here. Since
+ * close-a-step-on-what-was-done the executor refuses to close a step in which
+ * nothing succeeded, so that shortcut is no longer a shape a real run can take —
+ * and a test written on it was pinning behaviour the runner has stopped
+ * allowing.
+ *
+ * A keypress rather than a click, because `FakePage.visible` is empty by default
+ * and every click on it fails by design; rather than an assertion, so no test's
+ * judge-call count moves. `Escape` rather than `Enter`: only a key that
+ * activates a control counts as a commit, so this cannot trip the
+ * repeated-commit refusal when a test uses it twice.
+ */
+const finishes = (reasoning = 'ok'): AgentAction[] => [
+  { action: 'press', value: 'Escape', reasoning },
+  { action: 'done', reasoning },
+];
+
 function makeTest(overrides: Partial<TestFile> = {}): TestFile {
   return {
     path: '.blastproof/tests/sample.yaml',
@@ -290,7 +311,7 @@ describe('executeTest', () => {
 
   it('runs setup steps before test steps', async () => {
     const page = new FakePage();
-    const brain = scriptedBrain([{ action: 'done', reasoning: 's' }, { action: 'done', reasoning: 'm' }]);
+    const brain = scriptedBrain([...finishes('s'), ...finishes('m')]);
     const events: ExecutorEvent[] = [];
 
     const result = await executeTest(
@@ -299,6 +320,7 @@ describe('executeTest', () => {
       baseOptions(brain, { snapshot: async () => 's', onEvent: (e) => events.push(e) }),
     );
 
+    expect(result.steps[0]?.reason).toBeUndefined();
     expect(result.status).toBe('passed');
     expect(result.steps.map((s) => [s.step, s.setup])).toEqual([
       ['log in first', true],
@@ -353,7 +375,7 @@ describe('executeTest', () => {
     const page = new FakePage();
     const brain = scriptedBrain([
       new Error('Model returned an invalid action'),
-      { action: 'done', reasoning: 'recovered' },
+      ...finishes('recovered'),
     ]);
 
     const result = await executeTest(page, makeTest(), baseOptions(brain));
@@ -649,7 +671,7 @@ describe('snapshots are captured only after the page settles (task group 2)', ()
   it('bounds settling by its own short budget, not `browser.timeout_ms` — exceeding it is silent and the loop proceeds (task 5.2, design D1)', async () => {
     const page = new FakePage();
     page.settleThresholdMs = Infinity; // never settles, however long it is given
-    const brain = scriptedBrain([{ action: 'done', reasoning: 'moved on anyway' }]);
+    const brain = scriptedBrain(finishes('moved on anyway'));
 
     // timeoutMs (browser.timeout_ms) is deliberately much larger than the settle
     // budget, so a settle call bounded by timeoutMs would never time out here —
@@ -657,7 +679,10 @@ describe('snapshots are captured only after the page settles (task group 2)', ()
     const result = await executeTest(page, makeTest(), baseOptions(brain, { timeoutMs: 60_000 }));
 
     expect(result.status).toBe('passed'); // a page that never settles does not fail the run
-    expect(page.settleTimeouts).toEqual([SETTLE_TIMEOUT_MS]);
+    // Every settle, not the first: the step now takes two turns, and what this
+    // pins is the bound each one used, not how many there were.
+    expect(page.settleTimeouts.length).toBeGreaterThan(0);
+    expect(page.settleTimeouts.every((t) => t === SETTLE_TIMEOUT_MS)).toBe(true);
   });
 });
 
@@ -688,9 +713,14 @@ describe('a failed judgment re-observes before the model re-decides (task group 
     const brain: AgentBrain = {
       async nextAction() {
         nextActionCalls++;
-        return nextActionCalls === 1
-          ? { action: 'assert', reasoning: 'check', expectation: 'ticket confirmed' }
-          : { action: 'done', reasoning: 'moving on' };
+        // Turn 2 acts before turn 3 closes: a failed assertion is not evidence
+        // that anything happened, so `done` straight after one is refused
+        // (close-a-step-on-what-was-done, D4). What this test pins — control
+        // returning to the model after a re-observed failure — is unchanged.
+        if (nextActionCalls === 1)
+          return { action: 'assert', reasoning: 'check', expectation: 'ticket confirmed' };
+        if (nextActionCalls === 2) return { action: 'press', value: 'Escape', reasoning: 'move on' };
+        return { action: 'done', reasoning: 'moving on' };
       },
       async judge() {
         judgeCalls++;
@@ -700,12 +730,12 @@ describe('a failed judgment re-observes before the model re-decides (task group 
 
     const result = await executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 3 }));
 
-    expect(result.status).toBe('passed'); // the second nextAction call chose `done`
+    expect(result.status).toBe('passed'); // control came back and the model closed the step
     // Both the primary judgment and the re-observation failed — this is the
     // signal that distinguishes "control returned to the model" from a lucky
     // re-observation: two judge calls happened before nextAction was asked again.
     expect(judgeCalls).toBe(2);
-    expect(nextActionCalls).toBe(2);
+    expect(nextActionCalls).toBe(3);
   });
 
   it('re-observation is bounded by the existing retry budget, not a budget of its own (task 5.5)', async () => {
@@ -1790,7 +1820,7 @@ describe('executeTest origin boundary', () => {
 
   it('allows an origin the configuration declares', async () => {
     const page = new RedirectingPage('https://auth.example.com/sso');
-    const brain = brainRecording([{ action: 'done', reasoning: 'signed in' }]);
+    const brain = brainRecording(finishes('signed in'));
 
     const result = await executeTest(
       page,
@@ -1978,7 +2008,11 @@ describe('an action blocked by an overlay', () => {
     const page = new FakePage();
     page.visible.add('role:button|Me want it!');
     page.intercepted.add('role:button|Me want it!');
-    const brain = recording([click('Me want it!'), { action: 'done', reasoning: 'gave up' }]);
+    // The blocked click is followed by an action that succeeds, so the step can
+    // close: a `done` straight after the blocked click would be refused, since a
+    // blocked action performed nothing (close-a-step-on-what-was-done, D4), and
+    // that refusal would add a second failed attempt to the one being counted here.
+    const brain = recording([click('Me want it!'), ...finishes('moved on')]);
 
     const result = await executeTest(page, makeTest(), baseOptions(brain));
 
@@ -2018,5 +2052,116 @@ describe('an action blocked by an overlay', () => {
     ]);
     // One blocked attempt, then the recovery — the budget was not what ended it.
     expect(result.steps[0]?.failedAttempts).toBe(1);
+  });
+});
+
+describe('a step closes on what was done (spec agentic-execution, #76)', () => {
+  it('does not pass a step in which nothing succeeded', async () => {
+    // #76's reproduction, reduced: the model reports it cannot carry the step out
+    // and closes it anyway. The step used to pass, and its priority weight reached
+    // the score `--min-score` gates merges with.
+    const page = new FakePage();
+    const brain = scriptedBrain(
+      Array(3).fill({ action: 'done', reasoning: 'the page has no promo code field' }),
+    );
+
+    const result = await executeTest(page, makeTest({ steps: ['enter a value in the promo code field'] }), baseOptions(brain));
+
+    expect(result.status).toBe('failed');
+    expect(result.failedStep).toBe('enter a value in the promo code field');
+    expect(result.steps[0]?.reason).toContain('nothing succeeded during this step');
+  });
+
+  it('tells the model to assert the outcome rather than declare it', async () => {
+    // The refusal is the whole of the design's answer to "there was nothing to do"
+    // (D3): it has to be actionable, or it costs an attempt and buys nothing.
+    const page = new FakePage();
+    const script = Array(3).fill({ action: 'done', reasoning: 'nothing to do' });
+    const seen: string[] = [];
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        if (input.lastResult) seen.push(input.lastResult);
+        const next = script.shift();
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge() {
+        throw new Error('judge should not be called');
+      },
+    };
+
+    await executeTest(page, makeTest(), baseOptions(brain));
+
+    const refusal = seen.at(-1) ?? '';
+    expect(refusal).toContain('assert that it holds');
+    expect(refusal).toContain('fail it and say why');
+  });
+
+  it('still closes a step in which an action succeeded', async () => {
+    const page = new FakePage();
+    const brain = scriptedBrain(finishes('done after acting'));
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(result.status).toBe('passed');
+    expect(result.steps[0]?.failedAttempts).toBe(0);
+  });
+
+  it('does not count an action that failed', async () => {
+    // `record()` is reached only when performAction returns without throwing, so
+    // "tried" is not "succeeded" (design D4). This is the shape in #76: the target
+    // is absent, the click raises, and the model gives up.
+    const page = new FakePage();
+    const brain = scriptedBrain([
+      click('Nonexistent'),
+      ...Array(3).fill({ action: 'done', reasoning: 'gave up' }),
+    ]);
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain));
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]?.reason).toContain('nothing succeeded during this step');
+  });
+
+  it('closes on an assertion that passes, which is the way out of an empty step', async () => {
+    // The escape hatch D3 depends on: the model shows the outcome instead of
+    // declaring it, and the judgment decides against the page.
+    const page = new FakePage();
+    const brain = scriptedBrain(
+      [{ action: 'assert', reasoning: 'check', expectation: 'no cookie banner is shown' }],
+      [{ pass: true, reason: 'no banner in the snapshot' }],
+    );
+
+    const result = await executeTest(page, makeTest({ steps: ['dismiss the cookie banner'] }), baseOptions(brain));
+
+    expect(result.status).toBe('passed');
+  });
+
+  it('terminates on the retry budget, not the iteration ceiling', async () => {
+    const page = new FakePage();
+    const brain = scriptedBrain(Array(20).fill({ action: 'done', reasoning: 'finished' }));
+
+    const result = await executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 3 }));
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]?.failedAttempts).toBe(3);
+    // Not the per-step ceiling: that would spend 15 model calls to say the same thing.
+    expect(result.steps[0]?.reason).not.toContain('without completing');
+  });
+
+  it('holds a setup step to the same rule', async () => {
+    // Everything after a setup step proceeds on a precondition it was meant to
+    // establish, so a setup step that accomplished nothing is worse, not exempt.
+    const page = new FakePage();
+    const brain = scriptedBrain(Array(3).fill({ action: 'done', reasoning: 'assumed signed in' }));
+
+    const result = await executeTest(
+      page,
+      makeTest({ setup: ['log in first'], steps: ['main step'] }),
+      baseOptions(brain),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.failedStep).toBe('log in first');
   });
 });

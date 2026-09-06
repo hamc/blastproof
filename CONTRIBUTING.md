@@ -15,6 +15,8 @@ The cycle:
 3. **Apply** — implement the tasks, checking them off as you go
 4. **Archive** — merge the deltas into `openspec/specs/` and move the change into `openspec/changes/archive/`
 
+**Archive in the same pull request that implements the change**, as its own commit. OpenSpec offers both this and archiving as a follow-up after the merge, and asks you to pick one and be consistent; this is the pick. The follow-up convention exists so a branch visibly carries an in-flight change for the rest of a team, which buys nothing here and leaves `main` holding code its own specification does not describe until someone remembers. That gap is what this whole cycle exists to prevent, and it has already grown to four unarchived changes at once. A separate commit keeps the rename noise out of the diff you are reviewing the code in.
+
 Validate at any point with `openspec validate <change-name> --strict`.
 
 Specs use `SHALL` requirements, each with at least one `WHEN`/`THEN` scenario. Scenarios need exactly four hashtags (`#### Scenario:`) — three fails silently.

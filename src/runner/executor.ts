@@ -170,6 +170,30 @@ function slugify(text: string): string {
   return slug || 'test';
 }
 
+/**
+ * Returned to the model when it declares a step finished having accomplished
+ * nothing (design close-a-step-on-what-was-done, D3).
+ *
+ * It instructs rather than complains, the standard `name-what-blocks-the-click`
+ * set for this loop: a refusal the model cannot act on costs an attempt and
+ * buys nothing.
+ *
+ * The second sentence is the whole design. A step can be legitimately empty —
+ * "dismiss the cookie banner" against a page that has none — and from the
+ * model's side "there was nothing to do" and "I could not do this" are the same
+ * sentence. The executor cannot separate them and does not try; it asks for the
+ * outcome to be *shown* rather than stated, and an assertion is how the model
+ * shows it. Self-report becomes evidence, judged against the page.
+ *
+ * No page text, matching the other refusals here: this says what to do, not
+ * what is on screen.
+ */
+const NOTHING_DONE_REFUSAL =
+  'refused: nothing succeeded during this step, so it was NOT closed. A step closes on what was ' +
+  'done in it, not on being declared finished. If the outcome already holds — there was nothing ' +
+  'left to do — assert that it holds and let the judgment close the step; an assertion is evidence, ' +
+  'a declaration is not. If the step cannot be carried out at all, fail it and say why.';
+
 class StepFailure extends Error {}
 
 /**
@@ -309,6 +333,26 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         iterations++;
 
         if (action.action === 'done') {
+          // A step closes on what was done, not on being declared done (design
+          // close-a-step-on-what-was-done, D1/D2). Without this, a step the
+          // agent could not carry out passes while its own reasoning says it
+          // could not — and the priority weight of a step that accomplished
+          // nothing reaches the score `--min-score` gates merges with (#76).
+          //
+          // `recovery.acted` is "something succeeded", not "something was
+          // tried": an action that raised is not evidence. And a passing
+          // assertion breaks out of the loop above before reaching here, so
+          // this covers a step that verified nothing by the same rule, with no
+          // separate case for verification steps (#72's deferred half).
+          if (!recovery.acted) {
+            failedAttempts++;
+            lastResult = NOTHING_DONE_REFUSAL;
+            emitAction(index, action, lastResult);
+            if (failedAttempts >= maxRetries) {
+              throw new StepFailure(lastResult);
+            }
+            continue;
+          }
           emitAction(index, action, action.reasoning);
           break;
         }
