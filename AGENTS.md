@@ -106,7 +106,7 @@ This repo uses [OpenSpec](https://github.com/Fission-AI/OpenSpec). **No code cha
 1. **Propose** — `/opsx:propose "<what>"` (or `openspec new change <kebab-name>` + author artifacts). Creates `openspec/changes/<name>/` with `proposal.md`, `design.md`, `tasks.md` and spec deltas under `specs/`
 2. **Review** — human reviews the proposal before implementation
 3. **Apply** — `/opsx:apply` implements tasks from `tasks.md`, checking them off
-4. **Archive** — `/opsx:archive` merges deltas into `openspec/specs/` (living source of truth)
+4. **Archive** — `/opsx:archive` merges deltas into `openspec/specs/` (living source of truth), **in the same pull request as the implementation, as its own commit** — the reasoning is in `CONTRIBUTING.md` and lives there only, because a rule written twice is a rule that drifts
 
 Rules:
 
