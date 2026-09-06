@@ -3,6 +3,30 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.18.0] — 2026-09-06
+
+### Fixed
+
+- **A step the agent could not carry out no longer passes.** The runner closed a step
+  whenever the agent said it was finished, without asking whether anything had been
+  done — so a step naming a control the page does not have was marked passed, while
+  the agent's own explanation said it could not be completed. Its priority weight
+  then counted toward the score `--min-score` gates merges with: not a suite anyone
+  notices failing, but an inflated number on the one the gate trusts. A step now
+  closes on what was done in it.
+- **A step that verified nothing is caught by the same rule.** Previously a
+  verification step could finish having made no assertion at all and still weigh on
+  the score.
+
+### Changed
+
+- **A step whose outcome already holds must show it, not declare it.** Where there was
+  genuinely nothing to do — dismissing a banner that is not there — the agent now
+  asserts that the outcome holds and the assertion is judged against the page, rather
+  than declaring the step complete. "There was nothing to do" and "I could not do
+  this" are the same sentence from the agent's side, and the runner does not guess
+  between them. A defensive step of this shape costs one extra model call.
+
 ## [0.17.0] — 2026-09-03
 
 ### Fixed
