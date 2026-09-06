@@ -157,14 +157,25 @@ function fakeBrowserWithPage(page: PageLike): BrowserLike {
   };
 }
 
-/** Brain that drives the login journey to completion, or fails it. */
+/**
+ * Brain that drives the login journey to completion, or fails it.
+ *
+ * Two turns per step — a navigation that succeeds, then `done` — rather than a
+ * bare `done`. Since close-a-step-on-what-was-done the executor refuses to close
+ * a step in which nothing succeeded, and a bare `done` was this double taking a
+ * shortcut no real run may take. Deliberately an action and not an assertion, so
+ * the judge-call counts these tests pin are unchanged; `navigate` rather than a
+ * click because this file's page double has no locator to resolve against.
+ */
 function stubBrain(opts: { succeed?: boolean; verifyPasses?: boolean } = {}): AgentBrain {
   const { succeed = true, verifyPasses = true } = opts;
+  let turn = 0;
   return {
     async nextAction() {
-      return succeed
-        ? { action: 'done' as const, reasoning: 'signed in' }
-        : { action: 'fail' as const, reasoning: 'credentials rejected' };
+      if (!succeed) return { action: 'fail' as const, reasoning: 'credentials rejected' };
+      return turn++ % 2 === 0
+        ? { action: 'navigate' as const, value: '/login', reasoning: 'act' }
+        : { action: 'done' as const, reasoning: 'signed in' };
     },
     async judge() {
       return { pass: verifyPasses, reason: verifyPasses ? 'indicator visible' : 'still on login' };
@@ -282,9 +293,15 @@ describe('authenticate: steps strategy', () => {
   it('passes auth.verify as both the step and the expectation (task 2.4)', async () => {
     let seenStep = '';
     let seenExpectation = '';
+    // Two turns: an action that succeeds, then `done`. A step in which nothing
+    // succeeded is refused (close-a-step-on-what-was-done), so a brain that only
+    // ever answers `done` can no longer drive a journey to completion.
+    let turn = 0;
     const brain: AgentBrain = {
       async nextAction() {
-        return { action: 'done' as const, reasoning: 'signed in' };
+        return turn++ % 2 === 0
+          ? { action: 'navigate' as const, value: '/login', reasoning: 'act' }
+          : { action: 'done' as const, reasoning: 'signed in' };
       },
       async judge(step: string, expectation: string) {
         seenStep = step;
@@ -320,9 +337,12 @@ describe('authenticate: steps strategy', () => {
     const postLoginSnapshot = '- main:\n  - heading "Good afternoon, evaluser"\n  - list "Projects":\n    - listitem: Inbox';
     const page = fakeSnapshotPage(postLoginSnapshot);
     const browser = fakeBrowserWithPage(page);
+    let turn = 0;
     const brain: AgentBrain = {
       async nextAction() {
-        return { action: 'done' as const, reasoning: 'signed in' };
+        return turn++ % 2 === 0
+          ? { action: 'navigate' as const, value: '/login', reasoning: 'act' }
+          : { action: 'done' as const, reasoning: 'signed in' };
       },
       // Decides from the STEP, not the expectation — the anchoring the fix
       // enables. If `step` names actions on the login page (the regression:
@@ -440,10 +460,13 @@ describe('authenticate: steps strategy', () => {
     const page = fakeSnapshotPage(rawYaml);
     const browser = fakeBrowserWithPage(page);
     let seenSnapshot = '';
+    let turn = 0;
     const brain: AgentBrain = {
       async nextAction(input) {
         seenSnapshot = input.snapshot;
-        return { action: 'done', reasoning: 'ok' };
+        return turn++ % 2 === 0
+          ? { action: 'navigate' as const, value: '/login', reasoning: 'act' }
+          : { action: 'done' as const, reasoning: 'ok' };
       },
       async judge() {
         return { pass: true, reason: 'n/a' };
@@ -464,9 +487,12 @@ describe('authenticate: steps strategy', () => {
     const page = fakeSnapshotPage(rawYaml);
     const browser = fakeBrowserWithPage(page);
     let judgeSnapshot = '';
+    let turn = 0;
     const brain: AgentBrain = {
       async nextAction() {
-        return { action: 'done', reasoning: 'ok' };
+        return turn++ % 2 === 0
+          ? { action: 'navigate' as const, value: '/login', reasoning: 'act' }
+          : { action: 'done' as const, reasoning: 'ok' };
       },
       async judge(_step, _expectation, snapshot) {
         judgeSnapshot = snapshot;
