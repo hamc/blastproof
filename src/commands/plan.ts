@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
-import { DiffError, getChangedFiles } from '../diff.js';
+import { DiffError, getChangedFiles, getUncommittedFiles } from '../diff.js';
 import { mapImpact } from '../impact.js';
+import { printUncommitted } from '../report/uncommitted.js';
 import { createBrain, createPlanner } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
 import {
@@ -112,6 +113,10 @@ async function resolveTargets(
   const base = options.base ?? 'main';
   const changedFiles = await getChangedFiles(base, options.cwd);
   const impact = mapImpact(changedFiles, config.routes ?? {}, config.ignore ?? []);
+
+  // Same terms as `run` (design D2). Reached only on the diff-driven path: with
+  // explicit --route there is no diff, so there is nothing it could have missed.
+  printUncommitted(await getUncommittedFiles(options.cwd), changedFiles, config, base);
 
   // Re-run the glob match per route so each generation prompt sees only the files
   // that made *that* route impacted (design D3), not the whole changed set.

@@ -45,3 +45,36 @@ export async function getChangedFiles(
     throw toDiffError(error, baseRef);
   }
 }
+
+/**
+ * Returns the sorted repo-relative paths changed in the working tree: staged,
+ * unstaged, untracked and renamed, with `.gitignore` already applied by git.
+ *
+ * These are exactly the paths `getChangedFiles` cannot see. `<base>...HEAD`
+ * compares two commits, so nothing that has not been committed is in it — which
+ * is the right comparison in CI, where everything is, and the wrong one on the
+ * machine the change is being written on (#99).
+ *
+ * A rename contributes both of its paths (`from` and `to`): a page that moved
+ * changes what covers the route it left as much as the route it arrived at.
+ *
+ * Resolves to `[]` rather than throwing (design D7). Callers reach this after
+ * `getChangedFiles` has already succeeded, so the repository exists and the ref
+ * resolved; a failure past that point belongs to a warning, and a warning must
+ * never be the thing that ends a run.
+ */
+export async function getUncommittedFiles(cwd: string = process.cwd()): Promise<string[]> {
+  try {
+    const status = await simpleGit(cwd).status();
+    const paths = new Set<string>();
+    for (const file of status.files) {
+      paths.add(file.path.replace(/\\/g, '/'));
+      // simple-git carries the pre-rename path here and nowhere else in `files`.
+      const from = (file as { from?: string }).from;
+      if (from) paths.add(from.replace(/\\/g, '/'));
+    }
+    return [...paths].sort();
+  } catch {
+    return [];
+  }
+}

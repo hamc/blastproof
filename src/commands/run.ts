@@ -1,13 +1,14 @@
 import path from 'node:path';
 import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
-import { DiffError, getChangedFiles } from '../diff.js';
+import { DiffError, getChangedFiles, getUncommittedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
 import { createBrain } from '../llm/brain.js';
 import { createModel, MissingApiKeyError } from '../llm/provider.js';
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
+import { printUncommitted } from '../report/uncommitted.js';
 import { computeScore, formatIncompleteLine, formatScoreLine, formatSpendLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
 import {
@@ -593,6 +594,12 @@ export async function runCommand(options: RunOptions): Promise<number> {
       throw error;
     }
     impact = mapImpact(changedFiles, config.routes ?? {}, config.ignore ?? []);
+
+    // The diff says what it excluded (design D2), here rather than at the one
+    // call site the drift warning uses: that rule is about a single command's
+    // branches, and `plan` computes its own diff independently. Both sites call
+    // this so "no affected routes" can never be read as "nothing was looked at".
+    printUncommitted(await getUncommittedFiles(options.cwd), changedFiles, config, base);
   }
 
   const testsDir = path.join(options.cwd, TESTS_RELATIVE_DIR);

@@ -38,12 +38,17 @@ Staged, unstaged and untracked all count, because `<base>...HEAD` sees none of t
 The warning runs the uncommitted files through `mapImpact` and prints each file beside the routes it maps to, or the fact that no glob classified it:
 
 ```
-warning: 2 file(s) changed in the working tree are not in the diff against 'main',
-so --impacted did not consider them:
+warning: 2 file(s) changed in the working tree are not in the diff against 'main':
+  .tool-versions  (matched by no routes: or ignore: glob)
   examples/demo-app/login.html -> /login
-  .tool-versions              (matched by no routes: or ignore: glob)
-Commit or stash them, or run without --impacted.
+Nothing above was considered. Commit or stash them to include them.
 ```
+
+The wording names no flag, which the first draft of this design got wrong. It said
+`so --impacted did not consider them` — accurate under `run`, and false under `plan`,
+which has no such flag and computes the diff unconditionally. Both commands are told
+the same true thing instead: these paths are not in the diff, and nothing here came
+from them.
 
 This is the difference between a warning someone acts on and one they scroll past. `-> /login` tells a reader that a journey they have tests for went untested; the file name alone tells them to go and work that out themselves.
 
