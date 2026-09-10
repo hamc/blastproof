@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { simpleGit, type SimpleGit } from 'simple-git';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DiffError, getChangedFiles } from '../src/diff.js';
+import { DiffError, getChangedFiles, getUncommittedFiles } from '../src/diff.js';
 
 let dir: string;
 let git: SimpleGit;
@@ -96,5 +96,58 @@ describe('getChangedFiles', () => {
     const err = await getChangedFiles('main', dir).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DiffError);
     expect((err as Error).message).toMatch(/git repository/);
+  });
+});
+
+describe('getUncommittedFiles', () => {
+  it('sees a staged file, an unstaged edit and an untracked file', async () => {
+    await initRepo();
+    await writeRepoFile('src/cart/staged.ts', 'export const staged = true;\n');
+    await git.add('src/cart/staged.ts');
+    await writeRepoFile('src/cart/discount.ts', 'export const discount = 20;\n');
+    await writeRepoFile('src/cart/untracked.ts', 'export const loose = true;\n');
+
+    await expect(getUncommittedFiles(dir)).resolves.toEqual([
+      'src/cart/discount.ts',
+      'src/cart/staged.ts',
+      'src/cart/untracked.ts',
+    ]);
+  });
+
+  it('reports both paths of a rename', async () => {
+    // A page that moved changes what covers the route it left as much as the
+    // route it arrived at, and `status.files` carries the old path nowhere else.
+    await initRepo();
+    await git.mv('src/cart/old.ts', 'src/cart/moved.ts');
+
+    await expect(getUncommittedFiles(dir)).resolves.toEqual([
+      'src/cart/moved.ts',
+      'src/cart/old.ts',
+    ]);
+  });
+
+  it('does not report a gitignored file', async () => {
+    await initRepo();
+    await writeRepoFile('.gitignore', 'secrets/\n');
+    await commitAll('ignore secrets');
+    await writeRepoFile('secrets/key.txt', 'shh\n');
+
+    await expect(getUncommittedFiles(dir)).resolves.toEqual([]);
+  });
+
+  it('is empty on a clean tree, which is every CI checkout', async () => {
+    await initRepo();
+    await expect(getUncommittedFiles(dir)).resolves.toEqual([]);
+  });
+
+  it('resolves empty rather than throwing outside a repository', async () => {
+    // Design D7: a warning is an accessory to a run that has already computed
+    // its diff, and must never be the thing that ends it.
+    const loose = await mkdtemp(path.join(tmpdir(), 'blastproof-norepo-'));
+    try {
+      await expect(getUncommittedFiles(loose)).resolves.toEqual([]);
+    } finally {
+      await rm(loose, { recursive: true, force: true });
+    }
   });
 });

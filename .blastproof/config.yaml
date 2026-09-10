@@ -65,6 +65,10 @@ ignore:
   - "tsup.config.ts"
   - "vitest.config.ts"
   - ".gitignore"
+  # Untracked here, and the first thing the uncommitted-work warning reported
+  # against our own repository. A pinned tool version cannot affect a page in
+  # the demo app, so it is irrelevant by declaration rather than by silence.
+  - ".tool-versions"
   - ".claude/**"
   - "**/*.md"
   - "docs/**"

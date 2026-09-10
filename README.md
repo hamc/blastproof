@@ -227,6 +227,10 @@ The key is the file glob and the value is the routes it can affect — the oppos
 
 Every changed file lands in one of three buckets: it matches `routes:` and contributes them, matches `ignore:` and is knowingly irrelevant, or **matches neither — nobody has said what it affects**. `--fail-on-unmapped` blocks on that third case, naming the files and both ways to resolve them.
 
+**The diff is `git diff <base>...HEAD`, so it compares commits.** Work you have not committed — edited, staged or untracked — is not in it. That is the right comparison in CI, where everything is committed by the time the workflow runs, and the wrong one on the machine you are writing the change on: a run against a dirty working tree selects from your last commit, not from your editor.
+
+It says so rather than leaving you to notice. Any working-tree change the diff excluded is named on stderr, with the routes it maps to, on `run --impacted` and `plan --base` alike — non-fatal, and it changes no exit code and nothing about what is selected. Files your `ignore:` globs already cover stay silent, and so do files already in the diff, whose routes are selected either way.
+
 **Nothing is ignored by default**, on purpose: a default that guesses on your behalf would hide the first files worth thinking about. The flag is additive — a run can meet `--min-score` and still be blocked here, because "the tests I ran passed" and "something changed that nobody classified" are different claims.
 
 Its limit is worth knowing: it catches files that are *unclassified*, not *misclassified*. A shared module mapped to one route when it can break five still slips through. Impact by import graph is the fix, and blastproof does not do it yet.

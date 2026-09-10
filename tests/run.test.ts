@@ -4,16 +4,21 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffError } from '../src/diff.js';
 
-const { launchMock, getChangedFilesMock } = vi.hoisted(() => ({
+const { launchMock, getChangedFilesMock, getUncommittedFilesMock } = vi.hoisted(() => ({
   launchMock: vi.fn(),
   getChangedFilesMock: vi.fn(),
+  getUncommittedFilesMock: vi.fn(),
 }));
 
 vi.mock('playwright', () => ({ chromium: { launch: launchMock } }));
 
 vi.mock('../src/diff.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/diff.js')>();
-  return { ...original, getChangedFiles: getChangedFilesMock };
+  return {
+    ...original,
+    getChangedFiles: getChangedFilesMock,
+    getUncommittedFiles: getUncommittedFilesMock,
+  };
 });
 
 import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, resolveBudgetOptions, runCommand } from '../src/commands/run.js';
@@ -51,6 +56,10 @@ beforeEach(async () => {
   errors = [];
   launchMock.mockReset();
   getChangedFilesMock.mockReset();
+  // A clean tree is the default, so every test written before this one keeps
+  // asserting exactly the output it asserted before.
+  getUncommittedFilesMock.mockReset();
+  getUncommittedFilesMock.mockResolvedValue([]);
   // The fixture config points at this never-set variable: reaching the LLM
   // phase would fail with a missing-key usage error, proving short-circuits.
   delete process.env.BLASTPROOF_TEST_MISSING_KEY;
@@ -812,5 +821,73 @@ steps:
 
     expect(code).toBe(EXIT_OK);
     expect(errOut()).not.toContain('error: --fail-on-authoring');
+  });
+});
+
+describe('runCommand uncommitted-work warning', () => {
+  it("names the file and the routes it would have affected, and selects nothing extra", async () => {
+    // #99: --impacted selects from <base>...HEAD, so an edit that has not been
+    // committed is invisible to it — and nothing said so.
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue([]);
+    getUncommittedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).toContain("are not in the diff against 'main'");
+    expect(errOut()).toContain('src/cart/discount.ts -> /cart');
+    expect(errOut()).toContain('Commit or stash them');
+    // The selection is untouched: reporting is the whole change.
+    expect(out()).toContain('0 test(s) selected');
+  });
+
+  it('names a file no glob classified, which is the loudest case', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue([]);
+    getUncommittedFilesMock.mockResolvedValue(['mystery.ts']);
+
+    await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(errOut()).toContain('mystery.ts  (matched by no routes: or ignore: glob)');
+  });
+
+  it('leaves --fail-on-unmapped exiting 0, so the deferred half stays deferred', async () => {
+    // Whether the working tree should *count* is #99's second half and a real
+    // decision. This change reports and gates nothing; that must stay visible.
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue([]);
+    getUncommittedFilesMock.mockResolvedValue(['mystery.ts']);
+
+    const code = await runCommand({
+      cwd: dir,
+      tags: [],
+      impacted: true,
+      dryRun: true,
+      failOnUnmapped: true,
+    });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).toContain('mystery.ts');
+  });
+
+  it('says nothing on a clean tree', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+    getUncommittedFilesMock.mockResolvedValue([]);
+
+    await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(errOut()).not.toContain('working tree');
+  });
+
+  it('is not reached without --impacted, where there is no diff to have missed', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getUncommittedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(getUncommittedFilesMock).not.toHaveBeenCalled();
+    expect(errOut()).not.toContain('working tree');
   });
 });

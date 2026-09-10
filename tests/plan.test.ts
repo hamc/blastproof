@@ -5,10 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffError } from '../src/diff.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
 
-const { launchMock, getChangedFilesMock, createPlannerMock, generateForRouteMock, writeDraftMock } =
+const {
+  launchMock,
+  getChangedFilesMock,
+  getUncommittedFilesMock,
+  createPlannerMock,
+  generateForRouteMock,
+  writeDraftMock,
+} =
   vi.hoisted(() => ({
     launchMock: vi.fn(),
     getChangedFilesMock: vi.fn(),
+    getUncommittedFilesMock: vi.fn(),
     createPlannerMock: vi.fn(),
     generateForRouteMock: vi.fn(),
     // Spy, not a stand-in: it delegates to the real writeDraft unless a test says
@@ -20,7 +28,11 @@ vi.mock('playwright', () => ({ chromium: { launch: launchMock } }));
 
 vi.mock('../src/diff.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/diff.js')>();
-  return { ...original, getChangedFiles: getChangedFilesMock };
+  return {
+    ...original,
+    getChangedFiles: getChangedFilesMock,
+    getUncommittedFiles: getUncommittedFilesMock,
+  };
 });
 
 vi.mock('../src/llm/brain.js', async (importOriginal) => {
@@ -78,6 +90,9 @@ beforeEach(async () => {
   errors = [];
   launchMock.mockReset();
   getChangedFilesMock.mockReset();
+  // A clean tree by default, so every assertion written before this one holds.
+  getUncommittedFilesMock.mockReset();
+  getUncommittedFilesMock.mockResolvedValue([]);
   createPlannerMock.mockReset();
   generateForRouteMock.mockReset();
   writeDraftMock.mockReset();
@@ -428,5 +443,30 @@ describe('planCommand preflight (spec preflight)', () => {
 
     expect(code).toBe(EXIT_OK);
     expect(errOut()).toBe('');
+  });
+});
+
+describe('planCommand uncommitted-work warning', () => {
+  it('warns on the same terms as run --impacted', async () => {
+    // `plan` computes its own diff, so it inherits the same blind spot and gets
+    // the same warning — the two call sites of design D2.
+    await writeProject();
+    getChangedFilesMock.mockResolvedValue([]);
+    getUncommittedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    await planCommand({ cwd: dir, base: 'main', dryRun: true });
+
+    expect(errOut()).toContain("are not in the diff against 'main'");
+    expect(errOut()).toContain('src/cart/discount.ts -> /cart');
+  });
+
+  it('is not reached with explicit --route, where no diff was computed', async () => {
+    await writeProject();
+    getUncommittedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    await planCommand({ cwd: dir, routes: ['/cart'], dryRun: true });
+
+    expect(getUncommittedFilesMock).not.toHaveBeenCalled();
+    expect(errOut()).not.toContain('working tree');
   });
 });
