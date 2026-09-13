@@ -3,6 +3,44 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.19.0] — 2026-09-13
+
+### Fixed
+
+- **A run no longer logs in when nothing it selected wants the session.** Authentication was
+  performed whenever `auth:` was configured, while every test decided for itself with its own
+  `auth:` field — so a run whose every selected test declared `auth: false` performed the whole
+  login journey anyway. Measured against this repository's own demo app, such a run spent 18
+  model calls before and 7 after. It was never only cost. Exhausting the budget during that
+  login marked the run **incomplete**, which exits 1 regardless of `--min-score`, and an
+  `auth.storage_state` naming a file that could not be read aborted with exit 2 — over a file
+  nothing in the selection would have opened. The rule therefore covers every strategy, not
+  only `auth.steps`. One selected test that wants the session is enough to bring the login
+  back, `auth:` still defaults to `true` so a suite that never mentions it is unaffected, and
+  `plan` is deliberately unchanged: it has no selection to consult, and any route it drafts
+  for may sit behind a session.
+- **`--impacted` says what the diff did not see.** `--impacted` selects from
+  `git diff <base>...HEAD`, which compares two commits, so uncommitted work was invisible to
+  it: a run against a dirty working tree reported no affected routes, selected nothing and
+  exited 0 without ever saying what it had not looked at. `--fail-on-unmapped` could not catch
+  it either, because that guard inspects the changed files the hole had already excluded it
+  from. Wherever the diff is computed the working tree is now read too, and every change the
+  diff excluded is named on stderr with the routes it maps to. Two classes stay silent so the
+  warning stays worth reading: a file `ignore:` already declares irrelevant, and a file already
+  in the diff, whose routes are selected either way. Selection, exit codes and gates are
+  unchanged.
+
+### Changed
+
+- **The dry-run ceiling stops charging for a login the run will not perform.** `--dry-run`
+  counted the login journey unconditionally, so it reported a worst case for work the run had
+  already been taught to skip. It now reads the same selection the run does: on this
+  repository's suite, `run --tag consent --dry-run` fell from 126 model calls to 42, and a
+  selection of nothing from 84 to 0, with the *"including the login journey"* note gone from
+  both. A ceiling that keeps charging for work that will not happen is conservative and
+  nothing exceeds it — but an overestimate that persists teaches people to discount the
+  number, which is how a ceiling stops being read at all.
+
 ## [0.18.0] — 2026-09-06
 
 ### Fixed
