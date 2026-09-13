@@ -18,7 +18,7 @@ Four things were read rather than assumed, and each one makes the fix smaller or
 
 **`selected` already exists at the call site.** It is printed one line above the login, in `blastproof run: N test(s), provider=…`. The predicate needs no new plumbing and no reordering — it needs the variable already in scope.
 
-**`test.auth` is always a boolean.** `src/schemas.ts:18` declares `auth: z.boolean().default(true)`, so there is no `undefined` case to get wrong and no distinction between "declared true" and "did not say".
+**`test.auth` is always a boolean.** `src/runner/testfile.ts:18` declares `auth: z.boolean().default(true)`, so there is no `undefined` case to get wrong and no distinction between "declared true" and "did not say".
 
 **A setup step cannot need the session in a test that opted out.** The context is created per test at `run.ts:311`, and `executeTest` runs that test's setup steps inside it. So `auth: false` already means "no session for anything in this test, setup included". The combination this design was worried about does not exist, and no exception is needed for it.
 

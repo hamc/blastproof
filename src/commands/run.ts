@@ -537,7 +537,15 @@ function printDryRun(
   // does, and a ceiling that omitted it could be exceeded by the first run that
   // configures a login journey. Included here for that reason (DEF-001 follow-up:
   // the number must not be exceedable by anything it claims to bound).
-  const authSteps = config.auth?.steps ?? [];
+  //
+  // It is charged under the same predicate as the run itself, read from the same
+  // `selected` (design skip-a-login-nothing-selected-needs, D3). The direction of
+  // the failure is why this moves in the same change: a ceiling still charging for
+  // a login the run no longer performs is conservative and nothing exceeds it, but
+  // an overestimate that persists teaches people to discount the number, which is
+  // how a ceiling stops being read at all.
+  const needsLogin = selected.some((test) => test.auth);
+  const authSteps = needsLogin ? (config.auth?.steps ?? []) : [];
   const withAuth = authSteps.length > 0 ? [...selected, { steps: authSteps }] : selected;
   const ceiling = estimateMaxModelCalls(
     withAuth,
@@ -746,7 +754,20 @@ export async function runCommand(options: RunOptions): Promise<number> {
     // run-budget): the run is incomplete, not misconfigured, so none of the
     // selected tests get to run.
     let session: AuthSession | undefined;
-    if (config.auth) {
+    // The login is performed only when some selected test will use the session
+    // (design skip-a-login-nothing-selected-needs, D1). `config.auth` answers
+    // "is a session configured for this project"; `test.auth`, thirty lines up at
+    // the context, answers "does this test want one" — and the producer has to ask
+    // the second. `selected` is the post-filter set deliberately: computing it from
+    // the parsed suite would reintroduce the same disagreement one level up, asking
+    // about tests the run will never execute. `some`, not `every`: one authenticated
+    // test in the selection needs the login, and there is no partial login to perform.
+    //
+    // This covers every strategy, not only `steps` (D2). `steps` is the one that spends
+    // model calls, but `resolveSession` reads `auth.storage_state` from disk and throws
+    // `AuthError` when it cannot — exit 2, before any test, over a file nothing selected
+    // would have opened. Skipping only `steps` would leave that in place.
+    if (config.auth && selected.some((test) => test.auth)) {
       try {
         console.log('Authenticating...');
         session = await authenticate({

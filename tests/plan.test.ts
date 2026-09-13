@@ -470,3 +470,32 @@ describe('planCommand uncommitted-work warning', () => {
     expect(errOut()).not.toContain('working tree');
   });
 });
+
+// Pinned so the #102 predicate cannot leak here (design
+// skip-a-login-nothing-selected-needs, D4). `plan` has no selected set to consult —
+// it is generating the tests — and any route it drafts for may sit behind a session,
+// so a planner that skipped the login would snapshot the login wall and draft for it.
+describe('planCommand authenticates regardless of what the suite declares (#102)', () => {
+  const PUBLIC_TEST = `summary: Cart works signed out
+routes: ["/cart"]
+auth: false
+steps:
+  - apply a discount
+`;
+
+  it('still authenticates when every test in the suite declares auth: false', async () => {
+    await writeProject(
+      { 'public.yaml': PUBLIC_TEST },
+      ['auth:', '  storage_state: .blastproof/never-captured.json'].join('\n'),
+    );
+    getChangedFilesMock.mockResolvedValue(['src/settings/flags.ts']);
+
+    const code = await planCommand({ cwd: dir });
+
+    // It reached the login and failed on the unreadable session file, rather than
+    // deciding it did not need one.
+    expect(out()).toContain('Authenticating...');
+    expect(code).toBe(EXIT_USAGE);
+    expect(errOut()).toContain('Cannot read auth.storage_state');
+  });
+});

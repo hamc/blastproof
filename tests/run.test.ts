@@ -43,6 +43,32 @@ steps:
   - do a thing
 `;
 
+/** Same route and step count as CART_TEST, but opted out of the session (#102). */
+const PUBLIC_CART_TEST = `summary: Cart discount, signed out
+priority: P0
+tags: [cart]
+routes: ["/cart"]
+auth: false
+steps:
+  - apply a discount
+`;
+
+/** A project with a two-step login journey; `auth:` is the last block, so slicing
+ *  at it yields the same project with no login configured. */
+const AUTH_CONFIG_LINES = [
+  'base_url: http://localhost:4173',
+  'llm:',
+  '  provider: anthropic',
+  '  api_key_env: BLASTPROOF_TEST_MISSING_KEY',
+  'routes:',
+  '  "src/cart/**": ["/cart"]',
+  'auth:',
+  '  steps:',
+  '    - go to the login page',
+  '    - sign in with test credentials',
+  '',
+];
+
 let dir: string;
 let logs: string[];
 let errors: string[];
@@ -217,6 +243,65 @@ describe('runCommand --dry-run', () => {
     expect(code).toBe(EXIT_OK);
     // CART_TEST's 1 step plus auth's 2 steps = 3 * (15 + 3) = 54.
     expect(out()).toContain('Worst case: up to 63 model call(s)');
+    expect(out()).toContain('including the login journey');
+  });
+
+  it('drops the login journey from the ceiling when every selected test declares auth: false (#102)', async () => {
+    // The ceiling reads the same predicate as the run (design
+    // skip-a-login-nothing-selected-needs, D3). Charging for a login the run will not
+    // perform would leave the number wrong in the other direction.
+    const withAuth = AUTH_CONFIG_LINES.join('\n');
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), withAuth);
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'public.yaml'), PUBLIC_CART_TEST);
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    // The one selected step alone: 1 * 21. The two auth steps are not charged.
+    expect(out()).toContain('Worst case: up to 21 model call(s)');
+    expect(out()).not.toContain('including the login journey');
+  });
+
+  it('agrees with the ceiling computed without auth configured at all (task 2.2)', async () => {
+    // The two halves of the predicate have to produce the same number, or one of
+    // them has drifted: an auth: false-only selection must cost exactly what the
+    // same selection costs in a project with no login configured.
+    const worstCaseLine = async (config: string): Promise<string | undefined> => {
+      logs = [];
+      await rm(path.join(dir, '.blastproof'), { recursive: true, force: true });
+      await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+      await writeFile(path.join(dir, '.blastproof', 'config.yaml'), config);
+      await writeFile(path.join(dir, '.blastproof', 'tests', 'public.yaml'), PUBLIC_CART_TEST);
+      getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+      await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+      return logs.find((line) => line.startsWith('Worst case:'));
+    };
+
+    const configured = await worstCaseLine(AUTH_CONFIG_LINES.join('\n'));
+    const notConfigured = await worstCaseLine(
+      AUTH_CONFIG_LINES.slice(0, AUTH_CONFIG_LINES.indexOf('auth:')).join('\n'),
+    );
+
+    expect(configured).toBeDefined();
+    expect(configured).toBe(notConfigured);
+  });
+
+  it('still charges for the login when one selected test wants the session (#102)', async () => {
+    // `some`, not `every`: one authenticated test in the selection needs the login,
+    // so the ceiling has to keep covering it.
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), AUTH_CONFIG_LINES.join('\n'));
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'cart.yaml'), CART_TEST);
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'public.yaml'), PUBLIC_CART_TEST);
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    const code = await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    // Two selected steps plus the two auth steps: 4 * 21.
+    expect(out()).toContain('Worst case: up to 84 model call(s)');
     expect(out()).toContain('including the login journey');
   });
 

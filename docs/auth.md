@@ -4,6 +4,16 @@ Most journeys worth testing are behind a sign-in. Declare a recipe once in
 `.blastproof/config.yaml`; blastproof signs in **one time per run** and reuses
 that session for every test and for `plan`.
 
+It signs in only when the run can use the session. If every test in the
+selection declares `auth: false`, no login is performed, no session is
+established, and a configured `storage_state` is never read — so a recipe that
+is broken or a session file that is missing cannot fail a run that would not
+have touched it. One selected test that wants the session is enough to bring the
+login back. This matters most under `--impacted`, where the selection is small
+and the login would otherwise be most of the run. `plan` always signs in: it is
+generating the tests, so it has no selection to consult, and any route it drafts
+for may sit behind the session.
+
 Pick exactly one of the three strategies below. They are alternatives, not
 layers — declaring two is a configuration error rather than a fallback chain,
 because a silent fallback would hide which one actually authenticated you.
