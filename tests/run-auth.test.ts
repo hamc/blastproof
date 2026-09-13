@@ -23,7 +23,8 @@ vi.mock('../src/llm/brain.js', async (importOriginal) => {
   return { ...original, createBrain: createBrainMock };
 });
 
-import { EXIT_OK, EXIT_USAGE, runCommand } from '../src/commands/run.js';
+import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, runCommand } from '../src/commands/run.js';
+import { BudgetExhaustedError } from '../src/runner/budget.js';
 
 const AUTH_CONFIG = [
   'base_url: http://localhost:4173',
@@ -128,13 +129,75 @@ describe('runCommand authentication', () => {
   });
 
   it('gives an auth: false test an empty context', async () => {
-    await writeProject({ 'public.yaml': PUBLIC });
+    // Alongside an authenticated test, so the login still happens and the subject
+    // of this test stays the context rather than the predicate (#102).
+    await writeProject({ 'a.yaml': AUTHED, 'public.yaml': PUBLIC });
 
     const code = await runCommand({ cwd: dir, tags: [] });
 
     expect(code).toBe(EXIT_OK);
+    expect(contextOptionsSeen).toHaveLength(3);
+    expect(contextOptionsSeen[0]).toEqual({}); // the login journey
+    expect(contextOptionsSeen[1]).toMatchObject({ storageState: CAPTURED });
+    expect(contextOptionsSeen[2]).toEqual({}); // public.yaml opted out
+  });
+
+  it('performs no login when every selected test declares auth: false (#102)', async () => {
+    await writeProject({ 'public.yaml': PUBLIC, 'public2.yaml': PUBLIC });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_OK);
+    // Two test contexts and no third: `authenticate` never created its own.
     expect(contextOptionsSeen).toHaveLength(2);
-    expect(contextOptionsSeen[1]).toEqual({});
+    expect(contextOptionsSeen.every((options) => Object.keys(options).length === 0)).toBe(true);
+    // Nothing is printed about the login that did not happen (design D5).
+    expect(out()).not.toContain('Authenticating');
+    expect(out()).not.toContain('skipped');
+  });
+
+  it('logs in when a single selected test wants the session (#102)', async () => {
+    // `some`, not `every` — one authenticated test among many that opted out is
+    // enough, and the login runs exactly as it would for a fully authed selection.
+    await writeProject({ 'public.yaml': PUBLIC, 'public2.yaml': PUBLIC, 'z-authed.yaml': AUTHED });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('Authenticating...');
+    expect(contextOptionsSeen).toHaveLength(4);
+    expect(contextOptionsSeen.filter((options) => 'storageState' in options)).toHaveLength(1);
+  });
+
+  it('is unaffected when the suite never declares auth: at all (#102)', async () => {
+    // `auth` defaults to true (src/runner/testfile.ts), so a suite that does not
+    // mention the field behaves exactly as it did before the predicate existed.
+    expect(AUTHED).not.toContain('auth:');
+    await writeProject({ 'a.yaml': AUTHED, 'b.yaml': AUTHED });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_OK);
+    expect(out()).toContain('Authenticating...');
+    expect(contextOptionsSeen).toHaveLength(3);
+  });
+
+  it('does not run auth.verify when no login was performed (#102)', async () => {
+    // `verify` judges the page the login produced; with no login there is nothing
+    // to verify, and `brain.judge` is how it would have been observed.
+    const judge = vi.fn();
+    createBrainMock.mockReturnValue({ nextAction: vi.fn(), judge });
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(
+      path.join(dir, '.blastproof', 'config.yaml'),
+      `${AUTH_CONFIG.trimEnd()}\n  verify: the page shows a welcome heading\n`,
+    );
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'public.yaml'), PUBLIC);
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_OK);
+    expect(judge).not.toHaveBeenCalled();
   });
 
   it('aborts with exit 2 before any test when authentication fails', async () => {
@@ -206,5 +269,75 @@ describe('runCommand authentication', () => {
     expect(contextOptionsSeen).toHaveLength(1); // just the test
     expect(contextOptionsSeen[0]).toEqual({});
     expect(out()).not.toContain('Authenticating');
+  });
+});
+
+// The two consequences that make #102 a defect rather than waste: a session file
+// nothing would have read aborting the run, and a budget spent on a login nothing
+// selected needed turning into a verdict.
+describe('runCommand authentication is not incurred by a selection that opted out (#102)', () => {
+  const STORAGE_CONFIG = [
+    'base_url: http://localhost:4173',
+    'llm:',
+    '  provider: anthropic',
+    '  api_key_env: BLASTPROOF_AUTH_TEST_KEY',
+    'auth:',
+    '  storage_state: .blastproof/never-captured.json',
+    '',
+  ].join('\n');
+
+  async function writeStorageProject(tests: Record<string, string>): Promise<void> {
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), STORAGE_CONFIG);
+    for (const [name, content] of Object.entries(tests)) {
+      await writeFile(path.join(dir, '.blastproof', 'tests', name), content);
+    }
+  }
+
+  it('an unreadable storage_state does not fail a run in which nothing would read it', async () => {
+    // The strongest of the three defects, and why the predicate covers every
+    // strategy rather than only `steps` (design D2): `resolveSession` throws
+    // `AuthError` on a missing file, which run turns into exit 2 before any test.
+    await writeStorageProject({ 'public.yaml': PUBLIC });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_OK);
+    expect(errOut()).not.toContain('auth.storage_state');
+  });
+
+  it('an unreadable storage_state still fails a run whose selection wants the session', async () => {
+    await writeStorageProject({ 'a.yaml': AUTHED });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_USAGE);
+    expect(errOut()).toContain('Cannot read auth.storage_state');
+  });
+
+  it('a budget that would have been exhausted by the login no longer reports incomplete', async () => {
+    // Only the login journey exhausts the budget here; the selected test itself
+    // runs fine. Before the predicate, the run was marked incomplete and exited 1
+    // regardless of --min-score — a wrong verdict produced by unnecessary work.
+    await writeProject({ 'public.yaml': PUBLIC });
+    executeTestMock.mockImplementation(async (_page: unknown, test: { path: string; summary: string }) => {
+      if (test.path === '<auth>') throw new BudgetExhaustedError('calls', 5, 5);
+      return {
+        file: test.path,
+        summary: test.summary,
+        priority: 'P0',
+        tags: [],
+        status: 'passed' as const,
+        steps: [],
+        durationMs: 10,
+      };
+    });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_OK);
+    expect(code).not.toBe(EXIT_FAILED);
+    expect(out()).not.toContain('Run incomplete');
+    expect(out()).not.toContain('NOT RUN');
   });
 });

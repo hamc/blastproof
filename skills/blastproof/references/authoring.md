@@ -82,6 +82,12 @@ steps:
 
 Only `summary` and `steps` are required.
 
+`auth: false` does more than give the test a signed-out browser: when *every*
+test in a selection declares it, the run performs no login at all. Worth knowing
+when writing a signed-out test, because it is what keeps a `--tag` or
+`--impacted` run of those tests from spending most of its budget on a session
+none of them will read.
+
 `routes:` compares by exact string equality — `/cart` and `/cart/` are different routes. A test declaring a route that no `routes:` mapping in `config.yaml` declares gets a warning, because it contributes nothing to `--impacted` selection.
 
 Tests live in `.blastproof/tests/*.yaml`. Only `.yaml` and `.yml` are discovered, which is why templates ship as `.yaml.example`.
