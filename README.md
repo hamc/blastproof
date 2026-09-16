@@ -86,6 +86,8 @@ The name is matched **exactly first**, then by substring if nothing matches exac
 | `<button aria-label="Delete note">` | an icon-only button with no name |
 | `<select>` with `<option>`s | an ARIA-less custom dropdown |
 
+**An editable data grid is the shape most likely to defeat this, and every row above understates it.** Two adversarial runs against a personal-finance application failed on the journey such an application exists for — entering a transaction. The row's cells carry no accessible name, but the Payee *column header* does, so the tree does not merely lack the target: it offers a control with exactly the right name that is the wrong control. The agent clicks the header, the row editor never opens, and the next `type` lands in whatever input does exist — there, the page's global search box. The step fails describing a textbox nobody mentioned, roughly 70 model calls in. Nobody has yet tried driving such a grid by keyboard (`Tab` into the row, type, `Tab` on), so the honest claim is that **the obvious authoring fails, and fails confusingly** — not that it is impossible. If your core journey is a row editor, spend one test on it before adopting ([#67](https://github.com/hamc/blastproof/issues/67)).
+
 **Run an accessibility checker on your app before installing anything.** The result predicts how well this will work better than anything else you could measure — and the fixes it suggests are worth making regardless of whether you adopt this tool.
 
 ### 2. Does your journey need anything on this list?
