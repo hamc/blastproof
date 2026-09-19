@@ -372,6 +372,7 @@ async function finalize(
   skipped: SkippedCase[],
   options: RunOptions,
   sessionDir: string,
+  secretsHeld: boolean,
   durationMs: number,
   impact?: ImpactResult,
   incomplete?: BudgetExhaustedError,
@@ -419,6 +420,12 @@ async function finalize(
       cwd: options.cwd,
       incomplete: incomplete?.message,
       spend,
+      // A screenshot cannot be masked, so a run that held any `{{env.*}}` value
+      // links to it instead of carrying it (design
+      // withhold-a-screenshot-that-saw-a-secret, D1): the run's mask, not the
+      // failed test's own placeholders, because a login credential is echoed by
+      // the pages of every test that comes after it.
+      screenshots: secretsHeld ? { withheldRelativeTo: path.dirname(target) } : 'embed',
     });
     await writeHtml(target, html);
     console.log(`HTML report: ${path.relative(options.cwd, target)}`);
@@ -708,7 +715,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
     console.log(
       impact ? 'No impacted tests to run.' : 'No tests matched the given filters.',
     );
-    return finalize(results, selection.unroutedSkipped, options, sessionDir, Date.now() - startedAt, impact);
+    // Nothing executed, so nothing was captured: there is no screenshot to withhold.
+    return finalize(results, selection.unroutedSkipped, options, sessionDir, false, Date.now() - startedAt, impact);
   }
 
   // Fail fast on a missing API key before launching any browser (spec: llm-providers).
@@ -866,6 +874,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     selection.unroutedSkipped,
     options,
     sessionDir,
+    !runMask.isEmpty(),
     Date.now() - startedAt,
     impact,
     incomplete,

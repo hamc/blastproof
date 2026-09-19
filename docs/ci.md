@@ -130,17 +130,21 @@ Unrouted tests appear as skipped rather than being omitted entirely, so the
 coverage gap shows up in the CI summary instead of vanishing silently.
 
 **HTML** is the one to attach as an artifact when a run fails. It carries the
-per-step trace and links the failure screenshot.
+per-step trace and the failure screenshot: embedded when the run referenced no
+`{{env.*}}` value, and otherwise only linked, because a screenshot cannot be masked.
 
 ```yaml
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: blastproof-report
-          path: |
-            report.html
-            .blastproof/reports/
+          path: report.html
 ```
+
+`.blastproof/reports/` holds the raw failure screenshots, and they are **not**
+masked: a value typed from `{{env.*}}` or echoed by your app is legible in them.
+Add that directory to `path:` only if your artifact store is as private as the
+secrets your tests use.
 
 `if: always()` matters — the run you most want the report from is the one that
 just failed the job.

@@ -80,4 +80,13 @@ export class SecretsMask {
   mask(text: string): string {
     return maskSecrets(text, this.secrets);
   }
+
+  /**
+   * Whether no value is registered — i.e. nothing in the run referenced
+   * `{{env.*}}`. Says nothing about which values, so a caller deciding what a
+   * report may carry never holds a secret to decide it.
+   */
+  isEmpty(): boolean {
+    return this.secrets.size === 0;
+  }
 }

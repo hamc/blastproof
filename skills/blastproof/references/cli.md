@@ -33,7 +33,7 @@ Executes tests and reports a priority-weighted score.
 | `--dry-run` | resolve selection and print it; no browser, no model call |
 | `--min-score <n>` | exit 1 below this score; 0–100 |
 | `--junit [path]` | write a JUnit report; the path is optional and defaults to `.blastproof/reports/<session>/junit.xml` |
-| `--html [path]` | write a self-contained HTML report; the path is optional and defaults to `.blastproof/reports/<session>/report.html` |
+| `--html [path]` | write a self-contained HTML report; the path is optional and defaults to `.blastproof/reports/<session>/report.html`. If the run referenced any `{{env.*}}` value, failure screenshots are linked instead of embedded |
 | `--fail-on-unmapped` | exit 1 when a changed file matches neither `routes:` nor `ignore:`. **Requires `--impacted`** — without it the run exits 2 |
 | `--fail-on-authoring` | turn authoring warnings into exit 1 |
 | `--concurrency <n>` | tests in parallel; **default 1, and raising it is a decision for whoever knows the suite** — these are journeys against one running app, so two tests that write to it can see each other's data |

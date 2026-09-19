@@ -66,4 +66,17 @@ describe('SecretsMask', () => {
     const mask = new SecretsMask();
     expect(() => mask.registerFrom('{{env.NOPE}}', {})).toThrow(MissingEnvError);
   });
+
+  it('says whether it holds any value (withhold-a-screenshot-that-saw-a-secret)', () => {
+    const mask = new SecretsMask();
+    expect(mask.isEmpty()).toBe(true);
+
+    // An empty value registers nothing, so it must not withhold anything either.
+    mask.add('');
+    mask.registerFrom('open the page', {});
+    expect(mask.isEmpty()).toBe(true);
+
+    mask.registerFrom('fill the promo code with {{env.PROBE_SECRET}}', { PROBE_SECRET: 'HUNTER2' });
+    expect(mask.isEmpty()).toBe(false);
+  });
 });
