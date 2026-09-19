@@ -1,10 +1,6 @@
-# html-report Specification
+# Spec delta: html-report (withhold-a-screenshot-that-saw-a-secret)
 
-## Purpose
-
-Explain a run to a human: one self-contained file that opens offline, leads with the score and expands each failure to its step, reason and screenshot.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Self-contained report
 The HTML report SHALL be a single file with no external references: CSS inline and, when the run held no secret, failure screenshots embedded as base64 `data:` URIs, so it opens offline and survives being moved or uploaded as a CI artifact.
@@ -33,17 +29,6 @@ The report's closing note SHALL state which of the two it did: that screenshots 
 - **WHEN** a report withheld its screenshots
 - **THEN** it does not claim that screenshots are embedded
 
-### Requirement: Score and verdict lead the report
-The report SHALL open with the run score, the pass and fail counts, and — when a threshold was given — the gate verdict.
-
-#### Scenario: Gate verdict shown
-- **WHEN** a run scores 60 against a threshold of 80
-- **THEN** the report states the score, the threshold and that the gate failed
-
-#### Scenario: No threshold
-- **WHEN** no threshold was given
-- **THEN** the score is shown without a gate verdict
-
 ### Requirement: Failure detail
 Each failed test SHALL show its failing step and the failure reason. Passing tests SHALL be present but collapsed.
 
@@ -64,21 +49,3 @@ When a screenshot exists and the run held no secret, the failed test SHALL show 
 #### Scenario: Missing screenshot degrades gracefully
 - **WHEN** a failed test's screenshot file cannot be read, in a run that held no secret
 - **THEN** the report is still produced, noting the screenshot is unavailable
-
-### Requirement: HTML escaping
-All interpolated text SHALL be HTML-escaped, covering `&`, `<`, `>`, `"` and `'`.
-
-#### Scenario: Markup in a summary is inert
-- **WHEN** a test summary contains `<script>alert(1)</script>`
-- **THEN** the report displays it as text and does not execute it
-
-### Requirement: Report destination
-The report SHALL be written only when requested: to an explicitly given path, otherwise to `report.html` inside the run's report session directory. Missing parent directories SHALL be created.
-
-#### Scenario: Default destination
-- **WHEN** an HTML report is requested without a path
-- **THEN** it is written as `report.html` inside `.blastproof/reports/<session>/`
-
-#### Scenario: Not requested
-- **WHEN** a run is executed without requesting an HTML report
-- **THEN** no HTML file is written

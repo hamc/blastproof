@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { embedScreenshot, escapeHtml, renderHtml, writeHtml } from '../src/report/html.js';
 import { ReportError } from '../src/report/errors.js';
 import { type SkippedCase } from '../src/report/junit.js';
@@ -84,6 +84,7 @@ describe('renderHtml', () => {
     const html = await renderHtml([passed('one'), failed('two')], SKIPPED, {
       score: 40,
       durationMs: 4000,
+      screenshots: 'embed',
     });
     // No src/href pointing anywhere but an inline data URI, no scripts.
     expect(html).not.toMatch(/(src|href)\s*=\s*["'](?!data:)/i);
@@ -92,19 +93,19 @@ describe('renderHtml', () => {
   });
 
   it('leads with the score and the gate verdict', async () => {
-    const html = await renderHtml([failed('x')], [], { score: 60, durationMs: 1, minScore: 80 });
+    const html = await renderHtml([failed('x')], [], { score: 60, durationMs: 1, screenshots: 'embed', minScore: 80 });
     expect(html).toContain('<b>60</b>');
     expect(html).toContain('min-score 80: FAIL');
   });
 
   it('omits the verdict when no threshold was given', async () => {
-    const html = await renderHtml([passed('x')], [], { score: 100, durationMs: 1 });
+    const html = await renderHtml([passed('x')], [], { score: 100, durationMs: 1, screenshots: 'embed' });
     expect(html).toContain('<b>100</b>');
     expect(html).not.toContain('min-score');
   });
 
   it('shows the failing step and reason', async () => {
-    const html = await renderHtml([failed('checkout')], [], { score: 0, durationMs: 1 });
+    const html = await renderHtml([failed('checkout')], [], { score: 0, durationMs: 1, screenshots: 'embed' });
     expect(html).toContain('apply promo code SAVE20');
     expect(html).toContain('Element not found: role=button');
   });
@@ -113,6 +114,7 @@ describe('renderHtml', () => {
     const html = await renderHtml([passed('<script>alert(1)</script>')], [], {
       score: 100,
       durationMs: 1,
+      screenshots: 'embed',
     });
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>alert(1)</script>');
@@ -123,7 +125,7 @@ describe('renderHtml', () => {
     try {
       const shot = path.join(dir, 'shot.png');
       await writeFile(shot, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-      const html = await renderHtml([failed('x', shot)], [], { score: 0, durationMs: 1 });
+      const html = await renderHtml([failed('x', shot)], [], { score: 0, durationMs: 1, screenshots: 'embed' });
       expect(html).toContain('<img class="shot"');
       expect(html).toContain('src="data:image/png;base64,');
     } finally {
@@ -135,13 +137,14 @@ describe('renderHtml', () => {
     const html = await renderHtml([failed('x', '/nope/missing.png')], [], {
       score: 0,
       durationMs: 1,
+      screenshots: 'embed',
     });
     expect(html).toContain('Screenshot unavailable');
     expect(html).not.toContain('<img');
   });
 
   it('lists skipped tests', async () => {
-    const html = await renderHtml([], SKIPPED, { score: 100, durationMs: 0 });
+    const html = await renderHtml([], SKIPPED, { score: 100, durationMs: 0, screenshots: 'embed' });
     expect(html).toContain('Legacy test');
     expect(html).toContain('SKIP');
   });
@@ -150,9 +153,111 @@ describe('renderHtml', () => {
     const html = await renderHtml([passed('a pass'), failed('a failure')], [], {
       score: 50,
       durationMs: 1,
+      screenshots: 'embed',
     });
     const detail = html.slice(html.indexOf('<details'));
     expect(detail.indexOf('a failure')).toBeLessThan(detail.indexOf('a pass'));
+  });
+});
+
+describe('renderHtml: a run that held a secret (withhold-a-screenshot-that-saw-a-secret)', () => {
+  // Arbitrary bytes rather than a PNG header: the assertion is that none of them
+  // reach the report, and a distinctive base64 run makes that searchable.
+  const BYTES = Buffer.from('a screenshot showing HUNTER2 in the promo field');
+
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'blastproof-withheld-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('carries no byte of the screenshot, and links to it instead', async () => {
+    const shot = path.join(dir, 'cart-bad-yaml.png');
+    await writeFile(shot, BYTES);
+
+    const html = await renderHtml([failed('x', shot)], [], {
+      score: 0,
+      durationMs: 1,
+      screenshots: { withheldRelativeTo: dir },
+    });
+
+    expect(html).not.toContain('data:');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain(BYTES.toString('base64'));
+    expect(html).toContain('Screenshot withheld');
+    expect(html).toContain('<a href="cart-bad-yaml.png">');
+    // The step and reason are text, and text is masked: they stay.
+    expect(html).toContain('apply promo code SAVE20');
+    expect(html).toContain('Element not found: role=button');
+  });
+
+  it('links relative to the report, never by an absolute path', async () => {
+    const reportDir = path.join(dir, 'build');
+    const shot = path.join(dir, '.blastproof', 'reports', 's1', 'shot.png');
+
+    const html = await renderHtml([failed('x', shot)], [], {
+      score: 0,
+      durationMs: 1,
+      screenshots: { withheldRelativeTo: reportDir },
+    });
+
+    expect(html).toContain('<a href="../.blastproof/reports/s1/shot.png">');
+    expect(html).not.toContain(dir);
+  });
+
+  it('escapes the link', async () => {
+    const shot = path.join(dir, 'a"b<c>.png');
+
+    const html = await renderHtml([failed('x', shot)], [], {
+      score: 0,
+      durationMs: 1,
+      screenshots: { withheldRelativeTo: dir },
+    });
+
+    expect(html).toContain('<a href="a&quot;b&lt;c&gt;.png">');
+  });
+
+  it('still names a screenshot it cannot read, since it never reads it', async () => {
+    const html = await renderHtml([failed('x', path.join(dir, 'missing.png'))], [], {
+      score: 0,
+      durationMs: 1,
+      screenshots: { withheldRelativeTo: dir },
+    });
+
+    expect(html).toContain('Screenshot withheld');
+    expect(html).toContain('<a href="missing.png">');
+    expect(html).not.toContain('Screenshot unavailable');
+  });
+
+  it('says in its footer what it did, in both branches', async () => {
+    const withheld = await renderHtml([passed('a')], [], {
+      score: 100,
+      durationMs: 1,
+      screenshots: { withheldRelativeTo: dir },
+    });
+    const embedded = await renderHtml([passed('a')], [], {
+      score: 100,
+      durationMs: 1,
+      screenshots: 'embed',
+    });
+
+    expect(withheld).not.toContain('Screenshots are embedded');
+    expect(withheld).toContain('Screenshots were withheld');
+    expect(embedded).toContain('Screenshots are embedded');
+  });
+
+  it('references nothing external: the link fetches nothing when the page opens', async () => {
+    const html = await renderHtml([failed('x', path.join(dir, 'shot.png'))], [], {
+      score: 0,
+      durationMs: 1,
+      screenshots: { withheldRelativeTo: dir },
+    });
+
+    expect(html).not.toMatch(/\ssrc\s*=/i);
+    expect(html).not.toMatch(/href\s*=\s*["'](https?:)?\/\//i);
+    expect(html).not.toContain('<script');
   });
 });
 
@@ -161,6 +266,7 @@ describe('renderHtml: incomplete runs (spec run-budget)', () => {
     const html = await renderHtml([passed('a')], [], {
       score: 100,
       durationMs: 1,
+      screenshots: 'embed',
       incomplete: 'model call budget exhausted: reached the configured maximum of 5 call(s)',
     });
     expect(html).toContain('Run stopped:');
@@ -168,7 +274,7 @@ describe('renderHtml: incomplete runs (spec run-budget)', () => {
   });
 
   it('omits the banner on a complete run', async () => {
-    const html = await renderHtml([passed('a')], [], { score: 100, durationMs: 1 });
+    const html = await renderHtml([passed('a')], [], { score: 100, durationMs: 1, screenshots: 'embed' });
     expect(html).not.toContain('Run stopped');
   });
 
@@ -176,6 +282,7 @@ describe('renderHtml: incomplete runs (spec run-budget)', () => {
     const html = await renderHtml([failed('a failure'), notRun('never got here', 'stopped: budget exhausted')], [], {
       score: 100,
       durationMs: 1,
+      screenshots: 'embed',
       incomplete: 'stopped: budget exhausted',
     });
     expect(html).toContain('NOT RUN');
@@ -192,7 +299,7 @@ describe('renderHtml: incomplete runs (spec run-budget)', () => {
     const html = await renderHtml(
       [passed('a pass'), notRun('never got here', 'stopped'), failed('a failure')],
       [],
-      { score: 100, durationMs: 1, incomplete: 'stopped' },
+      { score: 100, durationMs: 1, screenshots: 'embed', incomplete: 'stopped' },
     );
     const detail = html.slice(html.indexOf('<details'));
     expect(detail.indexOf('a failure')).toBeLessThan(detail.indexOf('never got here'));
