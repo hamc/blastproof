@@ -46,6 +46,13 @@ button,
   cursor: pointer;
 }
 
+/* Any `display` rule beats the `hidden` attribute's UA default, and
+   `.totals div` below did: the discount row showed "Discount (SAVE20)" before
+   any code was applied, which a judge took as proof one had been (#112). */
+[hidden] {
+  display: none !important;
+}
+
 .totals div {
   display: flex;
   justify-content: space-between;
