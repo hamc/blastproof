@@ -40,6 +40,7 @@ Being precise about this matters more than it looks. A rule you believe is check
 | A step that enters a value writes the value | **Guaranteed by the runner** — a fill or a select whose value is in neither the step nor the page is refused at run time — and warned about at authoring time by a grammar check, which `--fail-on-authoring` turns into exit 1. |
 | Every step says what it should produce | **Not enforced.** Nothing fails when a step is a bare action. |
 | A verification names an outcome only a correct page satisfies | **Not enforced.** See below. |
+| A value in `{{env.*}}` stays out of prompts and reports | **Guaranteed by the runner for what it can recognise.** The value is matched case-insensitively and tolerantly of whitespace, so a page that reformats it that way is still redacted, and the run warns when that happens. **Not enforceable** for a value the application re-encodes, hashes or truncates: that is a different string, and nothing claims otherwise. |
 | A control is identified by a name no other visible control shares | **Not enforced, and not enforceable here.** The runner asks for an exact accessible-name match before a substring one, so `Add` no longer loses to `Add New`. But when several controls answer to the same name the first on the page wins, silently — this is a property of the application, not of the test. |
 
 The authoring check reads **English only**. Silence from it means "nothing found in English", never "this suite is clean".
