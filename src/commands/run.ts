@@ -361,6 +361,23 @@ function printImpactReport(
 }
 
 /**
+ * One line per variable whose value the page returned in a form the literal
+ * comparison would have missed (design say-when-the-page-reformatted-a-secret,
+ * D3). The variable is named and the value never is — in neither the form
+ * supplied nor the form found, since a warning about a leak must not be one.
+ * Silent when the widened comparison changed nothing, which is the common case.
+ */
+function reportNearMissedSecrets(variables: string[]): void {
+  for (const variable of variables) {
+    console.error(
+      `warning: the application returned ${variable} in a different form than the value supplied ` +
+        `(case or spacing). It was redacted, but a form this tool cannot recognise — an encoding, ` +
+        `a hash — would not have been. Check what that page does with the value.`,
+    );
+  }
+}
+
+/**
  * Prints the summary tail shared by every terminating path: score line, optional
  * JUnit report, and the exit code. With `--min-score` the threshold decides the
  * outcome instead of the all-must-pass rule (design D4) — unless `incomplete` is
@@ -373,12 +390,15 @@ async function finalize(
   options: RunOptions,
   sessionDir: string,
   secretsHeld: boolean,
+  nearMissedSecrets: string[],
   durationMs: number,
   impact?: ImpactResult,
   incomplete?: BudgetExhaustedError,
   spend?: BudgetSpend,
 ): Promise<number> {
   if (results.length > 0) printSummary(results);
+
+  reportNearMissedSecrets(nearMissedSecrets);
 
   // Before the score, so the verdict stays the last thing printed. Reported for
   // an interrupted run too (design report-what-it-spent, D3): a stop already
@@ -716,7 +736,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       impact ? 'No impacted tests to run.' : 'No tests matched the given filters.',
     );
     // Nothing executed, so nothing was captured: there is no screenshot to withhold.
-    return finalize(results, selection.unroutedSkipped, options, sessionDir, false, Date.now() - startedAt, impact);
+    return finalize(results, selection.unroutedSkipped, options, sessionDir, false, [], Date.now() - startedAt, impact);
   }
 
   // Fail fast on a missing API key before launching any browser (spec: llm-providers).
@@ -875,6 +895,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     options,
     sessionDir,
     !runMask.isEmpty(),
+    runMask.nearMissedVariables(),
     Date.now() - startedAt,
     impact,
     incomplete,
