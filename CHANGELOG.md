@@ -3,6 +3,45 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.20.0] — 2026-09-20
+
+### Fixed
+
+- **A failure screenshot no longer carries the secret the text mask removed.** `{{env.*}}`
+  values were redacted from every text channel, and the HTML report then embedded a full-page
+  PNG of the failure as a base64 `data:` URI. Nothing masks pixels, so a report whose text read
+  `***` showed the value in legible pixels — in the input it was typed into and anywhere the
+  application echoed it — in the one file the tool builds to be attached to a pull request and
+  uploaded as a CI artifact. A screenshot is captured only on failure, which is exactly when a
+  report gets shared. When anything in a run references `{{env.*}}`, the report now links to
+  each failure screenshot instead of embedding it; the PNG stays where it always was, under the
+  git-ignored `.blastproof/reports/`, and the file is never read on that path. A run that
+  referenced no `{{env.*}}` value is unchanged and still self-contained. The condition is the
+  run's mask rather than the failed test's own placeholders, because a login credential is
+  echoed by the pages of every test that follows it. `docs/ci.md` recommended uploading
+  `.blastproof/reports/` as an artifact, which is where the unmasked PNGs live; the example now
+  uploads `report.html` alone and says what that directory contains.
+- **A secret the application reformats before rendering is masked, and a near-miss is
+  reported.** The mask replaced by escaped literal, case-sensitively, so the guarantee held only
+  while the string on the page was byte-identical to the one in the environment. An application
+  that uppercases what it echoes — the demo app does — sent the value to the model provider
+  intact, and nothing said so: the leaking run and the masked one printed the same score, the
+  same exit code and the same output. The comparison is now the value case-insensitively, with
+  runs of whitespace matched as runs of whitespace, which is the normalization this codebase
+  already applies in the other direction when deciding whether a typed value came from the page.
+  It is deliberately the whole rule — no catalogue of application-side transforms, since an
+  enumeration never closes and one that implies completeness stops people being careful — so a
+  re-encoded or hashed value is still not recognised, and the documentation says so. Where a
+  redaction is found only by the widened comparison, the run prints one warning per variable,
+  naming the variable and neither form of the value. It changes no verdict: a page's formatting
+  is not a test failure. Note that wider masking means a little more of a page is redacted, and
+  redacted text cannot be asserted on (#87).
+- **The demo app hides its discount row again.** `.totals div { display: flex }` beat the
+  `hidden` attribute, so `examples/demo-app` always rendered "Discount (SAVE20) -$0.00" — before
+  any code was applied and after a rejected one. It is not shipped code, but it is what this
+  project tests itself against, and a fixture that puts false evidence of success on the page
+  produced exactly that: a wrong PASS, now filed as #112.
+
 ## [0.19.0] — 2026-09-13
 
 ### Fixed
