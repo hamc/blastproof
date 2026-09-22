@@ -77,6 +77,11 @@ ignore:
   - "openspec/**"
   - "tests/**"
   - ".blastproof/**"
+  # The blastproof.dev landing page, deployed to Cloudflare Pages from this
+  # directory. It is its own deployable and shares nothing with the demo app
+  # under test, so it cannot affect a route here — declared rather than left to
+  # match nothing, which is what --fail-on-unmapped exists to catch.
+  - "site/**"
 
 # The demo shop keeps a session in localStorage, so /orders and /account are only
 # reachable signed in. This recipe signs in once per run and every test reuses it.
