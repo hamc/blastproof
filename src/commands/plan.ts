@@ -11,7 +11,7 @@ import {
   generateForRoute,
   renderTestYaml,
   writeDraft,
-  type TestDraft,
+  type PlannedDraft,
 } from '../planner.js';
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import type { PageLike } from '../runner/actions.js';
@@ -278,7 +278,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
     // The budget or deadline ran out during login: no route was ever attempted.
     for (const { route, changedFiles } of incomplete ? [] : work) {
       console.log(`\n> ${route}`);
-      let draft: TestDraft;
+      let draft: PlannedDraft;
       const context = await browser.newContext(contextOptions(session));
       try {
         const page = await context.newPage();
@@ -306,6 +306,18 @@ export async function planCommand(options: PlanOptions): Promise<number> {
         continue;
       } finally {
         await context.close();
+      }
+
+      // Before the draft is written or previewed, so the warning sits next to the
+      // file the reviewer is about to open (design
+      // an-account-identifier-is-a-placeholder-too, D3). The address is printed:
+      // it came from the model, not from the environment, and the reviewer needs
+      // to see which line it is.
+      for (const { step, address } of draft.unsourcedEmails) {
+        console.error(
+          `  warning: step ${step + 1} writes an email address the page does not show (${address}).\n` +
+            '    If it is the account the test signs in as, use a placeholder like {{env.TEST_EMAIL}}.',
+        );
       }
 
       generated.push(route);

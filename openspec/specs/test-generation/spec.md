@@ -40,11 +40,27 @@ Every generated draft SHALL conform to the `yaml-test-format` schema: a non-empt
 - **THEN** generation fails for that route with an error naming the route, and no file is written for it
 
 ### Requirement: Secrets are emitted as placeholders
-Generated steps that require a credential SHALL use `{{env.VAR_NAME}}` placeholders and SHALL NOT contain literal secret values.
+Generated steps that require a credential, or any value that identifies an account or a person — an email address, a username, an account or customer number — SHALL use `{{env.VAR_NAME}}` placeholders and SHALL NOT contain a literal for it, whether real or invented.
+
+The instruction to the model SHALL state this as a property of the value rather than as a list of credential types, so that a value the list does not name is still covered.
+
+A generated step that names a credential and carries no placeholder SHALL be refused when it contains a quoted literal **or when it enters a value**, as `run`'s authoring check defines entering one: a leading value verb followed by a value it names. Quoting SHALL NOT be what separates a refused secret from an accepted one.
 
 #### Scenario: Login step uses a placeholder
 - **WHEN** a generated draft includes a password entry step
 - **THEN** the step references `{{env.VAR_NAME}}` rather than an inline value
+
+#### Scenario: An unquoted literal password is refused
+- **WHEN** a generated step reads "fill the Password textbox with demo123"
+- **THEN** generation fails for that route with an error naming the step, exactly as for a quoted literal
+
+#### Scenario: Naming a credential field without entering a value is not refused
+- **WHEN** a generated step reads "verify the password field is visible"
+- **THEN** the draft is accepted
+
+#### Scenario: The account being signed in as is a placeholder too
+- **WHEN** a generated draft includes a step entering the email address or username to sign in with
+- **THEN** the instruction the model received requires a `{{env.VAR_NAME}}` placeholder for that value as well as for the password
 
 ### Requirement: Writing drafts never overwrites
 When persisting drafts, the system SHALL derive the target filename from the route (`/` → `home`, other routes slugified to lowercase alphanumerics joined by `-`) under `.blastproof/tests/`, and SHALL fail that route with an error naming the existing file if the target already exists.
@@ -97,3 +113,26 @@ Whether a plain-English step states an outcome SHALL NOT be validated mechanical
 #### Scenario: Drafts are not rejected mechanically
 - **WHEN** a generated step does not obviously state an outcome
 - **THEN** generation still succeeds and the draft is printed for review, rather than being refused by a heuristic
+
+### Requirement: An invented email address in a draft is reported
+When a generated step contains an email address that does not appear in the page snapshot the draft was generated from, `plan` SHALL report it on stderr, naming the route and the step. The draft SHALL still be written or previewed exactly as without the report, and the exit code SHALL NOT change.
+
+An email address that does appear in the snapshot SHALL NOT be reported: verifying a contact address the page shows is a legitimate step.
+
+The report covers email addresses only. No other identifier SHALL be matched by shape, and the documentation SHALL say that usernames and account numbers remain guidance.
+
+#### Scenario: The observed case is reported
+- **WHEN** a draft for `/#/login` contains "fill the email field with test@example.com" and the login page does not show that address
+- **THEN** `plan` reports that step for that route, and the draft is still produced
+
+#### Scenario: An address read off the page is not reported
+- **WHEN** a draft contains "verify the footer shows support@acme.test" and the snapshot contains that address
+- **THEN** nothing is reported
+
+#### Scenario: A placeholder is not reported
+- **WHEN** a draft step contains `{{env.TEST_EMAIL}}` and no literal address
+- **THEN** nothing is reported
+
+#### Scenario: A clean draft prints nothing extra
+- **WHEN** no step contains an email address absent from the snapshot
+- **THEN** `plan`'s output is unchanged

@@ -4,6 +4,7 @@ import { stringify } from 'yaml';
 import type { PlannerBrain } from './llm/brain.js';
 import type { GeneratedTest } from './llm/schemas.js';
 import type { PageLike } from './runner/actions.js';
+import { entersNamedValue } from './runner/authoring.js';
 import { defaultSnapshot } from './runner/executor.js';
 import { TESTS_RELATIVE_DIR, type TestFile } from './runner/testfile.js';
 import { fsReason } from './report/errors.js';
@@ -53,19 +54,67 @@ export interface GenerateOptions {
   timeoutMs: number;
 }
 
-/** Steps naming a credential alongside a quoted literal, with no `{{env.*}}` placeholder. */
+/**
+ * Steps naming a credential and supplying a value for it — quoted, or entered as
+ * `run`'s authoring check defines entering one — with no `{{env.*}}` placeholder.
+ */
 const CREDENTIAL_WORD = /\b(password|passwd|api[ _-]?key|token|secret|credential)\b/i;
 const QUOTED_LITERAL = /["'][^"']+["']/;
 
 /**
  * Returns the steps that appear to carry a literal secret instead of a placeholder
  * (design D8). A credential word alone is not enough — "check the password field is
- * visible" is fine; it is the quoted literal without `{{env.*}}` that is a violation.
+ * visible" is fine; it is a value without `{{env.*}}` that is a violation.
+ *
+ * Quoting used to be the only value signal, and a model does not quote: measured
+ * drafts read `Fill the Password textbox with demo123` and passed (design
+ * an-account-identifier-is-a-placeholder-too, D5). A step that enters a named
+ * value is now a value signal too, by the authoring check's own definition.
  */
 export function findSecretLiterals(steps: string[]): string[] {
   return steps.filter(
-    (step) => CREDENTIAL_WORD.test(step) && QUOTED_LITERAL.test(step) && !step.includes('{{env.'),
+    (step) =>
+      CREDENTIAL_WORD.test(step) &&
+      !step.includes('{{env.') &&
+      (QUOTED_LITERAL.test(step) || entersNamedValue(step)),
   );
+}
+
+/** A draft as `generateForRoute` returns it: the test, plus what `plan` should warn about. */
+export type PlannedDraft = TestDraft & { unsourcedEmails: UnsourcedEmail[] };
+
+/** An email address in a draft step that the page it was drafted from does not show. */
+export interface UnsourcedEmail {
+  /** 0-based index into the draft's steps. */
+  step: number;
+  address: string;
+}
+
+// Deliberately plain (design an-account-identifier-is-a-placeholder-too, D2): a
+// local part, `@`, a domain with at least one dot. The question is "does this
+// step carry an address", not "is this address valid".
+const EMAIL_ADDRESS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+
+/**
+ * Returns every email address a step writes that the snapshot does not contain,
+ * compared case-insensitively (design D2). It is the runner's rule for a filled
+ * value — one in neither the step nor the page was supplied by the model —
+ * applied one stage earlier, to the draft. An address read off the page, such as
+ * a support contact, is a legitimate thing to verify and is not reported.
+ *
+ * Email is the one identifier with a shape precise enough to check. Usernames and
+ * account numbers have none, and matching them by wording would be the grammar
+ * heuristic #72 rejected; they stay guidance, and the docs say so.
+ */
+export function findUnsourcedEmails(steps: string[], snapshot: string): UnsourcedEmail[] {
+  const page = snapshot.toLowerCase();
+  const found: UnsourcedEmail[] = [];
+  steps.forEach((text, step) => {
+    for (const [address] of text.matchAll(EMAIL_ADDRESS)) {
+      if (!page.includes(address.toLowerCase())) found.push({ step, address });
+    }
+  });
+  return found;
 }
 
 /**
@@ -115,7 +164,10 @@ export function renderTestYaml(draft: TestDraft, meta: ProvenanceMeta): string {
  * `routes` is set here, never taken from the model, so the draft provably closes the
  * coverage gap that triggered it (design D6).
  */
-export async function generateForRoute(page: PageLike, options: GenerateOptions): Promise<TestDraft> {
+export async function generateForRoute(
+  page: PageLike,
+  options: GenerateOptions,
+): Promise<PlannedDraft> {
   const { route, baseUrl, changedFiles, brain, mask, snapshot, maxSnapshotLines, timeoutMs } = options;
   const takeSnapshot = snapshot ?? ((p: PageLike) => defaultSnapshot(p, maxSnapshotLines));
 
@@ -130,9 +182,12 @@ export async function generateForRoute(page: PageLike, options: GenerateOptions)
     );
   }
 
+  // Kept, not inlined: the draft is checked against the very page the model saw
+  // (design D4), not a second snapshot of a page that may have changed since.
+  const pageSnapshot = mask(await takeSnapshot(page));
   const generated = await brain.planTest({
     route,
-    snapshot: mask(await takeSnapshot(page)),
+    snapshot: pageSnapshot,
     changedFiles,
   });
 
@@ -143,7 +198,14 @@ export async function generateForRoute(page: PageLike, options: GenerateOptions)
     );
   }
 
-  return { ...generated, routes: [route] };
+  // Travels with the draft rather than failing it (design D3): a literal email is
+  // a wrong test, not a leak, and the draft is otherwise worth reviewing.
+  // `renderTestYaml` selects its fields, so this never reaches the file.
+  return {
+    ...generated,
+    routes: [route],
+    unsourcedEmails: findUnsourcedEmails(generated.steps, pageSnapshot),
+  };
 }
 
 /**

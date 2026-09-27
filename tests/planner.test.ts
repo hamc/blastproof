@@ -7,6 +7,7 @@ import type { GeneratedTest } from '../src/llm/schemas.js';
 import {
   coveredRoutes,
   findSecretLiterals,
+  findUnsourcedEmails,
   generateForRoute,
   PlannerError,
   renderTestYaml,
@@ -70,6 +71,12 @@ describe('findSecretLiterals', () => {
     expect(findSecretLiterals(['fill the password field with "hunter2"'])).toHaveLength(1);
   });
 
+  it('still flags a quoted secret in a step that enters nothing', () => {
+    // Only the quoted branch sees this one: `verify` is not a value verb, so
+    // widening the check to entry steps must not have narrowed it elsewhere.
+    expect(findSecretLiterals(['verify the API token "sk-live-123" is shown on the page'])).toHaveLength(1);
+  });
+
   it('accepts placeholders and credential mentions without literals', () => {
     expect(
       findSecretLiterals([
@@ -79,9 +86,51 @@ describe('findSecretLiterals', () => {
       ]),
     ).toEqual([]);
   });
+
+  // an-account-identifier-is-a-placeholder-too, D5: quoting was the only value
+  // signal, and six measured drafts wrote this, unquoted, and passed.
+  it('refuses an unquoted literal a step enters into a credential field', () => {
+    expect(findSecretLiterals(['Fill the Password textbox with demo123'])).toEqual([
+      'Fill the Password textbox with demo123',
+    ]);
+    expect(findSecretLiterals(['enter the API key as sk-live-123'])).toHaveLength(1);
+    expect(findSecretLiterals(['type the token into the Token field: abc'])).toHaveLength(1);
+  });
+
+  it('does not refuse an entry step that names no value, or names a placeholder', () => {
+    expect(
+      findSecretLiterals([
+        'type the password', // no value: the authoring check's case, not this one
+        'fill in the password field', // phrasal `fill in`, still no value
+        'Fill the Password textbox with {{env.TEST_PASSWORD}}',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('does not refuse a credential word in a step that enters nothing', () => {
+    // `set` must not match `setup`, and a verb used as a noun is a check.
+    expect(
+      findSecretLiterals([
+        'verify the password field is visible',
+        'setup the password reset flow and verify the form loads',
+        'verify the token expiry shows 30 days',
+      ]),
+    ).toEqual([]);
+  });
 });
 
 describe('renderTestYaml', () => {
+  it('never writes the warnings a planned draft carries into the file', () => {
+    const plain = renderTestYaml({ ...DRAFT, routes: ['/cart'] }, { route: '/cart', date: '2026-07-26' });
+    const withFindings = renderTestYaml(
+      { ...DRAFT, routes: ['/cart'], unsourcedEmails: [{ step: 0, address: 'x@example.com' }] } as TestDraft,
+      { route: '/cart', date: '2026-07-26' },
+    );
+
+    expect(withFindings).toBe(plain);
+    expect(withFindings).not.toContain('unsourced');
+  });
+
   it('emits a provenance header and a body that parses as a test file', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'blastproof-render-'));
     try {
@@ -137,6 +186,51 @@ function baseGenerateOptions(
   };
 }
 
+describe('findUnsourcedEmails (an-account-identifier-is-a-placeholder-too)', () => {
+  const LOGIN_PAGE = '- heading "Sign in"\n- textbox "Email"\n- textbox "Password"\n- button "Sign in"';
+
+  it("reports #100's observed case: an address the login page does not show", () => {
+    const steps = [
+      'navigate to /login and verify the heading "Sign in" is shown',
+      'fill the Email field with test@example.com',
+      'fill the Password field with {{env.TEST_PASSWORD}}',
+    ];
+    expect(findUnsourcedEmails(steps, LOGIN_PAGE)).toEqual([{ step: 1, address: 'test@example.com' }]);
+  });
+
+  it('does not report an address read off the page', () => {
+    const page = '- contentinfo:\n  - link "support@acme.test"';
+    expect(findUnsourcedEmails(['verify the footer shows support@acme.test'], page)).toEqual([]);
+  });
+
+  it('compares case-insensitively, since the page and the model need not agree on case', () => {
+    const page = '- link "Support@Acme.test"';
+    expect(findUnsourcedEmails(['verify the footer shows support@acme.test'], page)).toEqual([]);
+  });
+
+  it('does not report a placeholder, or a step with no address', () => {
+    const steps = ['fill the Email field with {{env.TEST_EMAIL}}', 'click "Sign in"'];
+    expect(findUnsourcedEmails(steps, LOGIN_PAGE)).toEqual([]);
+  });
+
+  it('reports every address in every step, with the step it came from', () => {
+    const steps = ['open the invite form', 'invite a@example.com and b@example.org as editors'];
+    expect(findUnsourcedEmails(steps, LOGIN_PAGE)).toEqual([
+      { step: 1, address: 'a@example.com' },
+      { step: 1, address: 'b@example.org' },
+    ]);
+  });
+
+  it('reports an address that is also a masked secret, since the page shows only ***', () => {
+    // The snapshot is compared after masking: a step carrying the literal
+    // should have used the placeholder the value is registered under.
+    const masked = '- paragraph "Signed in as ***"';
+    expect(findUnsourcedEmails(['verify it says Signed in as qa@acme.test'], masked)).toEqual([
+      { step: 0, address: 'qa@acme.test' },
+    ]);
+  });
+});
+
 describe('generateForRoute', () => {
   it('loads the route, snapshots it and sets routes to exactly that route', async () => {
     const captured: { input?: { route?: string; snapshot?: string; changedFiles?: string[] } } = {};
@@ -158,6 +252,46 @@ describe('generateForRoute', () => {
     expect(captured.input?.changedFiles).toEqual(['src/cart/discount.ts']);
     // Coverage is assigned by code, never by the model (design D6).
     expect(draft.routes).toEqual(['/cart']);
+  });
+
+  it('attaches the unsourced emails, checked against the same masked snapshot the model saw', async () => {
+    const { page } = fakePage();
+    const draft = await generateForRoute(
+      page,
+      baseGenerateOptions({
+        route: '/login',
+        brain: stubBrain({
+          ...DRAFT,
+          steps: ['fill the Email field with test@example.com', 'verify the page shows support@acme.test'],
+        }),
+        snapshot: async () => '- textbox "Email"\n- link "support@acme.test"',
+      }),
+    );
+
+    expect(draft.unsourcedEmails).toEqual([{ step: 0, address: 'test@example.com' }]);
+  });
+
+  it('refuses a draft whose password step carries an unquoted literal', async () => {
+    const { page } = fakePage();
+    await expect(
+      generateForRoute(
+        page,
+        baseGenerateOptions({
+          route: '/login',
+          brain: stubBrain({
+            ...DRAFT,
+            steps: ['Fill the Email textbox with {{env.TEST_EMAIL}}', 'Fill the Password textbox with demo123'],
+          }),
+        }),
+      ),
+    ).rejects.toThrow(/Fill the Password textbox with demo123/);
+  });
+
+  it('attaches none for a clean draft', async () => {
+    const { page } = fakePage();
+    const draft = await generateForRoute(page, baseGenerateOptions({ route: '/cart', brain: stubBrain() }));
+
+    expect(draft.unsourcedEmails).toEqual([]);
   });
 
   it('uses the configured browser.timeout_ms for the route load, not a fixed value (browser-patience)', async () => {
@@ -317,6 +451,14 @@ describe('plannerSystemPrompt teaches the rule the docs teach', () => {
 
   it('asks a step that enters a value to write the value', () => {
     expect(prompt).toMatch(/A step that enters a value writes the value/);
+  });
+
+  it('names the property an identifier shares, not a closed list of credentials (#100)', () => {
+    expect(prompt).toMatch(/any value that identifies an account or a person/);
+    expect(prompt).toMatch(/an email address, a username, an account or customer number/);
+    expect(prompt).toContain('{{env.TEST_EMAIL}}');
+    // The old closed list is what let an email address through.
+    expect(prompt).not.toMatch(/Never write a real or invented password, token or key/);
   });
 
   it('does not tell the model one action OR check, which contradicts the above', () => {

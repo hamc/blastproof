@@ -107,6 +107,7 @@ beforeEach(async () => {
   generateForRouteMock.mockImplementation(async (_p: unknown, options: { route: string }) => ({
     ...DRAFT,
     routes: [options.route],
+    unsourcedEmails: [],
   }));
   process.env.BLASTPROOF_TEST_KEY = 'test-key';
 
