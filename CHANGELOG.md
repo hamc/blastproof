@@ -3,6 +3,45 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.21.0] — 2026-09-27
+
+### Fixed
+
+- **A step verifying one secret no longer passes against a page showing another.** Every
+  registered `{{env.*}}` value was redacted to the same `***`, and the judge sees the step
+  through the mask as well as the page. So a step that verified text equal to a secret was
+  judged as `"***"` against `"***"`, whatever the page showed. Measured against the demo app,
+  with two secrets registered, a step expecting `SAVE99` on a page showing `HUNTER2` passed
+  three times out of three. A redaction now names its variable, `[redacted NAME]`, and
+  nothing derived from the value — no length, prefix or hash. The same secret always gets the
+  same label, whichever form of it matched, and two secrets get two. Rerun unchanged, the
+  true assertion still passes and the false one fails every time, the judge citing two
+  different redacted values. This also resolves the opposite complaint: a value put in
+  `{{env.*}}` for portability rather than secrecy is now asserted on by identity instead of
+  being unverifiable. A `fill` or `select` whose value contains a label is refused, because
+  the label is on the masked page the model read and would otherwise be typed into a real
+  field. **Output change:** logs, JUnit and the HTML report show `[redacted NAME]` where they
+  showed `***`; anything matching `***` in those files needs to match `[redacted ` instead.
+- **`plan` writes an account identifier as a placeholder, and reports an invented email.** The
+  planner was told never to write a real or invented "password, token or key". An email
+  address is none of the three, so a login draft used `{{env.TEST_PASSWORD}}` for the password
+  and a literal address for the account, and looked right to whoever reviewed it. The rule now
+  names the property — any value that identifies an account or a person — with the email,
+  username and account number as examples rather than as the list. Measured against the demo
+  app's login page, the old prompt used a placeholder in 0 of 5 drafts, copying the page's own
+  "Demo credentials" hint every time, and the new one in 4 of 5. `plan` also warns when a draft
+  writes an email address the page it was drafted from does not show; the draft is still
+  written, since a literal address is a wrong test rather than a leak. An address the page
+  displays is not reported, which means a page printing its own credentials hides a copied
+  one; the skill's authoring reference says so.
+- **A literal password in a draft is refused whether or not it is quoted.** The planner's
+  secret check fired only on a quoted value, and a model does not quote: the six drafts above
+  that wrote `Fill the Password textbox with demo123` were all accepted. A step naming a
+  credential now counts as carrying a value when it is quoted or when it enters a named value,
+  by the same definition `run`'s authoring check already uses. A credential word used as the
+  name of a field that is not a secret ("set the token expiry to 30 days") is now refused too;
+  the error names the step.
+
 ## [0.20.0] — 2026-09-20
 
 ### Fixed
