@@ -7,9 +7,19 @@ Generated steps that require a credential, or any value that identifies an accou
 
 The instruction to the model SHALL state this as a property of the value rather than as a list of credential types, so that a value the list does not name is still covered.
 
+A generated step that names a credential and carries no placeholder SHALL be refused when it contains a quoted literal **or when it enters a value**, as `run`'s authoring check defines entering one: a leading value verb followed by a value it names. Quoting SHALL NOT be what separates a refused secret from an accepted one.
+
 #### Scenario: Login step uses a placeholder
 - **WHEN** a generated draft includes a password entry step
 - **THEN** the step references `{{env.VAR_NAME}}` rather than an inline value
+
+#### Scenario: An unquoted literal password is refused
+- **WHEN** a generated step reads "fill the Password textbox with demo123"
+- **THEN** generation fails for that route with an error naming the step, exactly as for a quoted literal
+
+#### Scenario: Naming a credential field without entering a value is not refused
+- **WHEN** a generated step reads "verify the password field is visible"
+- **THEN** the draft is accepted
 
 #### Scenario: The account being signed in as is a placeholder too
 - **WHEN** a generated draft includes a step entering the email address or username to sign in with
