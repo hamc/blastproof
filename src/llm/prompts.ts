@@ -21,7 +21,7 @@ Rules:
 - An action reported as "blocked" is the exception to that rule: it means another element is on top of your target, not that you picked the wrong target. Re-targeting cannot fix it. Whatever is covering the page is in the snapshot — a dialog, a cookie banner, an onboarding overlay — so dismiss that first, with its own close or accept control, or by pressing Escape with no target, and then act on your original target again. Overlays can be stacked: clearing one may reveal another, and that is progress, not failure.
 - Never invent a value. A value you type must come from the step, from the page, or from an {{env.*}} placeholder. This one is enforced, not merely asked: a fill or select whose value is in none of those is refused and not performed. If a step needs a value it does not give you, that is a failing step, not a gap for you to fill in.
 - A record of the actions you already performed in this step may be shown to you. It is the ground truth about what happened, even when the page no longer shows it: a form that submitted successfully and came back empty looks exactly like one you never submitted. Do not redo work that record says you already did.
-- \`***\` in a snapshot is a redacted secret — a password, token or key deliberately withheld from you. Seeing it is expected and is not a problem. A field showing \`***\` after you filled it from an {{env.VAR}} placeholder means the fill worked; treat that as success and move on. Never retry a fill because its value is redacted, and never report failure because a value was withheld.
+- \`[redacted NAME]\` in a snapshot is the value of {{env.NAME}}, deliberately withheld from you. Seeing one is expected and is not a problem. The same label is the same value; two different labels are two different values. A field showing \`[redacted NAME]\` after you filled it from {{env.NAME}} means the fill worked; treat that as success and move on. Never retry a fill because its value is redacted, never report failure because a value was withheld, and never type a label as a value: to enter an environment value, use the {{env.*}} placeholder the step names.
 - Keep reasoning to one short sentence.`;
 }
 
@@ -79,10 +79,12 @@ export function agentUserPrompt(input: AgentIterationInput): string {
 export function assertSystemPrompt(): string {
   // The mask itself is unchanged and remains the boundary — every referenced
   // secret is still redacted from every prompt input (agent-containment). What
-  // is added here is context: without it the judge read `***` as an
+  // is added here is context: without it the judge read a redaction as an
   // unverifiable field and failed expectations that were in fact satisfied,
   // costing two to three model calls per credential field on every
-  // authenticated test (#26).
+  // authenticated test (#26). Redactions are labelled by variable (design
+  // label-a-redaction-with-its-variable): with one shared `***`, a step
+  // verifying one secret was judged against any other, and passed when false.
   //
   // design (judge-the-step, D1/D2): the judge used to be asked only whether an
   // expectation was true of a snapshot — a question with no memory of what was
@@ -115,7 +117,7 @@ The record is not evidence that the step's outcome holds. An action reported as 
 
 Be strict about what the step asks, not about withholding a pass you can plainly see is earned. Answer with pass=true/false and a one-sentence reason.
 
-\`***\` marks a secret deliberately withheld from you — a password, token or key. Seeing it is expected. A field holding \`***\` is filled, not empty, so do not fail a step on the grounds that a value was redacted. This applies only to the redaction itself: everything else the step asks for must still be visibly satisfied by the snapshot, and a step you genuinely cannot check against what you were shown still fails.`;
+\`[redacted NAME]\` marks the value of {{env.NAME}}, deliberately withheld from you. Seeing one is expected. A field holding a label is filled, not empty, so do not fail a step on the grounds that a value was redacted. The same label is the same value, and two different labels are two different values: a step expecting \`[redacted A]\` is not satisfied by a page showing \`[redacted B]\`. This applies only to the redaction itself: everything else the step asks for must still be visibly satisfied by the snapshot, and a step you genuinely cannot check against what you were shown still fails.`;
 }
 
 export function assertUserPrompt(

@@ -57,6 +57,25 @@ describe('prompts', () => {
     expect(prompt).toContain('Overlays can be stacked');
   });
 
+  // label-a-redaction-with-its-variable, D4: with one shared `***` the judge
+  // compared "***" with "***" and passed a false assertion 3 of 3 times.
+  it('both prompts describe a labelled redaction, and neither describes ***', () => {
+    for (const prompt of [agentSystemPrompt(), assertSystemPrompt()]) {
+      expect(prompt).toContain('[redacted NAME]');
+      expect(prompt).toContain('{{env.NAME}}');
+      expect(prompt).toMatch(/two different labels are two different values/i);
+      expect(prompt).not.toContain('`***`');
+    }
+  });
+
+  it('the judge is told a different label does not satisfy an expected one', () => {
+    expect(assertSystemPrompt()).toContain('is not satisfied by a page showing `[redacted B]`');
+  });
+
+  it('the executor is told never to type a label', () => {
+    expect(agentSystemPrompt()).toContain('never type a label as a value');
+  });
+
   it('user prompt includes step, snapshot, last result and budget', () => {
     const prompt = agentUserPrompt({
       step: 'add item to cart',

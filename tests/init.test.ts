@@ -54,6 +54,8 @@ describe('initProject', () => {
     // And it models the practice we document rather than hardcoding credentials.
     expect(template).toContain('{{env.TEST_PASSWORD}}');
     expect(template).not.toContain('demo123');
+    // Says what a reader of the output will actually see (label-a-redaction-with-its-variable).
+    expect(template).toContain('masked as [redacted NAME]');
   });
 
   it('points the scaffolded config at the canonical repository', async () => {

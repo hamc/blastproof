@@ -50,18 +50,41 @@ export function secretPattern(secret: string): RegExp {
   return new RegExp(escapeRegExp(secret).replace(/\s+/g, '\\s+'), 'gi');
 }
 
-/** A registered value and the pattern that finds it, built once per value. */
+/**
+ * What a redaction starts with. Exported for the one place that must recognise a
+ * label rather than produce one: a typed value containing it is refused, since it
+ * can only have been copied from masked text (design
+ * label-a-redaction-with-its-variable, D3).
+ */
+export const REDACTION_PREFIX = '[redacted';
+
+/**
+ * The text that replaces a registered value (design D1). It names the variable
+ * and nothing derived from the value — no length, no prefix, no hash — so two
+ * redactions of one secret read the same and two different secrets read
+ * differently. That is all masking preserves, and it is what a judgment needs:
+ * with one shared `***`, a step verifying one secret passed against any other.
+ */
+export function redactionLabel(name?: string): string {
+  return name === undefined ? `${REDACTION_PREFIX}]` : `${REDACTION_PREFIX} ${name}]`;
+}
+
+/** A registered value, the pattern that finds it and its label, built once per value. */
 interface CompiledSecret {
   value: string;
   pattern: RegExp;
+  label: string;
 }
 
 /** Longest first so a short secret never masks inside a longer one (e.g. `demo` inside `demo123`). */
-function compile(secrets: Iterable<string>): CompiledSecret[] {
+function compile(secrets: Iterable<string>, names?: ReadonlyMap<string, string>): CompiledSecret[] {
   return [...secrets]
     .filter(Boolean)
     .sort((a, b) => b.length - a.length)
-    .map((value) => ({ value, pattern: secretPattern(value) }));
+    // The label comes from the registered value, never from the text matched
+    // (design D2): an uppercased echo and a percent-encoded URL are the same
+    // secret, and must read as the same secret.
+    .map((value) => ({ value, pattern: secretPattern(value), label: redactionLabel(names?.get(value)) }));
 }
 
 function maskCompiled(
@@ -70,19 +93,20 @@ function maskCompiled(
   onNearMiss?: (secret: string, found: string) => void,
 ): string {
   let masked = text;
-  for (const { value, pattern } of compiled) {
+  for (const { value, pattern, label } of compiled) {
     pattern.lastIndex = 0; // `g` regexes are stateful, and these are reused
     masked = masked.replace(pattern, (found) => {
       if (found !== value) onNearMiss?.(value, found);
-      return '***';
+      return label;
     });
   }
   return masked;
 }
 
 /**
- * Replaces every occurrence of each secret value with `***`. Empty values are
- * ignored. `onNearMiss` is called with the registered value whenever the text
+ * Replaces every occurrence of each secret value with an unnamed label,
+ * `[redacted]`, having no names to give it — `SecretsMask` is what labels by
+ * variable. Empty values are ignored. `onNearMiss` is called with the registered value whenever the text
  * replaced was not byte-identical to it — i.e. exactly where a literal,
  * case-sensitive comparison would have left the secret in the text.
  */
@@ -137,7 +161,7 @@ export class SecretsMask {
   }
 
   mask(text: string): string {
-    this.compiled ??= compile(this.secrets);
+    this.compiled ??= compile(this.secrets, this.names);
     return maskCompiled(text, this.compiled, (secret) => {
       const name = this.names.get(secret);
       if (name !== undefined) this.nearMissed.add(name);

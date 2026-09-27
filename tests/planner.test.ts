@@ -221,10 +221,10 @@ describe('findUnsourcedEmails (an-account-identifier-is-a-placeholder-too)', () 
     ]);
   });
 
-  it('reports an address that is also a masked secret, since the page shows only ***', () => {
+  it('reports an address that is also a masked secret, since the page shows only its label', () => {
     // The snapshot is compared after masking: a step carrying the literal
     // should have used the placeholder the value is registered under.
-    const masked = '- paragraph "Signed in as ***"';
+    const masked = '- paragraph "Signed in as [redacted TEST_EMAIL]"';
     expect(findUnsourcedEmails(['verify it says Signed in as qa@acme.test'], masked)).toEqual([
       { step: 0, address: 'qa@acme.test' },
     ]);

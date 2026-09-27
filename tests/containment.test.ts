@@ -299,7 +299,7 @@ describe('secret boundary', () => {
     expect(judgedSteps).toHaveLength(2); // primary + re-observation, both masked
     expect(judgedSteps[0]).not.toContain('step-secret-4242');
     expect(judgedSteps[1]).not.toContain('step-secret-4242');
-    expect(judgedSteps[0]).toContain('***');
+    expect(judgedSteps[0]).toContain('[redacted CONTAINMENT_STEP_SECRET]');
     delete process.env.CONTAINMENT_STEP_SECRET;
   });
 });

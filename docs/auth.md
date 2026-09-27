@@ -114,9 +114,11 @@ crossing into a prompt, in both literal and percent-encoded form. Redaction
 matches known values, so treat it as a strong default rather than a guarantee
 against a deliberately hostile application.
 
-In output, a redacted value appears as `***`. The judge is told explicitly that
-a field holding `***` is filled rather than empty, so a redacted password does
-not cause a step to fail for being unverifiable.
+In output, a redacted value appears as a label naming its variable,
+`[redacted TEST_PASSWORD]`. The judge is told explicitly that a field holding a
+label is filled rather than empty, so a redacted password does not cause a step
+to fail for being unverifiable, and that two different labels are two different
+values, so a step expecting one secret is not satisfied by a page showing another.
 
 ## Running a test signed out
 

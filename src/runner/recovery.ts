@@ -1,5 +1,5 @@
 import type { AgentAction } from '../llm/schemas.js';
-import { referencedEnvVars } from './env.js';
+import { REDACTION_PREFIX, referencedEnvVars } from './env.js';
 
 /**
  * The actions that commit — the point at which a side effect lands in the
@@ -217,7 +217,36 @@ export class StepRecovery {
    * and #28 has now produced one on three applications.
    */
   refusalFor(action: AgentAction): string | undefined {
-    return this.repeatedCommitRefusal(action) ?? this.unsourcedValueRefusal(action);
+    return (
+      this.repeatedCommitRefusal(action) ??
+      this.redactionLabelRefusal(action) ??
+      this.unsourcedValueRefusal(action)
+    );
+  }
+
+  /**
+   * Refuses a typed value containing a redaction label (design
+   * label-a-redaction-with-its-variable, D3).
+   *
+   * Checked before the source check because the source check would admit it:
+   * `observe` credits the model with the masked snapshot, and the label is in
+   * the masked snapshot. It is the mask's own writing, not the application's, so
+   * typing it would put the words "[redacted TEST_EMAIL]" into a real field.
+   * A prefix match rather than the exact label, because a model that copies
+   * part of one, or rebuilds one around another name, is equally wrong.
+   *
+   * Translating it back into its placeholder was the alternative, and it is the
+   * exemption #66 closed: the model would be choosing a secret to type.
+   */
+  private redactionLabelRefusal(action: AgentAction): string | undefined {
+    if (!SOURCED_VALUE_ACTIONS.has(action.action)) return undefined;
+    if (!action.value?.includes(REDACTION_PREFIX)) return undefined;
+    return (
+      `refused: the value was NOT typed, because it contains a redaction label. ${REDACTION_PREFIX} NAME] stands ` +
+      `for the value of {{env.NAME}}, withheld from you; it is never a value the application should receive. ` +
+      `To enter an environment value, use the {{env.*}} placeholder this step names. If the step names none, ` +
+      `use a value it supplies, or fail the step.`
+    );
   }
 
   private repeatedCommitRefusal(action: AgentAction): string | undefined {

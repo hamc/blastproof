@@ -113,7 +113,7 @@ const SAMPLE_LOGIN_TEMPLATE = `# TEMPLATE — rename to login.yaml once these st
 #
 # Credentials come from the environment. Export them before running:
 #   export TEST_EMAIL=... TEST_PASSWORD=...
-# Substituted values are masked as *** everywhere and never reach the model.
+# Substituted values are masked as [redacted NAME] everywhere and never reach the model.
 summary: Login with valid credentials succeeds
 priority: P0
 tags: [smoke, auth]
