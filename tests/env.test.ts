@@ -44,13 +44,13 @@ describe('referencedEnvVars', () => {
 });
 
 describe('maskSecrets', () => {
-  it('replaces every occurrence of each secret with ***', () => {
-    expect(maskSecrets('pw=s3cret, again s3cret', ['s3cret'])).toBe('pw=***, again ***');
+  it('replaces every occurrence of each secret with an unnamed label, having no names', () => {
+    expect(maskSecrets('pw=s3cret, again s3cret', ['s3cret'])).toBe('pw=[redacted], again [redacted]');
   });
 
   it('ignores empty secrets and escapes regex characters', () => {
     expect(maskSecrets('nothing here', [''])).toBe('nothing here');
-    expect(maskSecrets('value a.b+c here', ['a.b+c'])).toBe('value *** here');
+    expect(maskSecrets('value a.b+c here', ['a.b+c'])).toBe('value [redacted] here');
   });
 });
 
@@ -59,7 +59,39 @@ describe('SecretsMask', () => {
     const env = { USER: 'demo', PASSWORD: 'demo123' };
     const mask = new SecretsMask();
     mask.registerFrom('log in as {{env.USER}} with {{env.PASSWORD}}', env);
-    expect(mask.mask('user demo typed demo123')).toBe('user *** typed ***');
+    expect(mask.mask('user demo typed demo123')).toBe('user [redacted USER] typed [redacted PASSWORD]');
+  });
+
+  // label-a-redaction-with-its-variable: with one shared `***`, a step verifying
+  // one secret passed against a page showing another (3 of 3, measured).
+  it('keeps two secrets distinguishable after masking, and neither value', () => {
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.PROBE_SECRET}} {{env.OTHER_SECRET}}', {
+      PROBE_SECRET: 'HUNTER2',
+      OTHER_SECRET: 'SAVE99',
+    });
+    const step = mask.mask('verify the status message reads Unknown promo code "SAVE99".');
+    const page = mask.mask('- status: Unknown promo code "HUNTER2".');
+
+    expect(step).toBe('verify the status message reads Unknown promo code "[redacted OTHER_SECRET]".');
+    expect(page).toBe('- status: Unknown promo code "[redacted PROBE_SECRET]".');
+    for (const text of [step, page]) {
+      expect(text).not.toMatch(/hunter2|save99/i);
+    }
+  });
+
+  it('gives one secret one label, whichever form of it was matched', () => {
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.P}}', { P: 'open sesame' });
+    expect(mask.mask('open sesame | OPEN   SESAME | open%20sesame')).toBe(
+      '[redacted P] | [redacted P] | [redacted P]',
+    );
+  });
+
+  it('labels a value two variables share by the first name registered', () => {
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.FIRST}} {{env.SECOND}}', { FIRST: 'same', SECOND: 'same' });
+    expect(mask.mask('same')).toBe('[redacted FIRST]');
   });
 
   it('throws when a referenced variable is unset', () => {
@@ -73,7 +105,7 @@ describe('SecretsMask', () => {
       const mask = new SecretsMask();
       mask.registerFrom('fill the promo code with {{env.PROBE_SECRET}}', { PROBE_SECRET: supplied });
       expect(mask.mask('- status: Unknown promo code "HUNTER2".')).toBe(
-        '- status: Unknown promo code "***".',
+        '- status: Unknown promo code "[redacted PROBE_SECRET]".',
       );
     }
   });
@@ -81,7 +113,7 @@ describe('SecretsMask', () => {
   it('redacts a value the page re-spaced', () => {
     const mask = new SecretsMask();
     mask.registerFrom('{{env.PHRASE}}', { PHRASE: 'open sesame' });
-    expect(mask.mask('said: open   sesame')).toBe('said: ***');
+    expect(mask.mask('said: open   sesame')).toBe('said: [redacted PHRASE]');
   });
 
   it('does not redact a form it cannot recognise, and claims nothing', () => {
@@ -97,13 +129,14 @@ describe('SecretsMask', () => {
     const mask = new SecretsMask();
     mask.registerFrom('{{env.SHORT}} and {{env.LONG}}', { SHORT: 'demo', LONG: 'demo123' });
 
-    expect(mask.mask('demo123 then demo')).toBe('*** then ***');
+    expect(mask.mask('demo123 then demo')).toBe('[redacted LONG] then [redacted SHORT]');
     // The widened comparison must not let the short one eat the long one's prefix.
-    expect(mask.mask('DEMO123')).toBe('***');
+    expect(mask.mask('DEMO123')).toBe('[redacted LONG]');
 
     const spaced = new SecretsMask();
     spaced.registerFrom('{{env.PHRASE}}', { PHRASE: 'open sesame' });
-    expect(spaced.mask('q=open%20sesame')).toBe('q=***');
+    // The percent-encoded form is the same secret, so it reads as the same one.
+    expect(spaced.mask('q=open%20sesame')).toBe('q=[redacted PHRASE]');
   });
 
   it('records a near-miss by variable name, and only when the literal missed it', () => {
@@ -128,24 +161,25 @@ describe('SecretsMask', () => {
     mask.registerFrom('{{env.S}}', { S: 'hunter2' });
     const text = 'code HUNTER2 and again hunter2';
 
-    expect(mask.mask(text)).toBe('code *** and again ***');
-    expect(mask.mask(text)).toBe('code *** and again ***');
-    expect(mask.mask(text)).toBe('code *** and again ***');
+    const expected = 'code [redacted S] and again [redacted S]';
+    expect(mask.mask(text)).toBe(expected);
+    expect(mask.mask(text)).toBe(expected);
+    expect(mask.mask(text)).toBe(expected);
   });
 
   it('masks a value registered after the first mask() call', () => {
     const mask = new SecretsMask();
     mask.registerFrom('{{env.A}}', { A: 'first' });
-    expect(mask.mask('first second')).toBe('*** second');
+    expect(mask.mask('first second')).toBe('[redacted A] second');
 
     mask.registerFrom('{{env.B}}', { B: 'second' });
-    expect(mask.mask('first second')).toBe('*** ***');
+    expect(mask.mask('first second')).toBe('[redacted A] [redacted B]');
   });
 
   it('masks a value registered without a name, recording no near-miss for it', () => {
     const mask = new SecretsMask();
     mask.add('hunter2');
-    expect(mask.mask('code HUNTER2')).toBe('code ***');
+    expect(mask.mask('code HUNTER2')).toBe('code [redacted]');
     expect(mask.nearMissedVariables()).toEqual([]);
   });
 

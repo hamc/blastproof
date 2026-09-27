@@ -120,7 +120,10 @@ describe('runCommand: a secret the page reformatted (say-when-the-page-reformatt
 
     expect(code).toBe(EXIT_OK);
     // Both tests saw the page; both were redacted.
-    expect(seen).toEqual(['Unknown promo code "***".', 'Unknown promo code "***".']);
+    expect(seen).toEqual([
+      'Unknown promo code "[redacted PROBE_SECRET]".',
+      'Unknown promo code "[redacted PROBE_SECRET]".',
+    ]);
     // One line, though two tests near-missed the same variable.
     const lines = errors.filter((line) => line.includes('PROBE_SECRET'));
     expect(lines).toHaveLength(1);
@@ -136,7 +139,7 @@ describe('runCommand: a secret the page reformatted (say-when-the-page-reformatt
 
     await runCommand({ cwd: dir, tags: [] });
 
-    expect(seen).toEqual(['Unknown promo code "***".']);
+    expect(seen).toEqual(['Unknown promo code "[redacted PROBE_SECRET]".']);
     expect(errOut()).not.toContain('PROBE_SECRET');
     expect(errOut()).not.toContain('different form');
   });

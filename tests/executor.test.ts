@@ -15,6 +15,7 @@ import {
   type PageLike,
 } from '../src/runner/actions.js';
 import { BudgetExhaustedError } from '../src/runner/budget.js';
+import { SecretsMask } from '../src/runner/env.js';
 import { executeTest, SETTLE_TIMEOUT_MS, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
 import { describeAction, StepRecovery } from '../src/runner/recovery.js';
 import { captureSnapshot, trimSnapshot } from '../src/runner/snapshot.js';
@@ -972,7 +973,7 @@ describe('judge-the-step: the step is the question (task group 2/3, #31)', () =>
       // required the form's own controls to still be present.
       const snapshot = [
         '- main:',
-        '  - heading "Good afternoon, ***"',
+        '  - heading "Good afternoon, [redacted TEST_USER]"',
         '  - list "Projects":',
         '    - listitem: Inbox',
       ].join('\n');
@@ -1495,6 +1496,39 @@ describe('executeTest refuses a placeholder the step never named (#66)', () => {
   });
 });
 
+describe('executeTest refuses a redaction label as a value (label-a-redaction-with-its-variable)', () => {
+  it('refuses a label copied from the masked page, and nothing reaches the page', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Email');
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.TEST_EMAIL}}', { TEST_EMAIL: 'qa@acme.test' });
+    const fillEmail = (value: string): AgentAction => ({
+      action: 'fill',
+      target: { role: 'textbox', name: 'Email' },
+      value,
+      reasoning: 'copy the address the page shows',
+    });
+    const copied = '[redacted TEST_EMAIL]';
+    const brain = scriptedBrain([fillEmail(copied), fillEmail(copied), fillEmail(copied)], []);
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the Email field with the address shown above it'] }),
+      baseOptions(brain, {
+        snapshot: async () => '- text "Signed in as qa@acme.test"\n- textbox "Email"',
+        mask: (t) => mask.mask(t),
+        onEvent: (e) => events.push(e),
+      }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(page.calls.filter((c) => c.startsWith('fill'))).toHaveLength(0);
+    const refusals = events.filter((e) => e.type === 'action' && e.result.includes('contains a redaction label'));
+    expect(refusals).toHaveLength(3);
+  });
+});
+
 describe('executeTest refuses an invented value', () => {
   const fill = (value: string): AgentAction => ({
     action: 'fill',
@@ -1656,6 +1690,29 @@ describe('StepRecovery unsourced values', () => {
     const recovery = new StepRecovery('fill the field with {{env.TOKEN}}');
     expect(recovery.refusalFor(fill('{{env.TOKEN}}'))).toBeUndefined();
     expect(recovery.refusalFor(fill('{{env.token}}'))).toBeDefined();
+  });
+
+  // label-a-redaction-with-its-variable, D3: the label is on the masked page the
+  // model read, so the source check alone would admit it and type the mask's
+  // own words into a real field.
+  it('refuses a redaction label, whole, partial or embedded', () => {
+    const recovery = new StepRecovery('fill the Email field with the address shown');
+    recovery.observe('- text "Signed in as [redacted TEST_EMAIL]"\n- textbox "Email"');
+    for (const value of ['[redacted TEST_EMAIL]', '[redacted', 'me+[redacted TEST_EMAIL]@x.test']) {
+      const refusal = recovery.refusalFor(fill(value));
+      expect(refusal).toContain('refused:');
+      expect(refusal).toContain('contains a redaction label');
+      // Says how to do it right, not only what was wrong.
+      expect(refusal).toContain('use the {{env.*}} placeholder this step names');
+    }
+  });
+
+  it('still admits the placeholder the step names, and leaves press alone', () => {
+    const recovery = new StepRecovery('fill the Email field with {{env.TEST_EMAIL}}');
+    recovery.observe('- textbox "Email": [redacted TEST_EMAIL]');
+    expect(recovery.refusalFor(fill('{{env.TEST_EMAIL}}'))).toBeUndefined();
+    const press: AgentAction = { action: 'press', value: 'Enter', reasoning: 'submit' };
+    expect(recovery.refusalFor(press)).toBeUndefined();
   });
 
   it('judges an embedded or spaced placeholder by the same rule as a bare one', () => {
