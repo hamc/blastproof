@@ -57,11 +57,26 @@ const CONNECTOR_SYMBOL = /["'`:=]|\{\{env\./i;
  */
 const PHRASAL_IN = new RegExp(`^(\\s*(?:${VALUE_VERBS.join('|')}))\\s+in\\b`, 'i');
 
+/** True when the step names a value: a connector word or symbol, `fill in`'s `in` aside. */
+function namesAValue(step: string): boolean {
+  const withoutPhrasal = step.replace(PHRASAL_IN, '$1');
+  return CONNECTOR_WORD.test(withoutPhrasal) || CONNECTOR_SYMBOL.test(withoutPhrasal);
+}
+
 /** True when the step enters a value but supplies no source for it. */
 function namesNoValue(step: string): boolean {
-  if (!LEADING_VALUE_VERB.test(step)) return false;
-  const withoutPhrasal = step.replace(PHRASAL_IN, '$1');
-  return !CONNECTOR_WORD.test(withoutPhrasal) && !CONNECTOR_SYMBOL.test(withoutPhrasal);
+  return LEADING_VALUE_VERB.test(step) && !namesAValue(step);
+}
+
+/**
+ * True when the step enters a value and names it — the positive half of the
+ * same predicate. Exported so the planner's secret check asks "does this step
+ * type something" by this definition rather than by a second one of its own
+ * (design an-account-identifier-is-a-placeholder-too, D5). English only, as
+ * everything here is.
+ */
+export function entersNamedValue(step: string): boolean {
+  return LEADING_VALUE_VERB.test(step) && namesAValue(step);
 }
 
 /**

@@ -4,6 +4,7 @@ import { stringify } from 'yaml';
 import type { PlannerBrain } from './llm/brain.js';
 import type { GeneratedTest } from './llm/schemas.js';
 import type { PageLike } from './runner/actions.js';
+import { entersNamedValue } from './runner/authoring.js';
 import { defaultSnapshot } from './runner/executor.js';
 import { TESTS_RELATIVE_DIR, type TestFile } from './runner/testfile.js';
 import { fsReason } from './report/errors.js';
@@ -53,18 +54,29 @@ export interface GenerateOptions {
   timeoutMs: number;
 }
 
-/** Steps naming a credential alongside a quoted literal, with no `{{env.*}}` placeholder. */
+/**
+ * Steps naming a credential and supplying a value for it — quoted, or entered as
+ * `run`'s authoring check defines entering one — with no `{{env.*}}` placeholder.
+ */
 const CREDENTIAL_WORD = /\b(password|passwd|api[ _-]?key|token|secret|credential)\b/i;
 const QUOTED_LITERAL = /["'][^"']+["']/;
 
 /**
  * Returns the steps that appear to carry a literal secret instead of a placeholder
  * (design D8). A credential word alone is not enough — "check the password field is
- * visible" is fine; it is the quoted literal without `{{env.*}}` that is a violation.
+ * visible" is fine; it is a value without `{{env.*}}` that is a violation.
+ *
+ * Quoting used to be the only value signal, and a model does not quote: measured
+ * drafts read `Fill the Password textbox with demo123` and passed (design
+ * an-account-identifier-is-a-placeholder-too, D5). A step that enters a named
+ * value is now a value signal too, by the authoring check's own definition.
  */
 export function findSecretLiterals(steps: string[]): string[] {
   return steps.filter(
-    (step) => CREDENTIAL_WORD.test(step) && QUOTED_LITERAL.test(step) && !step.includes('{{env.'),
+    (step) =>
+      CREDENTIAL_WORD.test(step) &&
+      !step.includes('{{env.') &&
+      (QUOTED_LITERAL.test(step) || entersNamedValue(step)),
   );
 }
 

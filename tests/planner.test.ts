@@ -71,12 +71,49 @@ describe('findSecretLiterals', () => {
     expect(findSecretLiterals(['fill the password field with "hunter2"'])).toHaveLength(1);
   });
 
+  it('still flags a quoted secret in a step that enters nothing', () => {
+    // Only the quoted branch sees this one: `verify` is not a value verb, so
+    // widening the check to entry steps must not have narrowed it elsewhere.
+    expect(findSecretLiterals(['verify the API token "sk-live-123" is shown on the page'])).toHaveLength(1);
+  });
+
   it('accepts placeholders and credential mentions without literals', () => {
     expect(
       findSecretLiterals([
         'fill the password field with {{env.TEST_PASSWORD}}',
         'check the password field is visible',
         'click the "Sign in" button',
+      ]),
+    ).toEqual([]);
+  });
+
+  // an-account-identifier-is-a-placeholder-too, D5: quoting was the only value
+  // signal, and six measured drafts wrote this, unquoted, and passed.
+  it('refuses an unquoted literal a step enters into a credential field', () => {
+    expect(findSecretLiterals(['Fill the Password textbox with demo123'])).toEqual([
+      'Fill the Password textbox with demo123',
+    ]);
+    expect(findSecretLiterals(['enter the API key as sk-live-123'])).toHaveLength(1);
+    expect(findSecretLiterals(['type the token into the Token field: abc'])).toHaveLength(1);
+  });
+
+  it('does not refuse an entry step that names no value, or names a placeholder', () => {
+    expect(
+      findSecretLiterals([
+        'type the password', // no value: the authoring check's case, not this one
+        'fill in the password field', // phrasal `fill in`, still no value
+        'Fill the Password textbox with {{env.TEST_PASSWORD}}',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('does not refuse a credential word in a step that enters nothing', () => {
+    // `set` must not match `setup`, and a verb used as a noun is a check.
+    expect(
+      findSecretLiterals([
+        'verify the password field is visible',
+        'setup the password reset flow and verify the form loads',
+        'verify the token expiry shows 30 days',
       ]),
     ).toEqual([]);
   });
@@ -232,6 +269,22 @@ describe('generateForRoute', () => {
     );
 
     expect(draft.unsourcedEmails).toEqual([{ step: 0, address: 'test@example.com' }]);
+  });
+
+  it('refuses a draft whose password step carries an unquoted literal', async () => {
+    const { page } = fakePage();
+    await expect(
+      generateForRoute(
+        page,
+        baseGenerateOptions({
+          route: '/login',
+          brain: stubBrain({
+            ...DRAFT,
+            steps: ['Fill the Email textbox with {{env.TEST_EMAIL}}', 'Fill the Password textbox with demo123'],
+          }),
+        }),
+      ),
+    ).rejects.toThrow(/Fill the Password textbox with demo123/);
   });
 
   it('attaches none for a clean draft', async () => {
