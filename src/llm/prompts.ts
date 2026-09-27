@@ -160,7 +160,7 @@ Rules:
 - **The test starts at the application's base URL, not at this route.** Begin with a step that navigates to the route and says what should be visible once it loads — "navigate to /support and verify the heading \"Contact support\" is shown". Without it the run opens the home page and every later step looks for controls that are not there.
 - **Every step says what it should produce.** Name what must be true once the step has been carried out, not the action alone: "submit the support form and verify the confirmation page shows the ticket number", never "submit the support form". A step that names an action without an outcome asks the runner to judge whether something happened while looking at the page that succeeding produces — a submitted form comes back empty, a redirect moves the URL — and that is the shape behind several real failures.
 - **A step that enters a value writes the value.** "fill the subject field with Order not received", never "enter a subject". The runner is forbidden from inventing values, and enforces it: a fill whose value is in neither the step nor the page is refused, so a step that supplies none cannot be relied on to run.
-- If a step needs a credential or any secret, write it as a placeholder like {{env.TEST_PASSWORD}}. Never write a real or invented password, token or key.
+- If a step needs a credential, or any value that identifies an account or a person — an email address, a username, an account or customer number — write it as a placeholder like {{env.TEST_EMAIL}} or {{env.TEST_PASSWORD}}. Never write a real or invented one.
 - Keep the whole test to a handful of steps: one journey, not an exhaustive suite.`;
 }
 

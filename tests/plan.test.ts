@@ -103,9 +103,11 @@ beforeEach(async () => {
   // these tests never depend on real network or a running app (spec preflight).
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({}));
   createPlannerMock.mockReturnValue({ planTest: vi.fn() });
+  // The shape generateForRoute returns: the draft plus what plan should warn about.
   generateForRouteMock.mockImplementation(async (_page: unknown, options: { route: string }) => ({
     ...DRAFT,
     routes: [options.route],
+    unsourcedEmails: [],
   }));
   process.env.BLASTPROOF_TEST_KEY = 'test-key';
 
@@ -337,7 +339,7 @@ describe('planCommand budget (spec run-budget: test planning counts against the 
     await writeProject();
     generateForRouteMock.mockImplementation(async (_page: unknown, options: { route: string }) => {
       if (options.route === '/cart') throw new BudgetExhaustedError('calls', 1, 1);
-      return { ...DRAFT, routes: [options.route] };
+      return { ...DRAFT, routes: [options.route], unsourcedEmails: [] };
     });
 
     const code = await planCommand({ cwd: dir, routes: ['/cart', '/settings'] });
@@ -353,12 +355,62 @@ describe('planCommand budget (spec run-budget: test planning counts against the 
   });
 });
 
+describe('planCommand: an invented email address (an-account-identifier-is-a-placeholder-too)', () => {
+  const INVENTED = [{ step: 1, address: 'test@example.com' }];
+
+  function draftWithInventedEmail(): void {
+    generateForRouteMock.mockImplementation(async (_page: unknown, options: { route: string }) => ({
+      ...DRAFT,
+      routes: [options.route],
+      unsourcedEmails: INVENTED,
+    }));
+  }
+
+  function expectWarning(): void {
+    const lines = errors.filter((line) => line.includes('writes an email address the page does not show'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('step 2');
+    expect(lines[0]).toContain('test@example.com');
+    expect(lines[0]).toContain('{{env.TEST_EMAIL}}');
+  }
+
+  it('warns in preview, and still previews the draft with the same exit code', async () => {
+    await writeProject();
+    draftWithInventedEmail();
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart'] });
+
+    expect(code).toBe(EXIT_OK);
+    expectWarning();
+    expect(out()).toContain('summary: Applying a discount updates the cart total');
+  });
+
+  it('warns with --write, and still writes the draft with the same exit code', async () => {
+    await writeProject();
+    draftWithInventedEmail();
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart'], write: true });
+
+    expect(code).toBe(EXIT_OK);
+    expectWarning();
+    expect(await readdir(testsDir())).toEqual(['cart.yaml']);
+  });
+
+  it('prints nothing extra for a clean draft', async () => {
+    await writeProject();
+
+    await planCommand({ cwd: dir, routes: ['/cart'] });
+
+    expect(errOut()).not.toContain('email address');
+  });
+});
+
 describe('planCommand failure isolation', () => {
   it('keeps generating after a route fails and exits 1', async () => {
     await writeProject();
     generateForRouteMock.mockImplementation(async (_page: unknown, options: { route: string }) => {
       if (options.route === '/settings') throw new PlannerError('Cannot load /settings: timeout');
-      return { ...DRAFT, routes: [options.route] };
+      return { ...DRAFT, routes: [options.route], unsourcedEmails: [] };
     });
 
     const code = await planCommand({ cwd: dir, routes: ['/settings', '/cart'], write: true });
