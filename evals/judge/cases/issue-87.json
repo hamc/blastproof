@@ -1,0 +1,50 @@
+{
+  "incident": "#87",
+  "summary": "With one shared ***, a step verifying one secret passed against a page showing another.",
+  "cases": [
+    {
+      "id": "87-true-assertion",
+      "verdict": "PASS",
+      "step": "verify the status message reads Unknown promo code \"[redacted PROBE_SECRET]\".",
+      "expectation": "The status message reads Unknown promo code \"[redacted PROBE_SECRET]\".",
+      "snapshot": "url: http://localhost:4195/cart.html\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n- main:\n  - heading \"Your cart\" [level=1]\n  - region \"Cart items\":\n    - list\n    - paragraph: Your cart is empty.\n  - region \"Promo code\":\n    - text: Promo code\n    - textbox \"Promo code\":\n      - /placeholder: SAVE20\n      - text: [redacted PROBE_SECRET]\n    - button \"Apply promo code\"\n    - status: Unknown promo code \"[redacted PROBE_SECRET]\".\n  - region \"Totals\":\n    - term: Subtotal\n    - definition: $0.00\n    - term: Total\n    - definition: $0.00\n  - button \"Checkout\"",
+      "history": [
+        {
+          "action": "fill textbox \"Promo code\" [{{env.PROBE_SECRET}}]",
+          "result": "ok: filled role=textbox name=\"Promo code\""
+        },
+        {
+          "action": "click button \"Apply promo code\"",
+          "result": "ok: clicked role=button name=\"Apply promo code\""
+        }
+      ],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "snapshot captured from examples/demo-app with the executor's defaultSnapshot and SecretsMask (PROBE_SECRET and OTHER_SECRET registered), 2026-10-03; step and expectation from openspec/changes/archive/2026-09-27-label-a-redaction-with-its-variable/proposal.md, Why"
+      },
+      "note": "The literal value in the step reaches the judge masked, so both sides carry the same label."
+    },
+    {
+      "id": "87-false-assertion",
+      "verdict": "FAIL",
+      "step": "verify the status message reads Unknown promo code \"[redacted OTHER_SECRET]\".",
+      "expectation": "The status region shows Unknown promo code \"[redacted OTHER_SECRET]\".",
+      "snapshot": "url: http://localhost:4195/cart.html\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n- main:\n  - heading \"Your cart\" [level=1]\n  - region \"Cart items\":\n    - list\n    - paragraph: Your cart is empty.\n  - region \"Promo code\":\n    - text: Promo code\n    - textbox \"Promo code\":\n      - /placeholder: SAVE20\n      - text: [redacted PROBE_SECRET]\n    - button \"Apply promo code\"\n    - status: Unknown promo code \"[redacted PROBE_SECRET]\".\n  - region \"Totals\":\n    - term: Subtotal\n    - definition: $0.00\n    - term: Total\n    - definition: $0.00\n  - button \"Checkout\"",
+      "history": [
+        {
+          "action": "fill textbox \"Promo code\" [{{env.PROBE_SECRET}}]",
+          "result": "ok: filled role=textbox name=\"Promo code\""
+        },
+        {
+          "action": "click button \"Apply promo code\"",
+          "result": "ok: clicked role=button name=\"Apply promo code\""
+        }
+      ],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "snapshot captured from examples/demo-app with the executor's defaultSnapshot and SecretsMask (PROBE_SECRET and OTHER_SECRET registered), 2026-10-03; step and expectation from openspec/changes/archive/2026-09-27-label-a-redaction-with-its-variable/proposal.md, Why"
+      },
+      "note": "The step names OTHER_SECRET; the page shows PROBE_SECRET."
+    }
+  ]
+}

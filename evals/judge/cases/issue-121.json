@@ -1,0 +1,117 @@
+{
+  "incident": "#121",
+  "summary": "A step whose means was no longer needed is failed although its outcome holds.",
+  "cases": [
+    {
+      "id": "121-already-dismissed-run1-0",
+      "verdict": "PASS",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "A cookie consent dialog with a 'Me want it!' button should be visible on the page.",
+      "snapshot": "url: http://localhost:3000/#/login\n- button \"Open Sidenav\"\n- button \"Back to homepage\":\n  - img \"OWASP Juice Shop\"\n  - text: OWASP Juice Shop\n- button \"Open search\"\n- textbox\n- button \"Close search\"\n- button \"Show/hide account menu\": Account\n- button \"Show the shopping cart\": Your Basket 0\n- button \"Language selection menu\": EN\n- heading \"Login\" [level=1]\n- text: Email\n- textbox \"Text field for the login email\":\n  - /placeholder: \"\"\n- text: Password\n- textbox \"Text field for the login password\":\n  - /placeholder: \"\"\n- button \"Button to display the password\"\n- link \"Forgot your password?\":\n  - /url: \"#/forgot-password\"\n- button \"Login\" [disabled]: Log in\n- checkbox \"Checkbox to stay logged in or not logged in\"\n- text: Remember me or\n- button \"Login with Google\": Log in with Google\n- link \"Not yet a customer?\":\n  - /url: \"#/register\"",
+      "history": [],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run1"
+      },
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
+      "knownFailing": "#121"
+    },
+    {
+      "id": "121-already-dismissed-run1-1",
+      "verdict": "PASS",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "A cookie consent dialog should be visible with a 'Me want it!' button",
+      "snapshot": "url: http://localhost:3000/#/\n- dialog:\n  - heading \"Welcome to OWASP Juice Shop!\" [level=1]\n  - paragraph:\n    - text: Being a web application with a vast number of intended security vulnerabilities, the\n    - strong: OWASP Juice Shop\n    - text: \"is supposed to be the opposite of a best practice or template application for web developers: It is an awareness, training, demonstration and exercise tool for security risks in modern web applications. The\"\n    - strong: OWASP Juice Shop\n    - text: is an open-source project hosted by the non-profit\n    - link \"Open Worldwide Application Security Project (OWASP)\":\n      - /url: https://owasp.org\n    - text: and is developed and maintained by volunteers. Check out the link below for more information and documentation on the project.\n  - heading \"https://owasp-juice.shop\" [level=1]:\n    - link \"https://owasp-juice.shop\":\n      - /url: https://owasp-juice.shop\n  - button \"Help getting started\"\n  - button \"Close Welcome Banner\": Dismiss",
+      "history": [
+        {
+          "action": "navigate [http://localhost:3000]",
+          "result": "ok: navigated to http://localhost:3000/, which redirected to http://localhost:3000/#/"
+        }
+      ],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run1"
+      },
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
+      "knownFailing": "#121"
+    },
+    {
+      "id": "121-already-dismissed-run1-2",
+      "verdict": "PASS",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "A cookie consent dialog with 'Me want it!' button should be present, or the page should show no consent dialog if already dismissed.",
+      "snapshot": "url: http://localhost:3000/#/\n- dialog:\n  - heading \"Welcome to OWASP Juice Shop!\" [level=1]\n  - paragraph:\n    - text: Being a web application with a vast number of intended security vulnerabilities, the\n    - strong: OWASP Juice Shop\n    - text: \"is supposed to be the opposite of a best practice or template application for web developers: It is an awareness, training, demonstration and exercise tool for security risks in modern web applications. The\"\n    - strong: OWASP Juice Shop\n    - text: is an open-source project hosted by the non-profit\n    - link \"Open Worldwide Application Security Project (OWASP)\":\n      - /url: https://owasp.org\n    - text: and is developed and maintained by volunteers. Check out the link below for more information and documentation on the project.\n  - heading \"https://owasp-juice.shop\" [level=1]:\n    - link \"https://owasp-juice.shop\":\n      - /url: https://owasp-juice.shop\n  - button \"Help getting started\"\n  - button \"Close Welcome Banner\": Dismiss",
+      "history": [
+        {
+          "action": "navigate [http://localhost:3000]",
+          "result": "ok: navigated to http://localhost:3000/, which redirected to http://localhost:3000/#/"
+        }
+      ],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run1"
+      },
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
+      "knownFailing": "#121"
+    },
+    {
+      "id": "121-already-dismissed-run2-4",
+      "verdict": "PASS",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "The page should display either a cookie consent dialog with 'Me want it!' button or a welcome dialog with 'Close Welcome Banner' button",
+      "snapshot": "url: http://localhost:3000/#/\n- dialog:\n  - heading \"Welcome to OWASP Juice Shop!\" [level=1]\n  - paragraph:\n    - text: Being a web application with a vast number of intended security vulnerabilities, the\n    - strong: OWASP Juice Shop\n    - text: \"is supposed to be the opposite of a best practice or template application for web developers: It is an awareness, training, demonstration and exercise tool for security risks in modern web applications. The\"\n    - strong: OWASP Juice Shop\n    - text: is an open-source project hosted by the non-profit\n    - link \"Open Worldwide Application Security Project (OWASP)\":\n      - /url: https://owasp.org\n    - text: and is developed and maintained by volunteers. Check out the link below for more information and documentation on the project.\n  - heading \"https://owasp-juice.shop\" [level=1]:\n    - link \"https://owasp-juice.shop\":\n      - /url: https://owasp-juice.shop\n  - button \"Help getting started\"\n  - button \"Close Welcome Banner\": Dismiss",
+      "history": [
+        {
+          "action": "navigate [http://localhost:3000]",
+          "result": "ok: navigated to http://localhost:3000/, which redirected to http://localhost:3000/#/"
+        }
+      ],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run2"
+      },
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
+      "knownFailing": "#121"
+    },
+    {
+      "id": "121-already-dismissed-run3-6",
+      "verdict": "PASS",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "The cookie consent dialog with 'Me want it!' button should be visible on the page",
+      "snapshot": "url: http://localhost:3000/#/login\n- button \"Open Sidenav\"\n- button \"Back to homepage\":\n  - img \"OWASP Juice Shop\"\n  - text: OWASP Juice Shop\n- button \"Open search\"\n- textbox\n- button \"Close search\"\n- button \"Show/hide account menu\": Account\n- button \"Show the shopping cart\": Your Basket 0\n- button \"Language selection menu\": EN\n- heading \"Login\" [level=1]\n- text: Email\n- textbox \"Text field for the login email\":\n  - /placeholder: \"\"\n- text: Password\n- textbox \"Text field for the login password\":\n  - /placeholder: \"\"\n- button \"Button to display the password\"\n- link \"Forgot your password?\":\n  - /url: \"#/forgot-password\"\n- button \"Login\" [disabled]: Log in\n- checkbox \"Checkbox to stay logged in or not logged in\"\n- text: Remember me or\n- button \"Login with Google\": Log in with Google\n- link \"Not yet a customer?\":\n  - /url: \"#/register\"",
+      "history": [],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run3"
+      },
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
+      "knownFailing": "#121"
+    },
+    {
+      "id": "121-already-dismissed-run3-7",
+      "verdict": "PASS",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "The consent dialog with 'Me want it!' button is not visible on the current page",
+      "snapshot": "url: http://localhost:3000/#/login\n- button \"Open Sidenav\"\n- button \"Back to homepage\":\n  - img \"OWASP Juice Shop\"\n  - text: OWASP Juice Shop\n- button \"Open search\"\n- textbox\n- button \"Close search\"\n- button \"Show/hide account menu\": Account\n- button \"Show the shopping cart\": Your Basket 0\n- button \"Language selection menu\": EN\n- heading \"Login\" [level=1]\n- text: Email\n- textbox \"Text field for the login email\":\n  - /placeholder: \"\"\n- text: Password\n- textbox \"Text field for the login password\":\n  - /placeholder: \"\"\n- button \"Button to display the password\"\n- link \"Forgot your password?\":\n  - /url: \"#/forgot-password\"\n- button \"Login\" [disabled]: Log in\n- checkbox \"Checkbox to stay logged in or not logged in\"\n- text: Remember me or\n- button \"Login with Google\": Log in with Google\n- link \"Not yet a customer?\":\n  - /url: \"#/register\"",
+      "history": [],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run3"
+      },
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds."
+    },
+    {
+      "id": "121-already-dismissed-run4-11",
+      "verdict": "PASS",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "No cookie consent dialog or 'Me want it!' button should be visible on the page",
+      "snapshot": "url: http://localhost:3000/#/login\n- button \"Open Sidenav\"\n- button \"Back to homepage\":\n  - img \"OWASP Juice Shop\"\n  - text: OWASP Juice Shop\n- button \"Open search\"\n- textbox\n- button \"Close search\"\n- button \"Show/hide account menu\": Account\n- button \"Show the shopping cart\": Your Basket 0\n- button \"Language selection menu\": EN\n- heading \"Login\" [level=1]\n- text: Email\n- textbox \"Text field for the login email\":\n  - /placeholder: \"\"\n- text: Password\n- textbox \"Text field for the login password\":\n  - /placeholder: \"\"\n- button \"Button to display the password\"\n- link \"Forgot your password?\":\n  - /url: \"#/forgot-password\"\n- button \"Login\" [disabled]: Log in\n- checkbox \"Checkbox to stay logged in or not logged in\"\n- text: Remember me or\n- button \"Login with Google\": Log in with Google\n- link \"Not yet a customer?\":\n  - /url: \"#/register\"",
+      "history": [],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run4"
+      },
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds."
+    }
+  ]
+}

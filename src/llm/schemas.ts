@@ -108,9 +108,30 @@ export type AgentActionName = AgentAction['action'];
 export type AgentTarget = NonNullable<AgentAction['target']>;
 
 /** Judgment returned by the LLM when evaluating an `assert` expectation against a snapshot. */
+/**
+ * The judgment asks about the STEP (design ask-the-judge-about-the-step, D2).
+ * `pass` used to be described as "Whether the snapshot satisfies the
+ * expectation" — the question `judge-the-step` retired from the prompt and left
+ * here, where the model reads it too. On inputs captured from a live run the
+ * judge passed an executor's weakened claim ("redirected away from login, *or*
+ * the Account menu is accessible") on its easy half, every time.
+ *
+ * `reason` comes first because structured output is generated in schema order:
+ * the judge states what the step requires before deciding, instead of deciding
+ * and then justifying. Order and descriptions were measured together; neither
+ * half closed the measured wrong PASSes alone.
+ */
 export const assertJudgmentSchema = z.object({
-  pass: z.boolean().describe('Whether the snapshot satisfies the expectation.'),
-  reason: z.string().describe('One sentence explaining the judgment.'),
+  reason: z
+    .string()
+    .describe('One sentence: what the STEP requires to be true now, and whether the snapshot shows it.'),
+  pass: z
+    .boolean()
+    .describe(
+      "Whether the snapshot shows the STEP's own outcome. The expectation is only a claim offered in support; " +
+        'it never replaces the step. False if any part of the outcome the step asks for is not shown, or cannot ' +
+        'be assessed from this snapshot.',
+    ),
 });
 
 export type AssertJudgment = z.infer<typeof assertJudgmentSchema>;

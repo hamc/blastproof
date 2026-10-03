@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   maskSecrets,
   MissingEnvError,
+  labelledVariables,
+  placeholdersAsLabels,
   referencedEnvVars,
   SecretsMask,
   substituteEnv,
@@ -51,6 +53,31 @@ describe('maskSecrets', () => {
   it('ignores empty secrets and escapes regex characters', () => {
     expect(maskSecrets('nothing here', [''])).toBe('nothing here');
     expect(maskSecrets('value a.b+c here', ['a.b+c'])).toBe('value [redacted] here');
+  });
+});
+
+describe('placeholdersAsLabels (ask-the-judge-about-the-step)', () => {
+  it('rewrites each placeholder as the label its value is masked to', () => {
+    expect(placeholdersAsLabels('verify it shows {{env.TEST_OTHER}}')).toBe('verify it shows [redacted TEST_OTHER]');
+    expect(placeholdersAsLabels('{{env.A}} and {{ env.B }}')).toBe('[redacted A] and [redacted B]');
+  });
+
+  it('leaves text without a placeholder untouched, including values', () => {
+    const text = 'Unknown promo code "HUNTER2". [redacted PROBE_SECRET] {env.NOT} {{ENV.X}}';
+    expect(placeholdersAsLabels(text)).toBe(text);
+  });
+
+  it('produces exactly the label the mask writes for that variable', () => {
+    const mask = new SecretsMask();
+    mask.registerFrom('{{env.TEST_EMAIL}}', { TEST_EMAIL: 'qa@acme.test' });
+    expect(placeholdersAsLabels('{{env.TEST_EMAIL}}')).toBe(mask.mask('qa@acme.test'));
+  });
+});
+
+describe('labelledVariables', () => {
+  it('returns each named label once, and ignores unnamed ones', () => {
+    expect(labelledVariables('[redacted A] [redacted B] [redacted A] [redacted]')).toEqual(['A', 'B']);
+    expect(labelledVariables('no labels, {{env.A}}')).toEqual([]);
   });
 });
 

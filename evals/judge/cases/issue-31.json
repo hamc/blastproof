@@ -1,0 +1,37 @@
+{
+  "incident": "#31",
+  "summary": "A wrong PASS by substitution, and a wrong PASS by an uncommitted value, confirmed against Vikunja's database.",
+  "cases": [
+    {
+      "id": "31-substitution",
+      "verdict": "FAIL",
+      "step": "verify the project \"Q3 Launch\" is visible in the projects list",
+      "expectation": "the 'Show Archived' checkbox is visible",
+      "snapshot": "url: http://localhost:3456/projects\n- heading \"Projects\" [level=1]\n- checkbox \"Show Archived\"\n- list \"Projects\":\n  - listitem: Inbox",
+      "history": [],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "reconstructed from openspec/changes/archive/2026-07-30-judge-the-step/design.md, Context, items 1 and 2 (Vikunja, #31); project name and snapshot shape are illustrative, the claims are quoted"
+      },
+      "note": "The checkbox is visible; the project is not in the list."
+    },
+    {
+      "id": "31-uncommitted-dialog",
+      "verdict": "FAIL",
+      "step": "create a project named \"Q3 Launch\" and verify it is visible in the projects list",
+      "expectation": "The project title \"Q3 Launch\" is visible on the page",
+      "snapshot": "url: http://localhost:3456/projects\n- heading \"Projects\" [level=1]\n- dialog \"New project\":\n  - textbox \"Title\": Q3 Launch\n  - button \"Create\"\n- list \"Projects\":\n  - listitem: Inbox",
+      "history": [
+        {
+          "action": "fill textbox \"Title\" [Q3 Launch]",
+          "result": "ok: filled role=textbox name=\"Title\""
+        }
+      ],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "reconstructed from openspec/changes/archive/2026-07-30-judge-the-step/design.md, Context, items 1 and 2 (Vikunja, #31); project name and snapshot shape are illustrative, the claims are quoted"
+      },
+      "note": "The title is in an unsubmitted dialog's textbox, not in the list."
+    }
+  ]
+}

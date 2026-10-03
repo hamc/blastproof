@@ -1,0 +1,24 @@
+{
+  "incident": "#35",
+  "summary": "A navigation the server redirected to another host was judged as never having happened.",
+  "cases": [
+    {
+      "id": "35-cross-host-redirect",
+      "verdict": "PASS",
+      "step": "navigate to /away",
+      "expectation": "The page has loaded after navigating to /away",
+      "snapshot": "url: http://localhost:4194/\n- heading \"Partner portal\"",
+      "history": [
+        {
+          "action": "navigate [/away]",
+          "result": "ok: navigated to http://localhost:4193/away, which redirected to http://localhost:4194/"
+        }
+      ],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "reconstructed from openspec/changes/archive/2026-07-31-judge-sees-the-record/design.md, Context (#35); snapshot verbatim, record in the format src/runner/actions.ts writes"
+      },
+      "note": "The record shows the navigation happened and where the server sent it."
+    }
+  ]
+}
