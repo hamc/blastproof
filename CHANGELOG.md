@@ -3,6 +3,39 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.22.0] — 2026-10-03
+
+### Fixed
+
+- **A step naming one secret no longer passes on a page showing another.** 0.21.0 labelled
+  redactions by variable, and that fixed a step that wrote the secret's value literally. It
+  did not fix the usual way of writing one: a step saying `{{env.TEST_OTHER}}` reached the
+  judge as written, while the page read `[redacted TEST_EMAIL]`, and the judge accepted the
+  executor's claim that the two were the same. Against a live OWASP Juice Shop, a test built to
+  fail passed in 3 of 5 runs. The judge now reads every placeholder in the step, the claim and
+  the record as its label, and its schema asks whether the snapshot shows the **step's**
+  outcome, with the reason before the verdict; it used to ask whether the page satisfied the
+  executor's claim, which let a weakened claim ("redirected away from login, *or* the menu is
+  accessible") pass on its easy half. Those two halved the rate without closing it, because the
+  model still called two different labels a match. So after the model's verdict, a PASS on a
+  step naming `[redacted X]` is failed when X is on neither the page nor in the step's own
+  actions while another label is on the page. That is a comparison of tokens the mask writes,
+  not a reading of prose, and it only ever turns a PASS into a FAIL. Six live runs on the final
+  code: the test built to fail never passed. A step asserting that a secret is *absent* is still
+  judged normally on a page showing no other secret; on a page showing a different one it now
+  fails, with a reason naming both labels.
+
+### Added
+
+- **A regression corpus for the judge,** `evals/judge/`, replayed with `npm run eval:judge`. It
+  holds 33 judge inputs with known verdicts from every incident that produced a wrong one (#31,
+  #35, #87, #112, #120, #121), captured from real runs where possible and marked as
+  reconstructed where not. Every earlier verdict fix was verified only against its own
+  reproduction, so nothing would have shown a later one reopening it. It needs a model key, so
+  it is not part of CI; contributors changing the judge run it before opening a pull request.
+  Cases the current judge still gets wrong (#121's) are marked as known failures, and the run
+  says when one starts passing.
+
 ## [0.21.0] — 2026-09-27
 
 ### Fixed
