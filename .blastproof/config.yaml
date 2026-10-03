@@ -76,6 +76,10 @@ ignore:
   - "LICENSE"
   - "openspec/**"
   - "tests/**"
+  # The judge regression corpus and its runner (ask-the-judge-about-the-step).
+  # Development tooling, replayed with a model key outside CI; nothing in it
+  # is served by or imported into the demo app.
+  - "evals/**"
   - ".blastproof/**"
   # The blastproof.dev landing page, deployed to Cloudflare Pages from this
   # directory. It is its own deployable and shares nothing with the demo app
