@@ -45,9 +45,19 @@ node dist/cli.js run
 
 Agentic runs cost tokens and need a real provider. Everything else — unit tests, `--dry-run`, `run --impacted --dry-run` — works with no key at all, so most contributions never need one.
 
+### Changing how a verdict is reached
+
+`evals/judge/` is a corpus of judge inputs with known correct verdicts, one file per incident that ever produced a wrong one: a wrong PASS, a wrong FAIL, or a verdict that flipped. If your change touches the judge (`judge()`, its prompt or its schema), replay it before opening the pull request:
+
+```bash
+npm run eval:judge    # uses .blastproof/config.yaml and the usual BLASTPROOF_* overrides
+```
+
+It needs a model and a key, so it is not part of CI. It exits 1 when a case that used to be judged right is judged wrong in any sample. A case marked `knownFailing` is a bug still open; when your change fixes one, the run tells you, and you remove the marker in the same pull request. If you are fixing a new verdict incident, add its case to the corpus as part of the fix, captured from the run if you can, and say where it came from either way.
+
 ## Before you open a pull request
 
-- `npm run build`, `npm test` and `npm run typecheck` all pass
+- `npm run build`, `npm test` and `npm run typecheck` all pass, and `npm run eval:judge` too if the change touches how a verdict is reached
 - New behaviour is covered by tests; changed behaviour has its spec updated
 - The change artifacts and the code agree — if implementation diverged from the design, update the design first and say why
 - No secrets, and no `.env` (gitignored). `{{env.*}}` values are masked in all output; keep it that way

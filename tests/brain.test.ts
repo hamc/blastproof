@@ -15,6 +15,7 @@ import {
   plannerUserPrompt,
 } from '../src/llm/prompts.js';
 import { BudgetExhaustedError, RunBudget } from '../src/runner/budget.js';
+import { assertJudgmentSchema } from '../src/llm/schemas.js';
 
 const fakeModel = { provider: 'test', modelId: 'test-model' } as unknown as LanguageModel;
 
@@ -185,6 +186,122 @@ describe('createBrain', () => {
     expect(captured.options?.prompt).toContain('verify the cart total is $80');
     expect(captured.options?.prompt).toContain('total shows $80');
     expect(captured.options?.prompt).toContain('- text "$80"');
+  });
+});
+
+describe('the judge reads one vocabulary (ask-the-judge-about-the-step)', () => {
+  // Captured from a live run: the step named {{env.TEST_OTHER}}, the menu read
+  // [redacted TEST_EMAIL], and the judge accepted the executor's claim that the
+  // two were the same, 0 times right in 10.
+  it('reads every placeholder in the step, the claim and the record as its label', async () => {
+    const captured: { options?: { prompt?: string } } = {};
+    const brain = createBrain(fakeModel, stubGenerate({ reason: 'r', pass: false }, captured), new RunBudget());
+    await brain.judge(
+      'open the Account menu and verify it shows the account email {{env.TEST_OTHER}}',
+      'The menu shows [redacted TEST_EMAIL], which is the account email {{ env.TEST_OTHER }}',
+      '- menuitem "Go to user profile": [redacted TEST_EMAIL]',
+      [{ action: 'fill textbox "Email" [{{env.TEST_EMAIL}}]', result: 'ok: filled {{env.TEST_EMAIL}}' }],
+    );
+    const prompt = captured.options?.prompt ?? '';
+    expect(prompt).not.toContain('{{');
+    expect(prompt).toContain('verify it shows the account email [redacted TEST_OTHER]');
+    expect(prompt).toContain('which is the account email [redacted TEST_OTHER]');
+    expect(prompt).toContain('fill textbox "Email" [[redacted TEST_EMAIL]]');
+  });
+
+  it('leaves the executor reading the placeholder it must type', async () => {
+    const captured: { options?: { prompt?: string } } = {};
+    const brain = createBrain(
+      fakeModel,
+      stubGenerate({ action: 'done', reasoning: 'ok' }, captured),
+      new RunBudget(),
+    );
+    await brain.nextAction({
+      step: 'fill the Password field with {{env.TEST_PASSWORD}}',
+      snapshot: '- textbox "Password"',
+      retriesLeft: 3,
+      iterationsLeft: 10,
+    });
+    expect(captured.options?.prompt).toContain('{{env.TEST_PASSWORD}}');
+    expect(captured.options?.prompt).not.toContain('[redacted TEST_PASSWORD]');
+  });
+});
+
+describe('a step naming one secret cannot pass on a page showing only another (ask-the-judge-about-the-step, D5)', () => {
+  // Live, after D1 and D2: the judge read [redacted TEST_OTHER] in the step and
+  // [redacted TEST_EMAIL] on the page, and still wrote "which matches", in 2 of 4
+  // runs that reached the menu.
+  const STEP = 'open the Account menu and verify it shows the account email {{env.TEST_OTHER}}';
+  const judgeWith = (pass: boolean) =>
+    createBrain(fakeModel, stubGenerate({ reason: 'model reason', pass }), new RunBudget());
+
+  it('fails a PASS when the named secret is absent and another is shown', async () => {
+    const judgment = await judgeWith(true).judge(
+      STEP,
+      'The menu shows [redacted TEST_EMAIL], which matches [redacted TEST_OTHER]',
+      '- menuitem "Go to user profile": [redacted TEST_EMAIL]',
+      [{ action: 'click button "Show/hide account menu"', result: 'ok: clicked' }],
+    );
+    expect(judgment.pass).toBe(false);
+    expect(judgment.reason).toContain('[redacted TEST_OTHER]');
+    expect(judgment.reason).toContain('[redacted TEST_EMAIL]');
+    // The model's own words stay visible to whoever reads the report.
+    expect(judgment.reason).toContain('model reason');
+  });
+
+  it('keeps a PASS when the named secret is on the page', async () => {
+    const judgment = await judgeWith(true).judge(
+      STEP,
+      'shown',
+      '- menuitem "Go to user profile": [redacted TEST_OTHER]\n- text: [redacted TEST_EMAIL]',
+    );
+    expect(judgment.pass).toBe(true);
+  });
+
+  it('keeps a PASS when the named secret is in the step\'s own record', async () => {
+    // Typed into a form the step then submitted: the form is gone, the record remains.
+    const judgment = await judgeWith(true).judge(
+      'sign in with {{env.TEST_EMAIL}} and verify the dashboard is shown',
+      'the dashboard is shown',
+      '- heading "Dashboard"\n- text: [redacted TEST_PASSWORD]',
+      [{ action: 'fill textbox "Email" [{{env.TEST_EMAIL}}]', result: 'ok: filled role=textbox name="Email"' }],
+    );
+    expect(judgment.pass).toBe(true);
+  });
+
+  it('keeps the verdict on a page with no other secret, so an absence can be asserted', async () => {
+    const judgment = await judgeWith(true).judge(
+      'verify {{env.TEST_PASSWORD}} is not shown anywhere on the page',
+      'no password on the page',
+      '- heading "Profile"',
+    );
+    expect(judgment.pass).toBe(true);
+  });
+
+  it('never turns a FAIL into a PASS', async () => {
+    const judgment = await judgeWith(false).judge(STEP, 'shown', '- menuitem: [redacted TEST_OTHER]');
+    expect(judgment.pass).toBe(false);
+    expect(judgment.reason).toBe('model reason');
+  });
+});
+
+describe('the judgment schema asks about the step (ask-the-judge-about-the-step, D2)', () => {
+  // Captured from a live run: the executor offered "redirected away from the
+  // login page, or an Account menu should be accessible", and the judge, asked
+  // whether the snapshot satisfied *that*, passed it on the easy half.
+  const shape = assertJudgmentSchema.shape;
+
+  it('produces the reason before the verdict', () => {
+    // Structured output is generated in schema order.
+    expect(Object.keys(shape)).toEqual(['reason', 'pass']);
+  });
+
+  it("describes the verdict as the STEP's outcome, not the expectation", () => {
+    const pass = shape.pass.description ?? '';
+    expect(pass).toContain("STEP's own outcome");
+    expect(pass).toContain('never replaces the step');
+    expect(pass).toMatch(/cannot be assessed/);
+    expect(pass).not.toMatch(/satisfies the expectation/);
   });
 });
 

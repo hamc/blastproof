@@ -11,6 +11,7 @@ import {
   type PlannerInput,
 } from './prompts.js';
 import type { RunBudget } from '../runner/budget.js';
+import { labelledVariables, placeholdersAsLabels, redactionLabel } from '../runner/env.js';
 import type { StepHistoryEntry } from '../runner/recovery.js';
 import {
   agentActionSchema,
@@ -166,11 +167,25 @@ export function createBrain(
       // This narrows the distribution; it does not make a run reproducible.
       // Provider batching, floating point, and a gateway routing two calls to
       // different providers or quantizations all survive it.
+      // One vocabulary for both sides (design ask-the-judge-about-the-step, D1):
+      // the page already carries `[redacted NAME]`, so the step, the claim and
+      // the record are read that way too. Done here rather than at the call
+      // sites, so the first judgment, the re-observation and the login check all
+      // get it.
+      const asJudged = stepHistory?.map((entry) => ({
+        action: placeholdersAsLabels(entry.action),
+        result: placeholdersAsLabels(entry.result),
+      }));
       const result = await countedGenerate(generate, budget, {
         model,
         schema: assertJudgmentSchema,
         system: assertSystemPrompt(),
-        prompt: assertUserPrompt(step, expectation, snapshot, stepHistory),
+        prompt: assertUserPrompt(
+          placeholdersAsLabels(step),
+          placeholdersAsLabels(expectation),
+          snapshot,
+          asJudged,
+        ),
         temperature: 0,
       });
       const parsed = assertJudgmentSchema.safeParse(result.object);
@@ -179,9 +194,48 @@ export function createBrain(
           `Model returned an invalid assert judgment: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
         );
       }
-      return parsed.data;
+      return secretMismatch(placeholdersAsLabels(step), snapshot, asJudged, parsed.data);
     },
   };
+}
+
+/**
+ * Fails a PASS on a step naming a secret the page does not show, when the page
+ * shows a different one (design ask-the-judge-about-the-step, D5).
+ *
+ * Measured live after the step and the page were put in one vocabulary, the
+ * judge still called `[redacted TEST_EMAIL]` a match for `[redacted TEST_OTHER]`
+ * in 2 of 4 runs. A prompt instructs and does not enforce; labels are tokens the
+ * mask writes, so comparing them is a check on our own output, not a reading of
+ * prose.
+ *
+ * The two conditions beyond "X is not on the page" keep it off correct steps:
+ * the record, because a step that typed a secret into a form it then submitted
+ * names one the page no longer shows; and another label being present, because a
+ * step asserting a secret is absent is right on a page that shows none. Only
+ * ever turns PASS into FAIL.
+ */
+function secretMismatch(
+  judgedStep: string,
+  snapshot: string,
+  judgedRecord: StepHistoryEntry[] | undefined,
+  judgment: AssertJudgment,
+): AssertJudgment {
+  if (!judgment.pass) return judgment;
+  const onPage = labelledVariables(snapshot);
+  const inRecord = labelledVariables((judgedRecord ?? []).map((e) => `${e.action}\n${e.result}`).join('\n'));
+  for (const name of labelledVariables(judgedStep)) {
+    const others = onPage.filter((other) => other !== name);
+    if (onPage.includes(name) || inRecord.includes(name) || others.length === 0) continue;
+    const shown = others.map((other) => redactionLabel(other)).join(', ');
+    return {
+      pass: false,
+      reason:
+        `The step names ${redactionLabel(name)}, which appears neither on the page nor in this step's actions, ` +
+        `while the page shows ${shown}: a different secret cannot satisfy it. (The judge had said: ${judgment.reason})`,
+    };
+  }
+  return judgment;
 }
 
 /**

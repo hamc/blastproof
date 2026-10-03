@@ -1,0 +1,19 @@
+{
+  "incident": "#112",
+  "summary": "A judge passed 'the promo code was applied' on a page that said 'Unknown promo code', citing a discount line the demo showed by mistake.",
+  "cases": [
+    {
+      "id": "112-false-discount-line",
+      "verdict": "FAIL",
+      "step": "verify the page says the promo code was applied",
+      "expectation": "The totals show a Discount (SAVE20) line, so the promo code was applied.",
+      "snapshot": "url: http://localhost:4196/cart.html\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n- main:\n  - heading \"Your cart\" [level=1]\n  - region \"Cart items\":\n    - list\n    - paragraph: Your cart is empty.\n  - region \"Promo code\":\n    - text: Promo code\n    - textbox \"Promo code\":\n      - /placeholder: SAVE20\n      - text: [redacted PROBE_SECRET]\n    - button \"Apply promo code\"\n    - status: Unknown promo code \"[redacted PROBE_SECRET]\".\n  - region \"Totals\":\n    - term: Subtotal\n    - definition: $0.00\n    - term: Discount (SAVE20)\n    - definition: \"-$0.00\"\n    - term: Total\n    - definition: $0.00\n  - button \"Checkout\"",
+      "history": [],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "snapshot captured from examples/demo-app with style.css as of 8257cc0 (before #113), executor's defaultSnapshot and SecretsMask, 2026-10-03; expectation from the judge's own reason quoted in issue #112"
+      },
+      "note": "The status says the code is unknown; the discount line was rendered regardless (#113 fixed the demo)."
+    }
+  ]
+}

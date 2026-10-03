@@ -32,6 +32,25 @@ export function referencedEnvVars(text: string): string[] {
   return [...names];
 }
 
+/**
+ * Rewrites every `{{env.NAME}}` as the label the mask gives NAME's value (design
+ * ask-the-judge-about-the-step, D1), for text the judge reads.
+ *
+ * The mask replaces values, and a placeholder is not a value: it names one. So a
+ * step saying `{{env.TEST_OTHER}}` reached the judge as written while the page
+ * read `[redacted TEST_EMAIL]`, and the judge accepted an executor's claim that
+ * the two were the same — every time, on the inputs captured from a live run.
+ * In one vocabulary the difference is on the surface.
+ *
+ * Lives beside `ENV_PLACEHOLDER` and `redactionLabel` so the definition of a
+ * placeholder and the definition of a label cannot drift apart (#66 found two
+ * regexes for "a placeholder" that already disagreed). Never applied to what the
+ * executor reads: it must type the placeholder for the value to be substituted.
+ */
+export function placeholdersAsLabels(text: string): string {
+  return text.replace(ENV_PLACEHOLDER, (_match, name: string) => redactionLabel(name));
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -67,6 +86,18 @@ export const REDACTION_PREFIX = '[redacted';
  */
 export function redactionLabel(name?: string): string {
   return name === undefined ? `${REDACTION_PREFIX}]` : `${REDACTION_PREFIX} ${name}]`;
+}
+
+const LABEL = /\[redacted ([A-Za-z_][A-Za-z0-9_]*)\]/g;
+
+/**
+ * The variable names of every redaction label in `text`, as `redactionLabel`
+ * writes them. Unnamed labels (`[redacted]`) carry no name and are not returned.
+ */
+export function labelledVariables(text: string): string[] {
+  const names = new Set<string>();
+  for (const match of text.matchAll(LABEL)) if (match[1]) names.add(match[1]);
+  return [...names];
 }
 
 /** A registered value, the pattern that finds it and its label, built once per value. */
