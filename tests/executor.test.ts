@@ -1226,6 +1226,27 @@ describe('executeTest recovery containment', () => {
     expect(result.status).toBe('failed');
   });
 
+  it("does not let #124's text hint through: the page receives one click on Add note", async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    page.visible.add('role:textbox|Note');
+    const withText: AgentAction = { action: 'click', target: { role: 'button', name: 'Add note', text: 'Add note' }, reasoning: 'again' };
+    const refill: AgentAction = { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Check the invoice', reasoning: 'refill' };
+    const brain = recordingBrain(
+      [click('Add note'), refill, withText, withText, withText],
+      [],
+    );
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['submit the add-note form with Check the invoice and verify the note appears'] }),
+      baseOptions(brain, { snapshot: async () => '- textbox "Note"\n- button "Add note"' }),
+    );
+
+    expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(1);
+    expect(result.status).toBe('failed');
+  });
+
   it('refuses a repeated commit even when no judgment has failed', async () => {
     const page = new FakePage();
     page.visible.add('role:button|Add note');
@@ -1806,6 +1827,45 @@ describe('StepRecovery commit keys', () => {
     for (const key of ['Tab', 'Escape', 'ArrowDown']) {
       expect(perform({ action: 'press', value: key, reasoning: 'move' })).toBeUndefined();
     }
+  });
+});
+
+describe('StepRecovery: a commit is identified by what resolves it (identify-a-commit-by-what-resolves-it)', () => {
+  const clickOn = (target: { role?: string; name?: string; text?: string }): AgentAction => ({
+    action: 'click',
+    target,
+    reasoning: 'r',
+  });
+  const performedThen = (first: AgentAction, next: AgentAction): string | undefined => {
+    const recovery = new StepRecovery('submit the add-note form and verify the note appears');
+    recovery.record(first, describeAction(first), 'ok');
+    return recovery.refusalFor(next);
+  };
+
+  it("refuses #124's repeat: the same button with a text hint the resolver never reads", () => {
+    const recovery = new StepRecovery('submit the add-note form and verify the note appears');
+    const first = clickOn({ role: 'button', name: 'Add note' });
+    recovery.record(first, describeAction(first), 'ok: clicked');
+    const refill: AgentAction = { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Check the invoice', reasoning: 'r' };
+    recovery.observe('- textbox "Note"\n- text: Check the invoice');
+    expect(recovery.refusalFor(refill)).toBeUndefined();
+    recovery.record(refill, describeAction(refill), 'ok: filled');
+    expect(recovery.refusalFor(clickOn({ role: 'button', name: 'Add note', text: 'Add note' }))).toContain('refused:');
+  });
+
+  it('refuses a name differing only in case or spacing, as the loose resolution matches it', () => {
+    expect(
+      performedThen(clickOn({ role: 'button', name: 'Add note' }), clickOn({ role: 'button', name: '  add   NOTE ' })),
+    ).toContain('refused:');
+  });
+
+  it('still tells apart two targets that have only text', () => {
+    expect(performedThen(clickOn({ text: 'Save' }), clickOn({ text: 'Save as draft' }))).toBeUndefined();
+  });
+
+  it('still tells apart two different names, and a different role', () => {
+    expect(performedThen(clickOn({ role: 'button', name: 'Add note' }), clickOn({ role: 'button', name: 'Delete note' }))).toBeUndefined();
+    expect(performedThen(clickOn({ role: 'button', name: 'Add note' }), clickOn({ role: 'link', name: 'Add note' }))).toBeUndefined();
   });
 });
 

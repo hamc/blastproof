@@ -90,14 +90,25 @@ export function describeAction(action: AgentAction): string {
  *
  * The value is taken **unresolved** — `{{env.TEST_PASSWORD}}` compares as
  * written, never as the secret it expands to — so the record can never retain
- * a substituted credential (design D1).
+ * a substituted credential (design D1). Its case is content, not presentation:
+ * "Check the invoice" and "check the invoice" are two different notes.
+ *
+ * The target is identified by what resolution uses to choose its element
+ * (design identify-a-commit-by-what-resolves-it, D1). `resolveTarget` tries the
+ * role and the name first and falls back to `text` only when those find
+ * nothing, matching the name loosely, without case. So `text` counts only when
+ * there is no role and no name, and the name is normalised. Identifying by the
+ * raw fields let a model that added `text="Add note"` to a button it had just
+ * clicked submit the form twice, and a duplicate note was written (#124).
  */
 function identity(action: AgentAction): string {
+  const role = action.target?.role ?? '';
+  const name = action.target?.name ?? '';
   return JSON.stringify([
     action.action,
-    action.target?.role ?? '',
-    action.target?.name ?? '',
-    action.target?.text ?? '',
+    role,
+    normalise(name),
+    role || name ? '' : (action.target?.text ?? ''),
     action.value ?? '',
   ]);
 }
