@@ -13,7 +13,7 @@ import {
 import type { AuthConfig } from '../src/config.js';
 import type { AgentBrain } from '../src/llm/brain.js';
 import type { LocatorLike, PageLike } from '../src/runner/actions.js';
-import { BudgetExhaustedError } from '../src/runner/budget.js';
+import { BudgetExhaustedError, ProviderRefusedError } from '../src/runner/budget.js';
 import { SecretsMask } from '../src/runner/env.js';
 
 const CAPTURED: StorageState = { cookies: [{ name: 'session', value: 'abc' }], origins: [] };
@@ -398,6 +398,21 @@ describe('authenticate: steps strategy', () => {
     await expect(
       authenticate(options({ steps: ['sign in'], cache: false }, brain)),
     ).rejects.toThrow(BudgetExhaustedError);
+  });
+
+  it('propagates a provider refusal as itself, not as an AuthError (#125)', async () => {
+    // Reproduced: a 402 during the login journey read "Authentication failed at
+    // step ...", and the auth recipe was blamed for an exhausted account.
+    const brain: AgentBrain = {
+      nextAction: async () => {
+        throw new ProviderRefusedError(401, 'invalid key');
+      },
+      judge: async () => ({ pass: true, reason: 'n/a' }),
+    };
+
+    await expect(
+      authenticate(options({ steps: ['sign in'], cache: false }, brain)),
+    ).rejects.toThrow(ProviderRefusedError);
   });
 
   it('keeps a substituted password out of the error message', async () => {

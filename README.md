@@ -210,7 +210,7 @@ Common flags — `blastproof <command> --help` has the full list:
 | `--write` | `plan` only — persist drafts instead of previewing |
 | `--max-llm-calls` · `--max-tokens` · `--max-duration` | [Bound what a run may spend](./docs/configuration.md#budget--bounding-what-a-run-spends) |
 
-Exit codes: **0** pass, **1** the gate failed, **2** usage or config error.
+Exit codes: **0** pass, **1** the gate failed or the run stopped (its budget, or the model provider refusing a call: `Run incomplete:`), **2** usage or config error.
 
 **Generated drafts are never executed and never affect the score.** An unreviewed model-written test in the merge path fails in two directions: a hallucinated expectation blocks a correct PR, and a credulous one waves a broken change through while looking like coverage. `plan` makes the gap visible with a draft to review; it does not make an uncovered route safe.
 

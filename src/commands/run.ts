@@ -12,7 +12,7 @@ import { printUncommitted } from '../report/uncommitted.js';
 import { computeScore, formatIncompleteLine, formatScoreLine, formatSpendLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
 import {
-  BudgetExhaustedError,
+  RunStoppedError,
   estimateMaxModelCalls,
   RunBudget,
   type BudgetSpend,
@@ -180,9 +180,10 @@ function resolveSecretsAndSteps(test: TestFile): { test: TestFile } {
 }
 
 /**
- * Records tests the run's budget or deadline stopped before they executed (design
- * D3, spec run-budget): a distinct `not-run` status, never `failed` — exhaustion
- * says nothing about the application under test.
+ * Records tests the run stopped before they executed — its budget or deadline,
+ * or a provider refusing to answer (design D3, spec run-budget): a distinct
+ * `not-run` status, never `failed` — neither says anything about the application
+ * under test.
  */
 function notRunResults(tests: TestFile[], reason: string): TestResult[] {
   return tests.map((test) => ({
@@ -251,8 +252,8 @@ function printSummary(results: TestResult[]): void {
     );
   }
   console.log('---------------------------------------------------------------');
-  // The "not run" clause only appears when a budget/deadline actually stopped the
-  // run, so an ordinary run's line is unchanged (design: inert by default).
+  // The "not run" clause only appears when something actually stopped the run,
+  // so an ordinary run's line is unchanged (design: inert by default).
   console.log(
     notRun.length > 0
       ? `${passed.length} passed, ${failed.length} failed, ${notRun.length} not run, ${results.length} total`
@@ -267,7 +268,9 @@ function printSummary(results: TestResult[]): void {
   }
 
   if (notRun.length > 0) {
-    console.log(`\n${notRun.length} test(s) not run (run stopped by its budget or deadline):`);
+    // The stop's own reason, never a cause assumed: a provider refusal stops the
+    // run by the same path as the budget (design stop-the-run-when-the-provider-refuses, D3).
+    console.log(`\n${notRun.length} test(s) not run (run stopped: ${notRun[0]!.reason}):`);
     for (const r of notRun) console.log(`  - ${r.summary} (${r.file})`);
   }
 }
@@ -393,7 +396,7 @@ async function finalize(
   nearMissedSecrets: string[],
   durationMs: number,
   impact?: ImpactResult,
-  incomplete?: BudgetExhaustedError,
+  incomplete?: RunStoppedError,
   spend?: BudgetSpend,
 ): Promise<number> {
   if (results.length > 0) printSummary(results);
@@ -773,14 +776,14 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return EXIT_USAGE;
   }
   const browser = preflight.browser!;
-  let incomplete: BudgetExhaustedError | undefined;
+  let incomplete: RunStoppedError | undefined;
   try {
     // Authenticate once, before the first test (design D3). A failed login is a
     // configuration problem, not a product defect, so it aborts with exit 2 rather
     // than surfacing as N failing tests and a meaningless score (design D6). A
-    // budget/deadline stop during login is a different thing again (spec
-    // run-budget): the run is incomplete, not misconfigured, so none of the
-    // selected tests get to run.
+    // stop during login — the budget or deadline, or a provider refusal — is a
+    // different thing again (spec run-budget): the run is incomplete, not
+    // misconfigured, so none of the selected tests get to run.
     let session: AuthSession | undefined;
     // The login is performed only when some selected test will use the session
     // (design skip-a-login-nothing-selected-needs, D1). `config.auth` answers
@@ -812,7 +815,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
           onEvent: printEvent,
         });
       } catch (error) {
-        if (error instanceof BudgetExhaustedError) {
+        if (error instanceof RunStoppedError) {
           incomplete = error;
         } else if (error instanceof AuthError) {
           console.error(`error: ${error.message}`);
@@ -824,7 +827,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     }
 
     if (incomplete) {
-      // The budget or deadline ran out during login: no selected test ever got
+      // The run was stopped during login: no selected test ever got
       // to start, so every one of them is not run (design D3).
       results.push(...notRunResults(selected, incomplete.message));
     } else {
@@ -840,7 +843,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       // budget itself agrees, which makes the guarantee a side effect of
       // another component instead of a rule this loop enforces — the exact
       // shape of defect this codebase keeps producing.
-      let stoppedBy: BudgetExhaustedError | undefined;
+      let stoppedBy: RunStoppedError | undefined;
 
       const outcomes = await runWithConcurrency(selected, concurrency, async (test, index) => {
         if (stoppedBy) return { index, stopped: stoppedBy };
@@ -865,7 +868,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
           if (!streaming) for (const line of lines) console.log(line);
           return { index, result };
         } catch (error) {
-          if (error instanceof BudgetExhaustedError) {
+          if (error instanceof RunStoppedError) {
             stoppedBy ??= error;
             if (!streaming) for (const line of lines) console.log(line);
             return { index, stopped: error };

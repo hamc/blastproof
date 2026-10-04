@@ -111,6 +111,12 @@ error. A `2` is worth surfacing differently from a `1` in your pipeline —
 one means the application under review has a problem, the other means the
 pipeline does.
 
+A run that **stopped** also exits `1`: its budget ran out, or the model
+provider refused a call (no credit, a rejected key, an outage). Its output
+says `Run incomplete:` with the reason, and the reports mark the unexecuted
+tests `not run`. That is the pipeline's problem, not the application's, even
+though the code is the same.
+
 ## Reports
 
 ```bash

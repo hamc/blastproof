@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BudgetExhaustedError, RunBudget } from '../src/runner/budget.js';
+import { BudgetExhaustedError, ProviderRefusedError, RunBudget } from '../src/runner/budget.js';
 
 /** The slice of `RunBudget` these tests drive through the mocked `createBrain`. */
 type RunBudgetLike = { record(usage: { totalTokens?: number } | undefined): void };
@@ -372,5 +372,73 @@ describe('runCommand concurrency (#2)', () => {
     await runCommand({ cwd: dir, tags: [], concurrency: 2 });
 
     expect(peak).toBe(2);
+  });
+});
+
+describe('runCommand: a provider refusal stops the run (stop-the-run-when-the-provider-refuses, #125)', () => {
+  // Reproduced against the demo app with a fake provider answering 402: the
+  // tests came out FAIL with Score 0, and with a login configured the run ended
+  // "Authentication failed" with exit 2.
+  type T = { path: string; summary: string; priority: string; tags: string[] };
+
+  it.each([1, 3])('keeps earlier results, marks the rest not run, and fails none (concurrency %i)', async (concurrency) => {
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B, 'c.yaml': TEST_C });
+    executeTestMock.mockImplementation(async (_page: unknown, test: T) => {
+      if (test.summary === 'Test B') throw new ProviderRefusedError(402, 'This request requires more credits');
+      if (test.summary === 'Test C' && concurrency === 1) throw new Error('Test C must not start');
+      return passingResult(test);
+    });
+
+    const code = await runCommand({ cwd: dir, tags: [], minScore: 1, concurrency });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(out()).toContain('Run incomplete');
+    expect(out()).toContain('HTTP 402');
+    expect(out()).toMatch(/PASS\s+P0\s+Test A/);
+    expect(out()).toMatch(/NOT RUN\s+P0\s+Test B/);
+    expect(out()).not.toMatch(/FAIL\s+P0/);
+  });
+
+  it('names the provider in the not-run line, not the budget', async () => {
+    await writeProject({ 'a.yaml': TEST_A, 'b.yaml': TEST_B });
+    executeTestMock.mockImplementation(async (_page: unknown, test: T) => {
+      if (test.summary === 'Test A') throw new ProviderRefusedError(503, 'unavailable');
+      return passingResult(test);
+    });
+
+    await runCommand({ cwd: dir, tags: [] });
+
+    expect(out()).toContain('test(s) not run (run stopped: model provider refused the request (HTTP 503)');
+    expect(out()).not.toContain('budget or deadline');
+  });
+
+  it('a refusal during login is not a failed login: incomplete, exit 1, every test not run', async () => {
+    const authConfig = [
+      'base_url: http://localhost:4173',
+      'llm:',
+      '  provider: anthropic',
+      '  api_key_env: BLASTPROOF_BUDGET_TEST_KEY',
+      'auth:',
+      '  steps:',
+      '    - sign in',
+      '',
+    ].join('\n');
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), authConfig);
+    await writeFile(path.join(dir, '.blastproof', 'tests', 'a.yaml'), TEST_A);
+    const errors: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    });
+    executeTestMock.mockImplementation(async () => {
+      throw new ProviderRefusedError(401, 'invalid key');
+    });
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(out()).toContain('Run incomplete');
+    expect(out()).toMatch(/NOT RUN\s+P0\s+Test A/);
+    expect(errors.join('\n')).not.toContain('Authentication');
   });
 });

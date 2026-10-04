@@ -43,6 +43,15 @@ function describeLimit(limit: BudgetLimit, observed: number, configured: number)
 }
 
 /**
+ * The run stopped for a reason that says nothing about the application under
+ * test (design stop-the-run-when-the-provider-refuses, D2). Every site that ends
+ * a run as incomplete tests for this, never for one of its causes: a second
+ * cause added beside the first would need every site found again, and the one
+ * missed is the defect this codebase keeps producing.
+ */
+export abstract class RunStoppedError extends Error {}
+
+/**
  * Raised when the next model call — or, in `runCommand`, the next test — could
  * exceed a configured limit (design D2/D3). Distinct from a step failure: a caller
  * catching this must end the run, not fail a test, since exhaustion says nothing
@@ -50,7 +59,7 @@ function describeLimit(limit: BudgetLimit, observed: number, configured: number)
  * every surface that reports it (console, JUnit, HTML) can name both without
  * recomputing them.
  */
-export class BudgetExhaustedError extends Error {
+export class BudgetExhaustedError extends RunStoppedError {
   readonly limit: BudgetLimit;
   readonly observed: number;
   readonly configured: number;
@@ -61,6 +70,44 @@ export class BudgetExhaustedError extends Error {
     this.limit = limit;
     this.observed = observed;
     this.configured = configured;
+  }
+}
+
+/** What to do about a refusal, decided by its status alone (design D3). */
+function refusalRemedy(statusCode: number | undefined): string | undefined {
+  if (statusCode === undefined) {
+    return 'The provider could not be reached after 3 attempts: check llm.base_url and the network, then run again.';
+  }
+  if (statusCode === 401 || statusCode === 403) {
+    return 'Check the API key in the variable named by llm.api_key_env, then run again.';
+  }
+  if (statusCode === 402) return 'Add credit to the provider account, then run again.';
+  if (statusCode === 408 || statusCode === 409 || statusCode === 429 || statusCode >= 500) {
+    return 'The provider was unavailable after 3 attempts: run again later.';
+  }
+  return undefined;
+}
+
+/**
+ * The model provider answered a call with no response to use: an HTTP error
+ * status, or none at all because it could not be reached (design
+ * stop-the-run-when-the-provider-refuses, D1). An exhausted account, a revoked
+ * key and an outage say no more about the application than an exhausted budget
+ * does, and they used to be reported as failed tests, and at login as a broken
+ * login (#125).
+ *
+ * "3 attempts" in the remedy is the AI SDK's default of two retries, which
+ * nothing here overrides; it has already been spent when this is raised.
+ */
+export class ProviderRefusedError extends RunStoppedError {
+  readonly statusCode: number | undefined;
+
+  constructor(statusCode: number | undefined, detail: string) {
+    const status = statusCode === undefined ? 'no response' : `HTTP ${statusCode}`;
+    const remedy = refusalRemedy(statusCode);
+    super(`model provider refused the request (${status}): ${detail}${remedy ? ` ${remedy}` : ''}`);
+    this.name = 'ProviderRefusedError';
+    this.statusCode = statusCode;
   }
 }
 

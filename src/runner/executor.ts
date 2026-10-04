@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentBrain } from '../llm/brain.js';
 import type { AgentAction } from '../llm/schemas.js';
-import { BudgetExhaustedError } from './budget.js';
+import { RunStoppedError } from './budget.js';
 import type { TestFile } from './testfile.js';
 import {
   allowedOriginsFor,
@@ -318,10 +318,11 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             iterationsLeft: maxIterationsPerStep - iterations,
           });
         } catch (error) {
-          // A budget/deadline stop ends the run, not this attempt (design D3): it
-          // must not be spent from the retry budget or reported as a bad model
-          // response, so it bypasses this handler entirely.
-          if (error instanceof BudgetExhaustedError) throw error;
+          // A stop of the run — its budget or deadline, or a provider that gave no
+          // response (design stop-the-run-when-the-provider-refuses, D2) — ends the
+          // run, not this attempt (design D3): it must not be spent from the retry
+          // budget or reported as a bad model response, so it bypasses this handler.
+          if (error instanceof RunStoppedError) throw error;
           // Malformed model output counts as a failed attempt (spec: structured output).
           failedAttempts++;
           lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
@@ -466,11 +467,11 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         }
       }
     } catch (error) {
-      // A budget/deadline stop is not a step failure (design D3, spec
+      // A stop of the run is not a step failure (design D3, spec
       // agentic-execution): let it propagate out of executeTest so the caller can
       // record this test — and the rest of the run's selection — as not run,
       // rather than manufacturing a defect that does not exist.
-      if (error instanceof BudgetExhaustedError) throw error;
+      if (error instanceof RunStoppedError) throw error;
       // Mask everything that reaches logs/reports, regardless of throw site.
       stepFailedReason = mask(error instanceof Error ? error.message : String(error));
     }

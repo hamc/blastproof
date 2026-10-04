@@ -1,4 +1,4 @@
-import { generateObject, type LanguageModel } from 'ai';
+import { APICallError, generateObject, RetryError, type LanguageModel } from 'ai';
 import type { z } from 'zod';
 import {
   agentSystemPrompt,
@@ -10,7 +10,7 @@ import {
   type AgentIterationInput,
   type PlannerInput,
 } from './prompts.js';
-import type { RunBudget } from '../runner/budget.js';
+import { ProviderRefusedError, type RunBudget } from '../runner/budget.js';
 import { labelledVariables, placeholdersAsLabels, redactionLabel } from '../runner/env.js';
 import type { StepHistoryEntry } from '../runner/recovery.js';
 import {
@@ -104,6 +104,24 @@ function withProviderDetail(error: unknown): unknown {
   return error;
 }
 
+/**
+ * Turns a call that got no response into a stop of the run (design
+ * stop-the-run-when-the-provider-refuses, D1): an `APICallError` with an error
+ * status or none (a network failure), alone or as the last error of the SDK's
+ * exhausted retries. Decided on the type and the status, never on the message,
+ * which is each provider's own prose. Anything else is left alone, including a
+ * 2xx whose body did not parse: a response came back, and the next attempt may
+ * well parse, so it stays a failed attempt as a malformed answer always has.
+ */
+function asProviderRefusal(error: unknown): unknown {
+  const cause = RetryError.isInstance(error) ? error.lastError : error;
+  if (!APICallError.isInstance(cause)) return error;
+  if (cause.statusCode !== undefined && cause.statusCode < 400) return error;
+  // The body sits on the last attempt's error, not on the RetryError around it.
+  withProviderDetail(cause);
+  return new ProviderRefusedError(cause.statusCode, cause.message);
+}
+
 async function countedGenerate(
   generate: GenerateObjectFn,
   budget: RunBudget,
@@ -114,7 +132,7 @@ async function countedGenerate(
   try {
     result = await generate(options);
   } catch (error) {
-    throw withProviderDetail(error);
+    throw asProviderRefusal(withProviderDetail(error));
   }
   // Recorded even when the output later fails schema validation: the call was
   // made and spent tokens regardless of whether the model's answer parses.
