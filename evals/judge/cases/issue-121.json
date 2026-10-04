@@ -13,8 +13,7 @@
         "kind": "captured",
         "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run1"
       },
-      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
-      "knownFailing": "#121"
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds."
     },
     {
       "id": "121-already-dismissed-run1-1",
@@ -33,7 +32,7 @@
         "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run1"
       },
       "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
-      "knownFailing": "#121"
+      "knownFailing": "#129"
     },
     {
       "id": "121-already-dismissed-run1-2",
@@ -52,7 +51,7 @@
         "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run1"
       },
       "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
-      "knownFailing": "#121"
+      "knownFailing": "#129"
     },
     {
       "id": "121-already-dismissed-run2-4",
@@ -71,7 +70,7 @@
         "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run2"
       },
       "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
-      "knownFailing": "#121"
+      "knownFailing": "#129"
     },
     {
       "id": "121-already-dismissed-run3-6",
@@ -84,8 +83,7 @@
         "kind": "captured",
         "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run3"
       },
-      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
-      "knownFailing": "#121"
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds."
     },
     {
       "id": "121-already-dismissed-run3-7",
@@ -112,6 +110,50 @@
         "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run4"
       },
       "note": "The cookie consent dialog is not on the page; the step's outcome holds."
+    },
+    {
+      "id": "121-control-cookie-still-shown",
+      "verdict": "FAIL",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "The cookie consent dialog is no longer shown.",
+      "snapshot": "url: http://localhost:3000/#/\n- dialog \"cookieconsent\":\n  - text: This website uses fruit cookies to ensure you get the juiciest tracking experience.\n  - button \"learn more about cookies\": But me wait!\n  - button \"dismiss cookie message\": Me want it!\n- text: Language has been changed to English\n- button \"Force page reload\"\n- dialog:\n  - heading \"Welcome to OWASP Juice Shop!\" [level=1]\n  - paragraph:\n    - text: Being a web application with a vast number of intended security vulnerabilities, the\n    - strong: OWASP Juice Shop\n    - text: \"is supposed to be the opposite of a best practice or template application for web developers: It is an awareness, training, demonstration and exercise tool for security risks in modern web applications. The\"\n    - strong: OWASP Juice Shop\n    - text: is an open-source project hosted by the non-profit\n    - link \"Open Worldwide Application Security Project (OWASP)\":\n      - /url: https://owasp.org\n    - text: and is developed and maintained by volunteers. Check out the link below for more information and documentation on the project.\n  - heading \"https://owasp-juice.shop\" [level=1]:\n    - link \"https://owasp-juice.shop\":\n      - /url: https://owasp-juice.shop\n  - button \"Help getting started\"\n  - button \"Close Welcome Banner\": Dismiss",
+      "history": [],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "reconstructed: snapshot captured from OWASP Juice Shop (main, built 2026-09-27) on a fresh load, 2026-10-03; step from the QA test, claim and record written to probe the opposite error; see openspec/changes/archive/2026-10-04-judge-the-outcome-not-the-means/design.md"
+      },
+      "note": "The consent dialog is on the page. Judging the outcome rather than the action must not pass an outcome that does not hold."
+    },
+    {
+      "id": "121-control-other-dialog-closed",
+      "verdict": "FAIL",
+      "step": "Dismiss the cookie consent dialog by clicking \"Me want it!\" and verify the consent dialog is gone",
+      "expectation": "The dialog has been dismissed and the product list is shown.",
+      "snapshot": "url: http://localhost:3000/#/\n- dialog \"cookieconsent\":\n  - text: This website uses fruit cookies to ensure you get the juiciest tracking experience.\n  - button \"learn more about cookies\": But me wait!\n  - button \"dismiss cookie message\": Me want it!\n- button \"Open Sidenav\"\n- button \"Back to homepage\":\n  - img \"OWASP Juice Shop\"\n  - text: OWASP Juice Shop\n- button \"Open search\"\n- textbox\n- button \"Close search\"\n- button \"Show/hide account menu\": Account\n- button \"Show the shopping cart\": Your Basket 0\n- button \"Language selection menu\": EN\n- main:\n  - text: All Products\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Apple Juice (1000ml)\"\n      - text: Apple Juice (1000ml)\n    - text: 1.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Apple Pomace\"\n      - text: Apple Pomace\n    - text: 0.89¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Banana Juice (1000ml)\"\n      - text: Banana Juice (1000ml)\n    - text: 1.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Basil Smoothie\"\n      - text: Basil Smoothie\n    - text: 2.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Berry Juice (1000ml)\"\n      - text: Berry Juice (1000ml)\n    - text: 3.49¤\n    - button \"Add to Basket\"\n  - article:\n    - complementary: Only 1 left\n    - button \"Click for more information about the product\":\n      - img \"Best Juice Shop Salesman Artwork\"\n      - text: Best Juice Shop Salesman Artwork\n    - text: 5000¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Bragă (500ml)\"\n      - text: Bragă (500ml)\n    - text: 2.49¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Carrot Juice (1000ml)\"\n      - text: Carrot Juice (1000ml)\n    - text: 2.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Dragonfruit Juice (500ml)\"\n      - text: Dragonfruit Juice (500ml)\n    - text: 3.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Eggfruit Juice (500ml)\"\n      - text: Eggfruit Juice (500ml)\n    - text: 8.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Elderflower Cordial (500ml)\"\n      - text: Elderflower Cordial (500ml)\n    - text: 3.29¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Fruit Press\"\n      - text: Fruit Press\n    - text: 89.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Grape Juice (1000ml)\"\n      - text: Grape Juice (1000ml)\n    - text: 2.99¤\n    - button \"Add to Basket\"\n  - article:\n    - button \"Click for more information about the product\":\n      - img \"Green Smoothie\"\n      - text: Green Smoothie\n    - text: 1.99¤\n    - button \"Add to Basket\"\n  - article:\n    - complementary: Only 1 left\n    - button \"Click for more information about the product\":\n      - img \"Juice Shop \\\"Permafrost\\\" 2020 Edition\"\n      - text: Juice Shop \"Permafrost\" 2020 Edition\n    - text: 9999.99¤\n    - button \"Add to Basket\"\n  - group:\n    - combobox \"Items per page:\": \"15\"\n    - status: 1 – 15 of 46\n    - button \"Previous page\" [disabled]\n    - button \"Next page\"\n- text: Language has been changed to English\n- button \"Force page reload\"",
+      "history": [
+        {
+          "action": "click button \"Close Welcome Banner\"",
+          "result": "ok: clicked role=button name=\"Close Welcome Banner\" text=\"Dismiss\""
+        }
+      ],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "reconstructed: snapshot captured from OWASP Juice Shop (main, built 2026-09-27) after closing the Welcome banner, 2026-10-03; step from the QA test, claim and record written to probe the opposite error; see openspec/changes/archive/2026-10-04-judge-the-outcome-not-the-means/design.md"
+      },
+      "note": "A different dialog was dismissed; the consent dialog is still on the page."
+    },
+    {
+      "id": "121-control-welcome-still-open",
+      "verdict": "FAIL",
+      "step": "Close the welcome banner by clicking \"Dismiss\" and verify it is gone",
+      "expectation": "The cookie consent dialog is gone.",
+      "snapshot": "url: http://localhost:3000/#/\n- dialog \"cookieconsent\":\n  - text: This website uses fruit cookies to ensure you get the juiciest tracking experience.\n  - button \"learn more about cookies\": But me wait!\n  - button \"dismiss cookie message\": Me want it!\n- text: Language has been changed to English\n- button \"Force page reload\"\n- dialog:\n  - heading \"Welcome to OWASP Juice Shop!\" [level=1]\n  - paragraph:\n    - text: Being a web application with a vast number of intended security vulnerabilities, the\n    - strong: OWASP Juice Shop\n    - text: \"is supposed to be the opposite of a best practice or template application for web developers: It is an awareness, training, demonstration and exercise tool for security risks in modern web applications. The\"\n    - strong: OWASP Juice Shop\n    - text: is an open-source project hosted by the non-profit\n    - link \"Open Worldwide Application Security Project (OWASP)\":\n      - /url: https://owasp.org\n    - text: and is developed and maintained by volunteers. Check out the link below for more information and documentation on the project.\n  - heading \"https://owasp-juice.shop\" [level=1]:\n    - link \"https://owasp-juice.shop\":\n      - /url: https://owasp-juice.shop\n  - button \"Help getting started\"\n  - button \"Close Welcome Banner\": Dismiss",
+      "history": [],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "reconstructed: snapshot captured from OWASP Juice Shop (main, built 2026-09-27) on a fresh load, 2026-10-03; step from the QA test, claim and record written to probe the opposite error; see openspec/changes/archive/2026-10-04-judge-the-outcome-not-the-means/design.md"
+      },
+      "note": "The Welcome dialog is still on the page. The mirror of the cases above: a dialog the step does not name says nothing about the one it does."
     }
   ]
 }

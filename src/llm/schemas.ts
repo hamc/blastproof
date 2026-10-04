@@ -120,21 +120,45 @@ export type AgentTarget = NonNullable<AgentAction['target']>;
  * the judge states what the step requires before deciding, instead of deciding
  * and then justifying. Order and descriptions were measured together; neither
  * half closed the measured wrong PASSes alone.
+ *
+ * `outcome` comes before both (design judge-the-outcome-not-the-means, D1): the
+ * step rewritten with its action taken out. Asked about "dismiss the dialog and
+ * verify it is gone" on a page where it was already gone, the judge failed it
+ * for want of a dismissal (#121) — the verb, not the means or the claim, was
+ * what it read as required. The sentence it decides now has no verb to satisfy.
+ * That field, `pass`'s last two sentences and the prompt's paragraph on an
+ * outcome that already held were each needed: leaving out any one left a
+ * captured input wrong.
  */
 export const assertJudgmentSchema = z.object({
+  outcome: z
+    .string()
+    .describe(
+      'The state the STEP asks for, rewritten as a sentence about the page with its action removed: ' +
+        '"click Save and verify the note is listed" becomes "the note is listed"; "open the Account menu and ' +
+        'verify it shows the email" becomes "the Account menu shows the email".',
+    ),
   reason: z
     .string()
-    .describe('One sentence: what the STEP requires to be true now, and whether the snapshot shows it.'),
+    .describe('One sentence: whether the snapshot shows that outcome.'),
   pass: z
     .boolean()
     .describe(
-      "Whether the snapshot shows the STEP's own outcome. The expectation is only a claim offered in support; " +
+      'Whether the snapshot shows that outcome. The expectation is only a claim offered in support; ' +
         'it never replaces the step. False if any part of the outcome the step asks for is not shown, or cannot ' +
-        'be assessed from this snapshot.',
+        'be assessed from this snapshot. An action the step names (click, dismiss, submit) is how its outcome is ' +
+        'reached, not part of it: an outcome that holds passes whether or not that action was needed. An outcome ' +
+        'that is an absence (gone, closed, dismissed, removed) is shown by the thing being absent.',
     ),
 });
 
-export type AssertJudgment = z.infer<typeof assertJudgmentSchema>;
+/**
+ * `outcome` is required of the model and optional here: it exists so the model
+ * states the step's outcome before deciding it (design
+ * judge-the-outcome-not-the-means, D1), and nothing downstream reads it, so a
+ * judgment made without one is still a judgment.
+ */
+export type AssertJudgment = Omit<z.infer<typeof assertJudgmentSchema>, 'outcome'> & { outcome?: string };
 
 /**
  * A test draft returned by the planner (design D5). `routes` is deliberately absent:

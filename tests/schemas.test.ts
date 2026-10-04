@@ -76,10 +76,14 @@ describe('agentActionSchema', () => {
 
 describe('assertJudgmentSchema', () => {
   it('accepts a pass judgment', () => {
-    expect(assertJudgmentSchema.safeParse({ pass: true, reason: 'total shows $80' }).success).toBe(true);
+    expect(assertJudgmentSchema.safeParse({ outcome: 'the total is $80', pass: true, reason: 'total shows $80' }).success).toBe(true);
   });
 
   it('rejects missing reason', () => {
-    expect(assertJudgmentSchema.safeParse({ pass: false }).success).toBe(false);
+    expect(assertJudgmentSchema.safeParse({ outcome: 'o', pass: false }).success).toBe(false);
+  });
+
+  it('rejects missing outcome', () => {
+    expect(assertJudgmentSchema.safeParse({ pass: true, reason: 'r' }).success).toBe(false);
   });
 });

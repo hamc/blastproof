@@ -229,6 +229,7 @@ function secretMismatch(
     if (onPage.includes(name) || inRecord.includes(name) || others.length === 0) continue;
     const shown = others.map((other) => redactionLabel(other)).join(', ');
     return {
+      ...judgment,
       pass: false,
       reason:
         `The step names ${redactionLabel(name)}, which appears neither on the page nor in this step's actions, ` +

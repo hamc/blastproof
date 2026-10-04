@@ -171,7 +171,7 @@ describe('createBrain', () => {
   it('judge returns the validated judgment', async () => {
     const brain = createBrain(
       fakeModel,
-      stubGenerate({ pass: false, reason: 'no discount line' }),
+      stubGenerate({ outcome: 'the discount line is shown', pass: false, reason: 'no discount line' }),
       new RunBudget(),
     );
     const judgment = await brain.judge('verify the discount applied', 'discount applied', '- main: cart');
@@ -181,7 +181,7 @@ describe('createBrain', () => {
 
   it('judge sends the step, the expectation and the snapshot into the prompt (design D1, task 2.1)', async () => {
     const captured: { options?: { prompt?: string } } = {};
-    const brain = createBrain(fakeModel, stubGenerate({ pass: true, reason: 'ok' }, captured), new RunBudget());
+    const brain = createBrain(fakeModel, stubGenerate({ outcome: 'o', pass: true, reason: 'ok' }, captured), new RunBudget());
     await brain.judge('verify the cart total is $80', 'total shows $80', '- text "$80"');
     expect(captured.options?.prompt).toContain('verify the cart total is $80');
     expect(captured.options?.prompt).toContain('total shows $80');
@@ -195,7 +195,7 @@ describe('the judge reads one vocabulary (ask-the-judge-about-the-step)', () => 
   // two were the same, 0 times right in 10.
   it('reads every placeholder in the step, the claim and the record as its label', async () => {
     const captured: { options?: { prompt?: string } } = {};
-    const brain = createBrain(fakeModel, stubGenerate({ reason: 'r', pass: false }, captured), new RunBudget());
+    const brain = createBrain(fakeModel, stubGenerate({ outcome: 'o', reason: 'r', pass: false }, captured), new RunBudget());
     await brain.judge(
       'open the Account menu and verify it shows the account email {{env.TEST_OTHER}}',
       'The menu shows [redacted TEST_EMAIL], which is the account email {{ env.TEST_OTHER }}',
@@ -233,7 +233,7 @@ describe('a step naming one secret cannot pass on a page showing only another (a
   // runs that reached the menu.
   const STEP = 'open the Account menu and verify it shows the account email {{env.TEST_OTHER}}';
   const judgeWith = (pass: boolean) =>
-    createBrain(fakeModel, stubGenerate({ reason: 'model reason', pass }), new RunBudget());
+    createBrain(fakeModel, stubGenerate({ outcome: 'the menu shows the email', reason: 'model reason', pass }), new RunBudget());
 
   it('fails a PASS when the named secret is absent and another is shown', async () => {
     const judgment = await judgeWith(true).judge(
@@ -293,22 +293,72 @@ describe('the judgment schema asks about the step (ask-the-judge-about-the-step,
 
   it('produces the reason before the verdict', () => {
     // Structured output is generated in schema order.
-    expect(Object.keys(shape)).toEqual(['reason', 'pass']);
+    expect(Object.keys(shape).indexOf('reason')).toBeLessThan(Object.keys(shape).indexOf('pass'));
   });
 
   it("describes the verdict as the STEP's outcome, not the expectation", () => {
     const pass = shape.pass.description ?? '';
-    expect(pass).toContain("STEP's own outcome");
+    expect(shape.outcome.description).toContain('The state the STEP asks for');
+    expect(pass).toContain('Whether the snapshot shows that outcome');
     expect(pass).toContain('never replaces the step');
     expect(pass).toMatch(/cannot be assessed/);
     expect(pass).not.toMatch(/satisfies the expectation/);
   });
 });
 
+describe('a step is judged on its outcome, not its action (judge-the-outcome-not-the-means)', () => {
+  // Captured against Juice Shop (#121): "dismiss the cookie consent dialog by
+  // clicking Me want it! and verify it is gone", on a page where an earlier step
+  // had already dismissed it, failed for want of evidence the dismissal happened.
+  const shape = assertJudgmentSchema.shape;
+
+  it('states the outcome first, with the action taken out (D1)', () => {
+    // Structured output is generated in schema order: the sentence decided must
+    // exist before the reason and the verdict do.
+    expect(Object.keys(shape)).toEqual(['outcome', 'reason', 'pass']);
+    expect(shape.outcome.description).toMatch(/with its action removed/);
+    expect(shape.reason.description).toContain('that outcome');
+  });
+
+  it('says the action is the means, and an absence is shown by absence (D2)', () => {
+    const pass = shape.pass.description ?? '';
+    expect(pass).toContain('is how its outcome is reached, not part of it');
+    expect(pass).toContain('whether or not that action was needed');
+    expect(pass).toContain('is shown by the thing being absent');
+  });
+
+  it('tells the judge an outcome may hold before the step acts (D3)', () => {
+    const prompt = assertSystemPrompt();
+    expect(prompt).toContain('An outcome may already hold before this step acts');
+    expect(prompt).toContain('is not the one the step names');
+    expect(prompt).toContain("Whether the step's action ran is not what you decide");
+  });
+
+  it('rejects a judgment the model returns without an outcome', async () => {
+    const brain = createBrain(fakeModel, stubGenerate({ reason: 'r', pass: true }), new RunBudget());
+    await expect(brain.judge('verify x', 'x', '- text "x"')).rejects.toThrow(MalformedModelOutputError);
+  });
+
+  it('keeps the outcome when the label check overturns a PASS', async () => {
+    const brain = createBrain(
+      fakeModel,
+      stubGenerate({ outcome: 'the menu shows the other email', reason: 'r', pass: true }),
+      new RunBudget(),
+    );
+    const judgment = await brain.judge(
+      'open the Account menu and verify it shows {{env.TEST_OTHER}}',
+      'shown',
+      '- menuitem: [redacted TEST_EMAIL]',
+    );
+    expect(judgment.pass).toBe(false);
+    expect(judgment.outcome).toBe('the menu shows the other email');
+  });
+});
+
 describe('what is pinned and what is not (design D1, deterministic-verdicts)', () => {
   it('pins the judgment, because two decisions about one page must agree', async () => {
     const captured: { options?: { temperature?: number } } = {};
-    const brain = createBrain(fakeModel, stubGenerate({ pass: true, reason: 'ok' }, captured), new RunBudget());
+    const brain = createBrain(fakeModel, stubGenerate({ outcome: 'o', pass: true, reason: 'ok' }, captured), new RunBudget());
     await brain.judge('verify the total is $80', 'total shows $80', '- text "$80"');
     expect(captured.options?.temperature).toBe(0);
   });
@@ -359,7 +409,7 @@ describe('createBrain budget enforcement (design D2)', () => {
 
   it('counts a judge call against the budget', async () => {
     const budget = new RunBudget({ maxCalls: 1 });
-    const brain = createBrain(fakeModel, stubGenerate({ pass: true, reason: 'ok' }), budget);
+    const brain = createBrain(fakeModel, stubGenerate({ outcome: 'o', pass: true, reason: 'ok' }), budget);
     await brain.judge('step', 'expectation', 'snapshot');
     expect(budget.callCount).toBe(1);
   });
