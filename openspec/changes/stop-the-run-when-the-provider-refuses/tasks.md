@@ -31,7 +31,8 @@
     - *429 and 503:* the same outcome after 8 s, because the SDK retried twice with backoff before the error reached the run
     - *No server listening:* the existing preflight refuses before anything runs, exit 2, as before. "No response" mid-run is covered by the brain unit test, since a live provider that answers preflight and then stops answering cannot be staged reliably here
     - *Seen, unchanged by this change:* an incomplete run with nothing executed prints `Score over executed tests: 100`, the same as a budget stop during login
-- [ ] 4.4 Live, the dogfood suite against a real provider: no regression
+- [x] 4.4 Live, the dogfood suite against a real provider: no regression
+  - *Done in the `dogfood.yml` pipeline on this branch (run 37212344984), because Node here could not reach OpenRouter (`ETIMEDOUT`) while `curl` could: 8 of 8, Score 100, 93 model calls*
 - [x] 4.5 Docs: `docs/configuration.md`, where it describes `not run` and the exit for a stopped run, and `docs/ci.md`'s exit codes, say a provider refusal stops a run the same way
   - *Also `README.md`'s exit codes, and the budget convention in `AGENTS.md`*
-- [ ] 4.6 Archive in the same pull request, as its own commit
+- [x] 4.6 Archive in the same pull request, as its own commit
