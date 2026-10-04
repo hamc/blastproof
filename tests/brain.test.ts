@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { LanguageModel } from 'ai';
+import { APICallError, RetryError, type LanguageModel } from 'ai';
 import {
   createBrain,
   createPlanner,
@@ -14,7 +14,7 @@ import {
   plannerSystemPrompt,
   plannerUserPrompt,
 } from '../src/llm/prompts.js';
-import { BudgetExhaustedError, RunBudget } from '../src/runner/budget.js';
+import { BudgetExhaustedError, ProviderRefusedError, RunBudget, RunStoppedError } from '../src/runner/budget.js';
 import { assertJudgmentSchema } from '../src/llm/schemas.js';
 
 const fakeModel = { provider: 'test', modelId: 'test-model' } as unknown as LanguageModel;
@@ -543,5 +543,109 @@ describe('createPlanner', () => {
     await expect(
       planner.planTest({ route: '/cart', snapshot: '', changedFiles: [] }),
     ).rejects.toThrow(MalformedModelOutputError);
+  });
+});
+
+describe('a call the provider refused stops the run (stop-the-run-when-the-provider-refuses, D1)', () => {
+  // Found when an OpenRouter balance ran out mid-run (#125): every later test
+  // failed as though the application had regressed.
+  function apiError(statusCode: number | undefined, responseBody?: string): APICallError {
+    return new APICallError({
+      message: statusCode === undefined ? 'Cannot connect to API: fetch failed' : 'Provider returned error',
+      url: 'https://provider.test/v1/chat/completions',
+      requestBodyValues: {},
+      statusCode,
+      responseBody,
+      // Mirrors the SDK: a network failure is marked retryable explicitly.
+      ...(statusCode === undefined ? { isRetryable: true } : {}),
+    });
+  }
+
+  const failing = (error: unknown): GenerateObjectFn => async () => {
+    throw error;
+  };
+
+  async function judgeThrowing(error: unknown): Promise<unknown> {
+    return createBrain(fakeModel, failing(error), new RunBudget())
+      .judge('verify x', 'x', '- text "x"')
+      .then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      );
+  }
+
+  it.each([401, 402, 403, 404, 429, 500, 503])('stops the run on HTTP %i', async (status) => {
+    const thrown = await judgeThrowing(apiError(status));
+    expect(thrown).toBeInstanceOf(ProviderRefusedError);
+    expect(thrown).toBeInstanceOf(RunStoppedError);
+    expect((thrown as ProviderRefusedError).statusCode).toBe(status);
+  });
+
+  it('stops the run when the provider could not be reached at all', async () => {
+    const thrown = await judgeThrowing(apiError(undefined));
+    expect(thrown).toBeInstanceOf(ProviderRefusedError);
+    expect((thrown as Error).message).toContain('no response');
+  });
+
+  it('looks through the SDK\'s exhausted retries to the last error', async () => {
+    const retried = new RetryError({
+      message: 'Failed after 3 attempts. Last error: Service unavailable',
+      reason: 'maxRetriesExceeded',
+      errors: [apiError(503), apiError(503), apiError(503, '{"error":{"message":"upstream overloaded"}}')],
+    });
+    const thrown = await judgeThrowing(retried);
+    expect(thrown).toBeInstanceOf(ProviderRefusedError);
+    expect((thrown as ProviderRefusedError).statusCode).toBe(503);
+    // The body is on the last attempt's error, not on the RetryError.
+    expect((thrown as Error).message).toContain('upstream overloaded');
+  });
+
+  it('quotes what the provider said', async () => {
+    const body = '{"error":{"message":"This request requires more credits","code":402}}';
+    const thrown = await judgeThrowing(apiError(402, body));
+    expect((thrown as Error).message).toContain('HTTP 402');
+    expect((thrown as Error).message).toContain('This request requires more credits');
+    expect((thrown as Error).message).toContain('Add credit');
+  });
+
+  it('decides on the status, never the message', async () => {
+    // A provider error whose words sound like a refusal but whose response came
+    // back (a 2xx body that did not parse) is left as it is.
+    const twoHundred = new APICallError({
+      message: 'Invalid JSON response: credits exhausted, rate limit',
+      url: 'https://provider.test',
+      requestBodyValues: {},
+      statusCode: 200,
+    });
+    const thrown = await judgeThrowing(twoHundred);
+    expect(thrown).not.toBeInstanceOf(RunStoppedError);
+    expect(thrown).toBe(twoHundred);
+  });
+
+  it('leaves an error that is not the provider\'s alone', async () => {
+    const plain = new Error('something else');
+    expect(await judgeThrowing(plain)).toBe(plain);
+  });
+
+  it('leaves a malformed answer a malformed answer', async () => {
+    const brain = createBrain(fakeModel, stubGenerate({ action: 'explode' }), new RunBudget());
+    await expect(
+      brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }),
+    ).rejects.toThrow(MalformedModelOutputError);
+  });
+
+  it('covers every call, the action and the planner as well as the judgment', async () => {
+    const generate = failing(apiError(402));
+    await expect(
+      createBrain(fakeModel, generate, new RunBudget()).nextAction({
+        step: 'x',
+        snapshot: '',
+        retriesLeft: 3,
+        iterationsLeft: 10,
+      }),
+    ).rejects.toThrow(ProviderRefusedError);
+    await expect(
+      createPlanner(fakeModel, generate, new RunBudget()).planTest({ route: '/', snapshot: '', changedFiles: [] }),
+    ).rejects.toThrow(ProviderRefusedError);
   });
 });

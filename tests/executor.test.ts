@@ -14,7 +14,7 @@ import {
   type LocatorLike,
   type PageLike,
 } from '../src/runner/actions.js';
-import { BudgetExhaustedError } from '../src/runner/budget.js';
+import { BudgetExhaustedError, ProviderRefusedError } from '../src/runner/budget.js';
 import { SecretsMask } from '../src/runner/env.js';
 import { executeTest, SETTLE_TIMEOUT_MS, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
 import { describeAction, StepRecovery } from '../src/runner/recovery.js';
@@ -511,6 +511,40 @@ describe('executeTest', () => {
         BudgetExhaustedError,
       );
       expect(calls).toBe(1);
+    });
+  });
+
+  // A provider that gave no response stops the run the same way (design
+  // stop-the-run-when-the-provider-refuses, D2): it used to be counted as a
+  // malformed answer and fail the step (#125).
+  describe('provider refusal', () => {
+    it('propagates a refusal from nextAction, never retrying it', async () => {
+      const page = new FakePage();
+      let calls = 0;
+      const brain: AgentBrain = {
+        nextAction: async () => {
+          calls++;
+          throw new ProviderRefusedError(402, 'no credit');
+        },
+        judge: async () => ({ pass: true, reason: 'n/a' }),
+      };
+
+      await expect(executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 3 }))).rejects.toThrow(
+        ProviderRefusedError,
+      );
+      expect(calls).toBe(1);
+    });
+
+    it('propagates a refusal from the judgment instead of failing the step', async () => {
+      const page = new FakePage();
+      const brain: AgentBrain = {
+        nextAction: async () => ({ action: 'assert', reasoning: 'check', expectation: 'total is $80' }),
+        judge: async () => {
+          throw new ProviderRefusedError(503, 'unavailable');
+        },
+      };
+
+      await expect(executeTest(page, makeTest(), baseOptions(brain))).rejects.toThrow(ProviderRefusedError);
     });
   });
 });

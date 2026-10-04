@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiffError } from '../src/diff.js';
-import { BudgetExhaustedError } from '../src/runner/budget.js';
+import { BudgetExhaustedError, ProviderRefusedError } from '../src/runner/budget.js';
 
 const {
   launchMock,
@@ -350,8 +350,25 @@ describe('planCommand budget (spec run-budget: test planning counts against the 
     expect(out()).toContain('Stopped:');
     expect(out()).toContain('model call budget exhausted');
     expect(out()).not.toContain('Failed:');
-    expect(out()).toContain('Not attempted (run out of budget):');
+    expect(out()).toContain('Not attempted (run stopped):');
     expect(out()).toContain('/settings');
+  });
+
+  it('stops on a provider refusal the same way, naming the provider, not the budget (#125)', async () => {
+    await writeProject();
+    generateForRouteMock.mockImplementation(async (_page: unknown, options: { route: string }) => {
+      if (options.route === '/cart') throw new ProviderRefusedError(402, 'no credit');
+      return { ...DRAFT, routes: [options.route], unsourcedEmails: [] };
+    });
+
+    const code = await planCommand({ cwd: dir, routes: ['/cart', '/settings'] });
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(generateForRouteMock).toHaveBeenCalledTimes(1);
+    expect(out()).toContain('Stopped: model provider refused the request (HTTP 402)');
+    expect(out()).not.toContain('Failed:');
+    expect(out()).not.toContain('budget');
+    expect(out()).toContain('Not attempted (run stopped):');
   });
 });
 

@@ -1,10 +1,14 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AgentBrain } from '../src/llm/brain.js';
 import type { AgentAction, AssertJudgment } from '../src/llm/schemas.js';
 import {
   BudgetExhaustedError,
   estimateMaxModelCalls,
+  ProviderRefusedError,
   RunBudget,
+  RunStoppedError,
 } from '../src/runner/budget.js';
 import { executeTest } from '../src/runner/executor.js';
 import type { PageLike } from '../src/runner/actions.js';
@@ -282,5 +286,65 @@ describe('RunBudget.spend', () => {
     expect(() => budget.check()).toThrow(BudgetExhaustedError);
 
     expect(formatSpendLine(budget.spend())).toBe('Spent: 2 of 2 model call(s), 1700 token(s)');
+  });
+});
+
+describe('a stop of the run (stop-the-run-when-the-provider-refuses, D2, D3)', () => {
+  it('has one base for both causes, so a site handling one handles the other', () => {
+    expect(new BudgetExhaustedError('calls', 5, 5)).toBeInstanceOf(RunStoppedError);
+    expect(new ProviderRefusedError(402, 'no credit')).toBeInstanceOf(RunStoppedError);
+  });
+
+  it('leaves the budget stop as it was', () => {
+    const error = new BudgetExhaustedError('calls', 5, 5);
+    expect(error.name).toBe('BudgetExhaustedError');
+    expect(error.message).toBe('model call budget exhausted: reached the configured maximum of 5 call(s)');
+    expect([error.limit, error.observed, error.configured]).toEqual(['calls', 5, 5]);
+  });
+
+  it.each([
+    [401, 'llm.api_key_env'],
+    [403, 'llm.api_key_env'],
+    [402, 'Add credit'],
+    [408, 'run again later'],
+    [409, 'run again later'],
+    [429, 'run again later'],
+    [500, 'run again later'],
+    [503, 'run again later'],
+  ])('gives a remedy for HTTP %i', (status, remedy) => {
+    const message = new ProviderRefusedError(status, 'provider words').message;
+    expect(message).toContain(`HTTP ${status}`);
+    expect(message).toContain('provider words');
+    expect(message).toContain(remedy);
+  });
+
+  it('says to check the URL and the network when nothing answered', () => {
+    const message = new ProviderRefusedError(undefined, 'fetch failed').message;
+    expect(message).toContain('no response');
+    expect(message).toContain('llm.base_url');
+  });
+
+  it('adds nothing of its own for a status it has no remedy for', () => {
+    const message = new ProviderRefusedError(404, 'model not found').message;
+    expect(message).toBe('model provider refused the request (HTTP 404): model not found');
+  });
+});
+
+describe('every site that ends a run tests the base, not one cause (D2)', () => {
+  it('has no `instanceof BudgetExhaustedError` left in src/', () => {
+    // A site testing one cause would let the other through as a failed test,
+    // which is #125 again. Read, not parsed: the sentence is the bug.
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts') && readFileSync(full, 'utf8').includes('instanceof BudgetExhaustedError')) {
+          offenders.push(path.relative(process.cwd(), full));
+        }
+      }
+    };
+    walk(path.join(process.cwd(), 'src'));
+    expect(offenders).toEqual([]);
   });
 });

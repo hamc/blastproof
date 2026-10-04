@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change run-budget-and-deadline. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: A run is bounded by model calls, tokens and wall-clock time
 A run SHALL carry a budget of a maximum number of model calls and a maximum number of tokens, and a deadline of a maximum wall-clock duration. Each SHALL be optional and independently configurable; an unconfigured limit SHALL NOT bound the run. Every model call made anywhere in the run — agent action, assert judgment, or test planning — SHALL count against the budget.
 
@@ -33,7 +35,7 @@ A limit is checked before the next unit of work is spent, so how far a run can e
 - **THEN** those tests run to completion, no further test starts, and the remainder are reported as not run
 
 ### Requirement: An interrupted run is reported as incomplete, never scored as finished
-A run stopped by its budget or deadline SHALL be reported as incomplete. The tests that did not execute SHALL NOT be counted as passing, the run SHALL NOT report a passing outcome on the strength of the tests that happened to finish first, and the process SHALL exit non-zero regardless of any `--min-score` threshold.
+A run stopped by its budget or deadline, or by a model provider refusing a call, SHALL be reported as incomplete. The tests that did not execute SHALL NOT be counted as passing, the run SHALL NOT report a passing outcome on the strength of the tests that happened to finish first, and the process SHALL exit non-zero regardless of any `--min-score` threshold. Every surface that reports the stop SHALL give its actual cause, never assume it was the budget.
 
 #### Scenario: Partial run does not report success
 - **WHEN** a run of ten tests is stopped by its budget after six, all six having passed
@@ -46,6 +48,10 @@ A run stopped by its budget or deadline SHALL be reported as incomplete. The tes
 #### Scenario: Reports mark the run incomplete
 - **WHEN** an incomplete run writes a JUnit or HTML report
 - **THEN** both state that the run was stopped, name the limit reached, and distinguish unexecuted tests from failed ones
+
+#### Scenario: A provider stop names the provider, not the budget
+- **WHEN** a run is stopped by a provider refusal
+- **THEN** the console, JUnit and HTML reports give the provider's reason, and none of them says the budget or deadline stopped it
 
 ### Requirement: The worst case is knowable before spending anything
 The `run` command SHALL be able to report the maximum number of model calls a selection could make, derived from the step counts and the per-step iteration ceiling, without contacting a provider.
@@ -98,4 +104,3 @@ The spend SHALL be reported once per budget. The command that constructed the bu
 #### Scenario: One allowance, one report
 - **WHEN** one budget is shared across the phases of a composed run
 - **THEN** the spend is reported once, by the command that created the budget
-

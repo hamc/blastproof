@@ -232,6 +232,17 @@ score entirely rather than counted as failures. The process exits 1
 unconditionally, and `--min-score` cannot rescue it: the tests that finished are
 whichever happened to run first, not a representative sample of the suite.
 
+The model provider refusing a call stops a run the same way, with or without a
+`budget:`. An exhausted account (HTTP 402), a rejected key (401, 403), rate
+limiting or an outage (429, 5xx), or no answer at all: none of them says anything
+about the application either. The run reports the status, the provider's own
+words and what to do, for example `model provider refused the request (HTTP 402):
+… Add credit to the provider account, then run again.` Rate limits and outages
+reach this point only after the provider SDK has retried them twice with backoff.
+A refusal during the login is not a failed login. The run stops there and every
+selected test is `not run`. A response the model filled badly is different: it
+costs the step one attempt, as it always has.
+
 ### Sizing a limit from evidence
 
 Every run reports what it spent:

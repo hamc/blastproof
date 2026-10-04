@@ -16,7 +16,7 @@ import {
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import type { PageLike } from '../runner/actions.js';
 import { formatSpendLine } from '../report/score.js';
-import { BudgetExhaustedError, RunBudget } from '../runner/budget.js';
+import { RunBudget, RunStoppedError } from '../runner/budget.js';
 import type { ExecutorEvent } from '../runner/executor.js';
 import {
   discoverTestFiles,
@@ -232,7 +232,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
   const failed: { route: string; reason: string }[] = [];
   // Set only by a budget/deadline stop (design D3): a route never reaches a real
   // failure once this is set, so `notAttempted` — not `failed` — is what remains.
-  let incomplete: BudgetExhaustedError | undefined;
+  let incomplete: RunStoppedError | undefined;
 
   // Every unmet prerequisite reported together, before any of them is spent on
   // (design D2, spec preflight). The browser it launches is reused below rather
@@ -264,7 +264,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           onEvent: printAuthEvent,
         });
       } catch (error) {
-        if (error instanceof BudgetExhaustedError) {
+        if (error instanceof RunStoppedError) {
           incomplete = error;
         } else if (error instanceof AuthError) {
           console.error(`error: ${error.message}`);
@@ -293,7 +293,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           timeoutMs: config.browser.timeout_ms,
         });
       } catch (error) {
-        if (error instanceof BudgetExhaustedError) {
+        if (error instanceof RunStoppedError) {
           // Not a route failure (design D3): the run's allowance ran out, so this
           // route and everything after it stop here rather than being misreported
           // as a generation defect.
@@ -364,10 +364,12 @@ export async function planCommand(options: PlanOptions): Promise<number> {
   }
   if (incomplete) {
     // Never a quiet success (design D4's reasoning applies here too): a budget or
-    // deadline stop is reported, not swallowed into "nothing to generate".
+    // deadline stop, or a provider refusal, is reported, not swallowed into
+    // "nothing to generate". `Stopped:` names the cause; the line below must not
+    // assume one (design stop-the-run-when-the-provider-refuses, D3).
     console.log(`Stopped: ${incomplete.message}`);
     if (notAttempted.length > 0) {
-      console.log('Not attempted (run out of budget):');
+      console.log('Not attempted (run stopped):');
       for (const route of notAttempted) console.log(`  ${route}`);
     }
   }
