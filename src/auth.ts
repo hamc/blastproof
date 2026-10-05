@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { AuthConfig } from './config.js';
 import type { AgentBrain } from './llm/brain.js';
+import type { AssertJudgment } from './llm/schemas.js';
 import type { PageLike } from './runner/actions.js';
 import { RunStoppedError } from './runner/budget.js';
 import { SecretsMask, substituteEnv } from './runner/env.js';
@@ -167,6 +168,32 @@ async function runJourney(
 }
 
 /**
+ * The `auth.verify` judgment, asked again on a malformed answer (design
+ * count-a-malformed-judgment-as-an-attempt, D2). A malformed answer says nothing
+ * about the login, so it is retried up to the same budget a step has, each time
+ * on a fresh snapshot. A stop of the run propagates at once. Every attempt
+ * malformed is a login that could not be verified.
+ */
+async function verifyJudgment(
+  brain: AgentBrain,
+  verify: string,
+  snapshot: () => Promise<string>,
+  maskText: (text: string) => string,
+  maxRetries = 3,
+): Promise<AssertJudgment> {
+  let lastError = '';
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await brain.judge(verify, verify, await snapshot());
+    } catch (error) {
+      if (error instanceof RunStoppedError) throw error;
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  throw new AuthError(`Authentication could not be verified: ${maskText(lastError)}`);
+}
+
+/**
  * Runs the login journey once in an empty context and captures the resulting
  * session (design D2/D3). Reuses the agentic executor, so a login is described in
  * exactly the same plain English as a test.
@@ -239,7 +266,13 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
       // There is no separate model-generated claim here the way an executor
       // `assert` has one, so there is nothing to hold apart from it: the
       // configured text is both the question and the claim offered for it.
-      const judgment = await brain.judge(auth.verify, auth.verify, mask.mask(await takeSnapshot(page)));
+      const judgment = await verifyJudgment(
+        brain,
+        auth.verify,
+        async () => mask.mask(await takeSnapshot(page)),
+        (text) => mask.mask(text),
+        maxRetries,
+      );
       if (!judgment.pass) {
         throw new AuthError(`Authentication could not be verified: ${mask.mask(judgment.reason)}`);
       }

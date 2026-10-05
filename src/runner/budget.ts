@@ -105,7 +105,10 @@ export class ProviderRefusedError extends RunStoppedError {
   constructor(statusCode: number | undefined, detail: string) {
     const status = statusCode === undefined ? 'no response' : `HTTP ${statusCode}`;
     const remedy = refusalRemedy(statusCode);
-    super(`model provider refused the request (${status}): ${detail}${remedy ? ` ${remedy}` : ''}`);
+    // A detail is the provider's prose and may stop mid-sentence; the remedy is a
+    // sentence of its own (design count-a-malformed-judgment-as-an-attempt, D3).
+    const separator = /[.!?]$/.test(detail.trim()) ? ' ' : '. ';
+    super(`model provider refused the request (${status}): ${detail}${remedy ? `${separator}${remedy}` : ''}`);
     this.name = 'ProviderRefusedError';
     this.statusCode = statusCode;
   }

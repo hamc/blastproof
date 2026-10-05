@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentBrain } from '../llm/brain.js';
-import type { AgentAction } from '../llm/schemas.js';
+import type { AgentAction, AssertJudgment } from '../llm/schemas.js';
 import { RunStoppedError } from './budget.js';
 import type { TestFile } from './testfile.js';
 import {
@@ -373,36 +373,53 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           // The judge decides with the step's record in view (design
           // judge-sees-the-record, D2): without it, it could not tell a
           // navigation the server redirected from one that never happened.
-          let judgment = await brain.judge(
-            mask(step),
-            mask(expectation),
-            maskedSnap,
-            recovery.stepHistory(),
-          );
-          if (!judgment.pass) {
-            // Re-observe before handing control back to the model (design D3):
-            // the settle wait above is bounded and can time out silently, so a
-            // failed judgment can still land on a page mid-navigation. Look
-            // again — a fresh settle wait, a fresh snapshot, the SAME step and
-            // expectation re-judged — before concluding it really failed. This
-            // is the loop doing what its own comment used to only claim: the
-            // old code said a failed judgment "may just mean the page hasn't
-            // settled" and then returned straight to `nextAction` anyway, which
-            // is what let the model invent an action instead of looking again.
-            await waitForSettled(page);
-            const freshSnap = await takeSnapshot(page);
-            const maskedFresh = mask(freshSnap);
-            // Every snapshot that crosses into a prompt during this step, not
-            // only the ones the acting model sees: the judge's reason comes back
-            // through `lastResult`, so this page has entered the step's record
-            // either way (design refuse-an-invented-value, D2).
-            recovery.observe(maskedFresh);
+          // Both judgments are one attempt, and so is an error from either: a
+          // malformed answer is a failed attempt the step can recover from, as
+          // it is for `nextAction`, never a failed step on its own (design
+          // count-a-malformed-judgment-as-an-attempt, D1). A stop of the run is
+          // not an answer at all and still ends it.
+          let judgment: AssertJudgment;
+          try {
             judgment = await brain.judge(
               mask(step),
               mask(expectation),
-              maskedFresh,
+              maskedSnap,
               recovery.stepHistory(),
             );
+            if (!judgment.pass) {
+              // Re-observe before handing control back to the model (design D3):
+              // the settle wait above is bounded and can time out silently, so a
+              // failed judgment can still land on a page mid-navigation. Look
+              // again — a fresh settle wait, a fresh snapshot, the SAME step and
+              // expectation re-judged — before concluding it really failed. This
+              // is the loop doing what its own comment used to only claim: the
+              // old code said a failed judgment "may just mean the page hasn't
+              // settled" and then returned straight to `nextAction` anyway, which
+              // is what let the model invent an action instead of looking again.
+              await waitForSettled(page);
+              const freshSnap = await takeSnapshot(page);
+              const maskedFresh = mask(freshSnap);
+              // Every snapshot that crosses into a prompt during this step, not
+              // only the ones the acting model sees: the judge's reason comes back
+              // through `lastResult`, so this page has entered the step's record
+              // either way (design refuse-an-invented-value, D2).
+              recovery.observe(maskedFresh);
+              judgment = await brain.judge(
+                mask(step),
+                mask(expectation),
+                maskedFresh,
+                recovery.stepHistory(),
+              );
+            }
+          } catch (error) {
+            if (error instanceof RunStoppedError) throw error;
+            failedAttempts++;
+            lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
+            emitAction(index, action, lastResult);
+            if (failedAttempts >= maxRetries) {
+              throw new StepFailure(lastResult);
+            }
+            continue;
           }
           const result = judgment.pass
             ? `ok: assertion passed: ${judgment.reason}`

@@ -324,6 +324,12 @@ describe('a stop of the run (stop-the-run-when-the-provider-refuses, D2, D3)', (
     expect(message).toContain('llm.base_url');
   });
 
+  it('ends a detail that stops mid-sentence before the remedy (count-a-malformed-judgment-as-an-attempt, D3)', () => {
+    const message = new ProviderRefusedError(undefined, 'Cannot connect to API: connect ECONNREFUSED 127.0.0.1:5995').message;
+    expect(message).toContain('127.0.0.1:5995. The provider could not be reached');
+    expect(new ProviderRefusedError(402, 'No credit left.').message).toContain('No credit left. Add credit');
+  });
+
   it('adds nothing of its own for a status it has no remedy for', () => {
     const message = new ProviderRefusedError(404, 'model not found').message;
     expect(message).toBe('model provider refused the request (HTTP 404): model not found');

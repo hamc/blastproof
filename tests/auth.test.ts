@@ -12,6 +12,7 @@ import {
 } from '../src/auth.js';
 import type { AuthConfig } from '../src/config.js';
 import type { AgentBrain } from '../src/llm/brain.js';
+import type { AssertJudgment } from '../src/llm/schemas.js';
 import type { LocatorLike, PageLike } from '../src/runner/actions.js';
 import { BudgetExhaustedError, ProviderRefusedError } from '../src/runner/budget.js';
 import { SecretsMask } from '../src/runner/env.js';
@@ -398,6 +399,49 @@ describe('authenticate: steps strategy', () => {
     await expect(
       authenticate(options({ steps: ['sign in'], cache: false }, brain)),
     ).rejects.toThrow(BudgetExhaustedError);
+  });
+
+  describe('a malformed verify judgment (count-a-malformed-judgment-as-an-attempt, D2)', () => {
+    function verifyBrain(judgments: Array<AssertJudgment | Error>): AgentBrain & { judgeCalls: number } {
+      let judgeCalls = 0;
+      return {
+        get judgeCalls() {
+          return judgeCalls;
+        },
+        nextAction: async () => ({ action: 'assert', reasoning: 'r', expectation: 'signed in' }),
+        judge: async () => {
+          const next = judgments[judgeCalls++];
+          if (!next) throw new Error('judgment script exhausted');
+          if (next instanceof Error) throw next;
+          return next;
+        },
+      };
+    }
+    const ok = { pass: true, reason: 'signed in' };
+    const bad = () => new Error('Invalid JSON response');
+
+    it('asks again, and a login verified on the next answer is a login', async () => {
+      // Journey: one passing judgment. Verify: malformed once, then answered.
+      const brain = verifyBrain([ok, bad(), ok]);
+      const session = await authenticate(options({ steps: ['sign in'], verify: 'signed in', cache: false }, brain));
+      expect(session.storageState).toBeDefined();
+      expect(brain.judgeCalls).toBe(3);
+    });
+
+    it('reports a login that could not be verified once every attempt was malformed', async () => {
+      const brain = verifyBrain([ok, bad(), bad(), bad()]);
+      await expect(
+        authenticate(options({ steps: ['sign in'], verify: 'signed in', cache: false }, brain)),
+      ).rejects.toThrow(/Authentication could not be verified: Invalid JSON response/);
+    });
+
+    it('lets a stop of the run through at once', async () => {
+      const brain = verifyBrain([ok, new ProviderRefusedError(503, 'unavailable')]);
+      await expect(
+        authenticate(options({ steps: ['sign in'], verify: 'signed in', cache: false }, brain)),
+      ).rejects.toThrow(ProviderRefusedError);
+      expect(brain.judgeCalls).toBe(2);
+    });
   });
 
   it('propagates a provider refusal as itself, not as an AuthError (#125)', async () => {
