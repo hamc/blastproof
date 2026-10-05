@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { loadCorpus, runCorpus, type JudgeCase } from '../evals/judge/corpus.js';
+import { loadCorpus, runCorpus, runCorpusOnModels, wrongOn, type JudgeCase } from '../evals/judge/corpus.js';
+import { evalModels } from '../evals/judge/models.js';
+import { ProviderRefusedError } from '../src/runner/budget.js';
 
 // The replay needs a model and a key, so it is not run here (design
 // ask-the-judge-about-the-step, D4). What is checked here is that the corpus
@@ -67,5 +69,100 @@ describe('runCorpus', () => {
     const outcome = await runCorpus([pass], flaky, 2);
     expect(outcome.results[0]!.right).toBe(1);
     expect(outcome.regressions).toHaveLength(1);
+  });
+});
+
+describe('an unusable answer (replay-the-judge-corpus-on-two-models, D4)', () => {
+  const pass: JudgeCase = { ...cases[0]!, id: 'p', verdict: 'PASS', knownFailing: undefined };
+  const other: JudgeCase = { ...cases[0]!, id: 'q', verdict: 'PASS', knownFailing: undefined };
+
+  it('is a wrong sample with the error as its reason, and the replay goes on', async () => {
+    // Seen with a model whose answer ran to 65536 tokens without closing its
+    // JSON: the replay crashed and no later case was judged.
+    let n = 0;
+    const judge = async () => {
+      if (n++ === 0) throw new Error('No object generated: could not parse the response.');
+      return { pass: true, reason: 'stub' };
+    };
+    const outcome = await runCorpus([pass, other], judge, 2);
+    expect(outcome.results.map((r) => r.right)).toEqual([1, 2]);
+    expect(outcome.results[0]!.wrongReason).toBe('error: No object generated: could not parse the response.');
+  });
+
+  it('still ends the replay on a stop of the run', async () => {
+    const judge = async (): Promise<never> => {
+      throw new ProviderRefusedError(402, 'no credit');
+    };
+    await expect(runCorpus([pass], judge, 1)).rejects.toThrow(ProviderRefusedError);
+  });
+});
+
+describe('replaying on several models (replay-the-judge-corpus-on-two-models, D1, D3)', () => {
+  const pass: JudgeCase = { ...cases[0]!, id: 'p', verdict: 'PASS', knownFailing: undefined };
+  const known: JudgeCase = { ...cases[0]!, id: 'k', verdict: 'PASS', knownFailing: '#129' };
+  const always = (verdict: boolean) => async () => ({ pass: verdict, reason: 'stub' });
+
+  it('is a regression when an unmarked case is wrong on any model, naming that model', async () => {
+    const outcome = await runCorpusOnModels(
+      [pass],
+      [
+        { model: 'a', judge: always(true) },
+        { model: 'b', judge: always(false) },
+      ],
+      2,
+    );
+    expect(outcome.regressions.map((r) => r.case.id)).toEqual(['p']);
+    expect(wrongOn(outcome.regressions[0]!)).toEqual(['b']);
+  });
+
+  it('reports a known failure as fixed only when every model gets it right', async () => {
+    // #129: right on one model of the reference pair, wrong on the default.
+    const split = await runCorpusOnModels(
+      [known],
+      [
+        { model: 'default', judge: always(false) },
+        { model: 'other', judge: always(true) },
+      ],
+      2,
+    );
+    expect(split.nowPassing).toEqual([]);
+    expect(split.regressions).toEqual([]);
+    expect(wrongOn(split.results[0]!)).toEqual(['default']);
+
+    const fixed = await runCorpusOnModels(
+      [known],
+      [
+        { model: 'default', judge: always(true) },
+        { model: 'other', judge: always(true) },
+      ],
+      2,
+    );
+    expect(fixed.nowPassing.map((r) => r.case.id)).toEqual(['k']);
+  });
+
+  it('keeps each case\'s results in the order the models were given', async () => {
+    const outcome = await runCorpusOnModels(
+      [pass],
+      [
+        { model: 'first', judge: always(true) },
+        { model: 'second', judge: always(false) },
+      ],
+      1,
+    );
+    expect(outcome.models).toEqual(['first', 'second']);
+    expect(outcome.results[0]!.perModel.map((m) => [m.model, m.result.right])).toEqual([
+      ['first', 1],
+      ['second', 0],
+    ]);
+  });
+
+  it('reads EVAL_MODELS, and falls back to the configured model', () => {
+    expect(evalModels(undefined, 'configured')).toEqual(['configured']);
+    expect(evalModels('  ', 'configured')).toEqual(['configured']);
+    expect(evalModels('anthropic/claude-haiku-4.5, openai/gpt-6-luna,', 'configured')).toEqual([
+      'anthropic/claude-haiku-4.5',
+      'openai/gpt-6-luna',
+    ]);
+    expect(evalModels('a,a,b', 'configured')).toEqual(['a', 'b']);
   });
 });

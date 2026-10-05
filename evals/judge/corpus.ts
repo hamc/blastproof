@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { AssertJudgment } from '../../src/llm/schemas.js';
+import { RunStoppedError } from '../../src/runner/budget.js';
 import type { StepHistoryEntry } from '../../src/runner/recovery.js';
 
 /**
@@ -88,6 +89,12 @@ export interface CorpusOutcome {
  * Replays every case `samples` times. A case is right only when every sample
  * is: the judge runs at temperature 0, so one wrong sample is a verdict a gate
  * can return, not noise to average away.
+ *
+ * An answer that could not be used is a wrong sample, not the end of the replay
+ * (design replay-the-judge-corpus-on-two-models, D4): one completion cut off
+ * mid-JSON aborted a whole replay, and no case after it was judged. A stop of
+ * the run (#125) still ends it, since every sample after an exhausted balance
+ * would be wrong for a reason that is not the judge's.
  */
 export async function runCorpus(cases: JudgeCase[], judge: Judge, samples: number): Promise<CorpusOutcome> {
   const results: CaseResult[] = [];
@@ -95,7 +102,14 @@ export async function runCorpus(cases: JudgeCase[], judge: Judge, samples: numbe
     let right = 0;
     let wrongReason: string | undefined;
     for (let i = 0; i < samples; i++) {
-      const judgment = await judge(c.step, c.expectation, c.snapshot, c.history);
+      let judgment: AssertJudgment;
+      try {
+        judgment = await judge(c.step, c.expectation, c.snapshot, c.history);
+      } catch (error) {
+        if (error instanceof RunStoppedError) throw error;
+        wrongReason = `error: ${error instanceof Error ? error.message : String(error)}`;
+        continue;
+      }
       if (judgment.pass === (c.verdict === 'PASS')) right++;
       else wrongReason = judgment.reason;
     }
@@ -105,5 +119,52 @@ export async function runCorpus(cases: JudgeCase[], judge: Judge, samples: numbe
     results,
     regressions: results.filter((r) => !r.case.knownFailing && r.right < r.samples),
     nowPassing: results.filter((r) => r.case.knownFailing && r.right === r.samples),
+  };
+}
+
+/** One case's results, one per model, in the order the models were given. */
+export interface CaseAcrossModels {
+  case: JudgeCase;
+  perModel: Array<{ model: string; result: CaseResult }>;
+}
+
+export interface ModelsOutcome {
+  models: string[];
+  results: CaseAcrossModels[];
+  /** Cases not marked knownFailing that were judged wrong on any model. */
+  regressions: CaseAcrossModels[];
+  /** Cases marked knownFailing that were judged right on every model. */
+  nowPassing: CaseAcrossModels[];
+}
+
+/** The models that judged a case wrong in at least one sample. */
+export function wrongOn(entry: CaseAcrossModels): string[] {
+  return entry.perModel.filter(({ result }) => result.right < result.samples).map(({ model }) => model);
+}
+
+/**
+ * Replays the corpus on each model in turn (design
+ * replay-the-judge-corpus-on-two-models, D3). A regression on any model is a
+ * regression: a fix that holds on one model only may be a quirk of that model.
+ * A known failure is only reported fixed when every model gets it right, since
+ * a bug still reaching the default model is still open (#129 is right on one
+ * model of the reference pair and wrong on the other).
+ */
+export async function runCorpusOnModels(
+  cases: JudgeCase[],
+  judges: Array<{ model: string; judge: Judge }>,
+  samples: number,
+): Promise<ModelsOutcome> {
+  const perModel: Array<{ model: string; outcome: CorpusOutcome }> = [];
+  for (const { model, judge } of judges) perModel.push({ model, outcome: await runCorpus(cases, judge, samples) });
+  const results: CaseAcrossModels[] = cases.map((c, i) => ({
+    case: c,
+    perModel: perModel.map(({ model, outcome }) => ({ model, result: outcome.results[i]! })),
+  }));
+  return {
+    models: judges.map(({ model }) => model),
+    results,
+    regressions: results.filter((r) => !r.case.knownFailing && wrongOn(r).length > 0),
+    nowPassing: results.filter((r) => r.case.knownFailing && wrongOn(r).length === 0),
   };
 }

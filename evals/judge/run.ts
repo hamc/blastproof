@@ -7,36 +7,60 @@
  * from `.blastproof/config.yaml` and the usual `BLASTPROOF_*` overrides, exactly
  * as `blastproof run` resolves it.
  *
- * Exit 1 when a case not marked `knownFailing` is judged wrong in any sample.
+ * `EVAL_MODELS` replays on several models through that same provider (design
+ * replay-the-judge-corpus-on-two-models, D1). The reference pair, which a judge
+ * change must pass on, is in CONTRIBUTING.md.
+ *
+ * Exit 1 when a case not marked `knownFailing` is judged wrong in any sample on
+ * any model.
  */
 import { loadConfig } from '../../src/config.js';
 import { createBrain } from '../../src/llm/brain.js';
 import { createModel } from '../../src/llm/provider.js';
 import { RunBudget } from '../../src/runner/budget.js';
-import { loadCorpus, runCorpus } from './corpus.js';
+import { evalModels } from './models.js';
+import { loadCorpus, runCorpusOnModels, wrongOn } from './corpus.js';
 
 const samples = Number(process.env.EVAL_SAMPLES ?? 3);
 const config = await loadConfig(process.cwd());
-const { model, provider, modelId } = createModel(config.llm);
-const brain = createBrain(model, undefined, new RunBudget());
+const configured = createModel(config.llm);
+const models = evalModels(process.env.EVAL_MODELS, configured.modelId);
+const judges = models.map((model) => {
+  const brain = createBrain(createModel({ ...config.llm, model }).model, undefined, new RunBudget());
+  return { model, judge: brain.judge.bind(brain) };
+});
 const cases = loadCorpus();
 
-console.log(`judge corpus: ${cases.length} case(s) x ${samples} sample(s), provider=${provider} model=${modelId}\n`);
-const outcome = await runCorpus(cases, (s, e, snap, h) => brain.judge(s, e, snap, h), samples);
+console.log(
+  `judge corpus: ${cases.length} case(s) x ${samples} sample(s), provider=${configured.provider} ` +
+    `model(s)=${models.join(', ')}\n`,
+);
+const outcome = await runCorpusOnModels(cases, judges, samples);
 
-for (const r of outcome.results) {
-  const mark = r.right === r.samples ? 'ok  ' : r.case.knownFailing ? 'xfail' : 'FAIL';
-  const known = r.case.knownFailing ? ` (known: ${r.case.knownFailing})` : '';
-  console.log(`${mark} ${r.case.incident.padEnd(5)} ${r.case.id.padEnd(46)} ${r.case.verdict} ${r.right}/${r.samples}${known}`);
-  if (r.right < r.samples && r.wrongReason) console.log(`        judge: ${r.wrongReason.slice(0, 220)}`);
+for (const entry of outcome.results) {
+  const wrong = wrongOn(entry);
+  const mark = wrong.length === 0 ? 'ok  ' : entry.case.knownFailing ? 'xfail' : 'FAIL';
+  const scores = entry.perModel.map(({ result }) => `${result.right}/${result.samples}`).join(' ');
+  const known = entry.case.knownFailing ? ` (known: ${entry.case.knownFailing})` : '';
+  console.log(`${mark} ${entry.case.incident.padEnd(5)} ${entry.case.id.padEnd(46)} ${entry.case.verdict} ${scores}${known}`);
+  for (const { model, result } of entry.perModel) {
+    if (result.right < result.samples && result.wrongReason) {
+      console.log(`        ${model}: ${result.wrongReason.slice(0, 220)}`);
+    }
+  }
 }
 
-for (const r of outcome.nowPassing) {
-  console.log(`\nnow passing: ${r.case.id} is marked knownFailing ${r.case.knownFailing} and was judged right ${r.right}/${r.samples}. Remove the marker.`);
+for (const entry of outcome.nowPassing) {
+  console.log(
+    `\nnow passing: ${entry.case.id} is marked knownFailing ${entry.case.knownFailing} and was judged right ` +
+      `on every model. Remove the marker.`,
+  );
 }
 if (outcome.regressions.length > 0) {
   console.error(`\n${outcome.regressions.length} case(s) not marked knownFailing were judged wrong:`);
-  for (const r of outcome.regressions) console.error(`  ${r.case.file}: ${r.case.id}`);
+  for (const entry of outcome.regressions) {
+    console.error(`  ${entry.case.file}: ${entry.case.id} (wrong on ${wrongOn(entry).join(', ')})`);
+  }
   process.exit(1);
 }
 console.log('\nno regression');
