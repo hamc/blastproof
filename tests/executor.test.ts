@@ -15,6 +15,7 @@ import {
   type PageLike,
 } from '../src/runner/actions.js';
 import { BudgetExhaustedError, ProviderRefusedError } from '../src/runner/budget.js';
+import { MalformedModelOutputError } from '../src/llm/brain.js';
 import { SecretsMask } from '../src/runner/env.js';
 import { executeTest, SETTLE_TIMEOUT_MS, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
 import { describeAction, StepRecovery } from '../src/runner/recovery.js';
@@ -511,6 +512,86 @@ describe('executeTest', () => {
         BudgetExhaustedError,
       );
       expect(calls).toBe(1);
+    });
+  });
+
+  // A malformed judgment is one failed attempt, as a malformed decision always
+  // was (design count-a-malformed-judgment-as-an-attempt, D1). Reproduced on the
+  // demo app: one corrupted judge answer failed the test outright.
+  describe('a malformed judgment', () => {
+    const assertAction: AgentAction = { action: 'assert', reasoning: 'check', expectation: 'total is $80' };
+    const malformed = () => new MalformedModelOutputError('Model returned an invalid assert judgment: bad');
+
+    function judgeBrain(judgments: Array<AssertJudgment | Error>): AgentBrain & { judgeCalls: number } {
+      let judgeCalls = 0;
+      return {
+        get judgeCalls() {
+          return judgeCalls;
+        },
+        nextAction: async () => assertAction,
+        judge: async () => {
+          const next = judgments[judgeCalls++];
+          if (!next) throw new Error('judgment script exhausted');
+          if (next instanceof Error) throw next;
+          return next;
+        },
+      };
+    }
+
+    it('costs one attempt and the step goes on to pass, with the error in the record', async () => {
+      const events: ExecutorEvent[] = [];
+      const brain = judgeBrain([malformed(), { pass: true, reason: 'total shows $80' }]);
+
+      const result = await executeTest(
+        new FakePage(),
+        makeTest(),
+        baseOptions(brain, { maxRetries: 3, onEvent: (e) => events.push(e) }),
+      );
+
+      expect(result.status).toBe('passed');
+      expect(result.steps[0]?.failedAttempts).toBe(1);
+      const results = events.flatMap((e) => (e.type === 'action' ? [e.result] : []));
+      expect(results[0]).toMatch(/^error: Model returned an invalid assert judgment/);
+      expect(results[1]).toMatch(/^ok: assertion passed/);
+    });
+
+    it('fails the step only once the retry budget is spent', async () => {
+      const brain = judgeBrain([malformed(), malformed(), malformed(), malformed()]);
+
+      const result = await executeTest(new FakePage(), makeTest(), baseOptions(brain, { maxRetries: 3 }));
+
+      expect(result.status).toBe('failed');
+      expect(brain.judgeCalls).toBe(3);
+      expect(result.reason).toMatch(/^error: Model returned an invalid assert judgment/);
+    });
+
+    it('counts an error in the re-observation as the same single attempt', async () => {
+      // The re-observation is part of one judgment (trustworthy-verdicts, D3):
+      // a failed first judgment followed by a malformed re-observation is one
+      // attempt, not two.
+      const brain = judgeBrain([
+        { pass: false, reason: 'not yet' },
+        malformed(),
+        { pass: true, reason: 'total shows $80' },
+      ]);
+
+      const result = await executeTest(new FakePage(), makeTest(), baseOptions(brain, { maxRetries: 3 }));
+
+      expect(result.status).toBe('passed');
+      expect(result.steps[0]?.failedAttempts).toBe(1);
+    });
+
+    it('still lets a stop of the run through, from either judgment', async () => {
+      await expect(
+        executeTest(new FakePage(), makeTest(), baseOptions(judgeBrain([new ProviderRefusedError(402, 'x')]))),
+      ).rejects.toThrow(ProviderRefusedError);
+      await expect(
+        executeTest(
+          new FakePage(),
+          makeTest(),
+          baseOptions(judgeBrain([{ pass: false, reason: 'no' }, new BudgetExhaustedError('calls', 1, 1)])),
+        ),
+      ).rejects.toThrow(BudgetExhaustedError);
     });
   });
 
