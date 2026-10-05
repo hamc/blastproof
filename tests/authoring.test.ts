@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { detectMissingValues, suggestValueClause } from '../src/runner/authoring.js';
+import { detectMissingValues, isVerificationStep, suggestValueClause } from '../src/runner/authoring.js';
 import { discoverTestFiles, parseTestFile, type TestFile } from '../src/runner/testfile.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -236,5 +236,37 @@ describe('the authoring rule reads the same everywhere it is stated', () => {
 
     expect(readme).toContain('English only');
     expect(runner).toContain('in English only');
+  });
+});
+
+describe('isVerificationStep (a-verification-step-only-looks, D1)', () => {
+  it.each([
+    'verify the total is $96.00',
+    'Verify the order number is shown',
+    'check the heading says "Order placed"',
+    'confirm the note is listed',
+    'ensure the cart is empty',
+    'assert the banner is gone',
+    'expect the error to be shown',
+    'validate the subtotal',
+    'make sure the menu shows the email',
+    'see that the ticket number is shown',
+    'then verify the count is 1',
+    'and check the status message',
+    '  VERIFY the heading',
+  ])('takes "%s" for a check', (step) => {
+    expect(isVerificationStep(step)).toBe(true);
+  });
+
+  it.each([
+    'click Add to cart and verify the status says added',
+    'submit the form and verify the confirmation page',
+    'navigate to /notes and verify the heading',
+    'verification code is shown',
+    'checkout the order and verify it is placed',
+    'open the Account menu and verify it shows the email',
+    'verifique que o carrinho está vazio',
+  ])('takes "%s" for something else', (step) => {
+    expect(isVerificationStep(step)).toBe(false);
   });
 });

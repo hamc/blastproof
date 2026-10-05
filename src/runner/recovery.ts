@@ -1,4 +1,5 @@
 import type { AgentAction } from '../llm/schemas.js';
+import { isVerificationStep } from './authoring.js';
 import { REDACTION_PREFIX, referencedEnvVars } from './env.js';
 
 /**
@@ -25,6 +26,12 @@ const COMMIT_ACTIONS: ReadonlySet<string> = new Set(['click', 'press']);
  * move focus or dismiss; they do not write.
  */
 const COMMIT_KEYS: ReadonlySet<string> = new Set(['Enter', 'NumpadEnter', ' ', 'Space', 'Spacebar']);
+
+/** A click, or a press of a key that activates a control. */
+function isCommit(action: AgentAction): boolean {
+  if (!COMMIT_ACTIONS.has(action.action)) return false;
+  return action.action !== 'press' || COMMIT_KEYS.has(action.value ?? '');
+}
 
 /**
  * The actions whose value is free text the model chose, and so the ones a
@@ -162,10 +169,16 @@ export class StepRecovery {
    * stay distinguishable in the one place that decides which secret gets typed.
    */
   private readonly step: string;
+  /**
+   * Whether the step asks only for a check (design a-verification-step-only-looks,
+   * D1). Read by the executor too, which refuses `done` in such a step.
+   */
+  readonly verifies: boolean;
 
   constructor(step: string) {
     this.step = step;
     this.readable = [normalise(step)];
+    this.verifies = isVerificationStep(step);
   }
 
   /**
@@ -229,6 +242,7 @@ export class StepRecovery {
    */
   refusalFor(action: AgentAction): string | undefined {
     return (
+      this.verificationRefusal(action) ??
       this.repeatedCommitRefusal(action) ??
       this.redactionLabelRefusal(action) ??
       this.unsourcedValueRefusal(action)
@@ -260,9 +274,26 @@ export class StepRecovery {
     );
   }
 
+  /**
+   * Refuses a commit in a step that only checks (design
+   * a-verification-step-only-looks, D2). Without it the agent could make a check
+   * true by producing what it checks: a click on "Add to cart" put the message a
+   * verification looked for on the page, and the step passed (#139). Navigation
+   * stays allowed, since a check may need another page; a link click does not,
+   * since a link and a logout item look alike from here and `navigate` covers it.
+   * First among the refusals, because it holds whatever was done before.
+   */
+  private verificationRefusal(action: AgentAction): string | undefined {
+    if (!this.verifies || !isCommit(action)) return undefined;
+    return (
+      'refused: this step only verifies — it does not ask you to change anything, so clicking or pressing here ' +
+      'could make the check pass by producing what it checks. Assert what the page shows. If what the step names ' +
+      'is on another page, navigate there. If it is not shown, fail the step.'
+    );
+  }
+
   private repeatedCommitRefusal(action: AgentAction): string | undefined {
-    if (!COMMIT_ACTIONS.has(action.action)) return undefined;
-    if (action.action === 'press' && !COMMIT_KEYS.has(action.value ?? '')) return undefined;
+    if (!isCommit(action)) return undefined;
     if (!this.performed.has(identity(action))) return undefined;
     return (
       `refused: this exact action already succeeded earlier in this step, so it was NOT performed again. ` +

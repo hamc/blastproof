@@ -69,6 +69,32 @@ function namesNoValue(step: string): boolean {
 }
 
 /**
+ * The words a check begins with (design a-verification-step-only-looks, D1).
+ * Anchored at the start, like `LEADING_VALUE_VERB` and for the same reason: test
+ * steps are imperative, so the first word is the move. "Click Add to cart and
+ * verify the status says…" begins with its action and is not a verification; a
+ * step that only names "verify" later is not one either. An optional leading
+ * `then` or `and` is allowed, since steps continue one another that way.
+ */
+const LEADING_CHECK_VERB =
+  /^\s*(?:(?:then|and)\s+)?(?:verify|check|confirm|ensure|assert|expect|validate|make\s+sure|see\s+that)\b/i;
+
+/**
+ * True when the step asks only for a check (design a-verification-step-only-looks,
+ * D1). In such a step the executor refuses a click or a committing key, and does
+ * not close it on `done`: on a page that did not satisfy it, both reference
+ * models clicked "Add to cart" to produce the message the step checked for, and
+ * the step passed (#139).
+ *
+ * English only, as everything here is. The two ways this can be wrong both leave
+ * no new false PASS: a step taken for a check that needed a click fails visibly on
+ * the refusal, and a check this misses runs as it always has.
+ */
+export function isVerificationStep(step: string): boolean {
+  return LEADING_CHECK_VERB.test(step);
+}
+
+/**
  * True when the step enters a value and names it — the positive half of the
  * same predicate. Exported so the planner's secret check asks "does this step
  * type something" by this definition rather than by a second one of its own

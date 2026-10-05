@@ -194,6 +194,10 @@ const NOTHING_DONE_REFUSAL =
   'left to do — assert that it holds and let the judgment close the step; an assertion is evidence, ' +
   'a declaration is not. If the step cannot be carried out at all, fail it and say why.';
 
+const VERIFICATION_DONE_REFUSAL =
+  'refused: this step only verifies, so it closes on a passing assertion, not on being declared finished. ' +
+  'Assert what the page shows; if it does not show what the step names, fail the step and say why.';
+
 class StepFailure extends Error {}
 
 /**
@@ -345,9 +349,12 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           // assertion breaks out of the loop above before reaching here, so
           // this covers a step that verified nothing by the same rule, with no
           // separate case for verification steps (#72's deferred half).
-          if (!recovery.acted) {
+          // A step that only checks closes on a passing judgment and nothing
+          // else (design a-verification-step-only-looks, D3): after a click, a
+          // model closed one on its own sentence, never judged (#139).
+          if (!recovery.acted || recovery.verifies) {
             failedAttempts++;
-            lastResult = NOTHING_DONE_REFUSAL;
+            lastResult = recovery.verifies ? VERIFICATION_DONE_REFUSAL : NOTHING_DONE_REFUSAL;
             emitAction(index, action, lastResult);
             if (failedAttempts >= maxRetries) {
               throw new StepFailure(lastResult);
