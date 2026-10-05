@@ -50,10 +50,12 @@ Agentic runs cost tokens and need a real provider. Everything else — unit test
 `evals/judge/` is a corpus of judge inputs with known correct verdicts, one file per incident that ever produced a wrong one: a wrong PASS, a wrong FAIL, or a verdict that flipped. If your change touches the judge (`judge()`, its prompt or its schema), replay it before opening the pull request:
 
 ```bash
-npm run eval:judge    # uses .blastproof/config.yaml and the usual BLASTPROOF_* overrides
+EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna npm run eval:judge
 ```
 
-It needs a model and a key, so it is not part of CI. It exits 1 when a case that used to be judged right is judged wrong in any sample. A case marked `knownFailing` is a bug still open; when your change fixes one, the run tells you, and you remove the marker in the same pull request. If you are fixing a new verdict incident, add its case to the corpus as part of the fix, captured from the run if you can, and say where it came from either way.
+Run it on both of those models. Each one goes through the provider your `.blastproof/config.yaml` and the usual `BLASTPROOF_*` overrides resolve, with only the model replaced, so a gateway such as OpenRouter serves both with one key. Without `EVAL_MODELS` it uses the configured model alone. The pair is deliberate. Haiku is the Anthropic default, so its verdicts are the ones an unconfigured user gets. Luna is another family. A judge fix written in prose and verified on one model may only fit that model's quirks; one that holds on both is less likely to.
+
+It needs a model and a key, so it is not part of CI. It exits 1 when a case that used to be judged right is judged wrong in any sample on any model, and names the model. An answer that could not be used counts as a wrong sample, so one broken completion does not end the replay. A case marked `knownFailing` is a bug still open. When your change fixes one on every model, the run tells you, and you remove the marker in the same pull request; fixed on one model only, it stays marked. If you are fixing a new verdict incident, add its case to the corpus as part of the fix, captured from the run if you can, and say where it came from either way.
 
 ## Before you open a pull request
 
