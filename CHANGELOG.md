@@ -3,6 +3,53 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.23.0] — 2026-10-05
+
+### Fixed
+
+- **A step whose outcome already holds passes, instead of failing for want of its action.**
+  *"Dismiss the cookie dialog by clicking "Me want it!" and verify it is gone"*, on a page where
+  an earlier step had already dismissed it, failed: the judge read the verb as a requirement and
+  wrote *"the dialog's absence cannot be verified as the result of dismissal"*. The judgment now
+  states the step's outcome first, as a sentence with the action taken out, and decides that.
+  Live against OWASP Juice Shop, the first judgment of that step failed in 4 of 5 runs before and
+  passes in 5 of 5 now (#121). **Behaviour change:** the means is not checked. *"Sign in with
+  SSO"* passes for a user signed in some other way, because a snapshot records a state, not the
+  path to it; a step whose means matters names what the means leaves on the page. One path of
+  #121 remains, the judge taking a different dialog for the one named, and is #129.
+- **A model provider refusing a call stops the run as incomplete, instead of failing tests.** An
+  exhausted account, a rejected key, rate limiting, an outage or no answer at all used to spend
+  each step's retries and fail it. Every test then failed as though the application had
+  regressed, and a refusal during the login read `Authentication failed`, exit 2. A call that
+  gets an HTTP status of 400 or above, or no response, after the provider SDK's own retries,
+  now ends the run the way an exhausted budget does: the tests not run are reported `not run`,
+  the run exits 1 whatever `--min-score` is, and the reason gives the status, the provider's
+  words and what to do (#125).
+- **A malformed answer from the judge costs one attempt, not the step.** The spec has always
+  required it, and the action call met it, but both judgments in a step sat outside the code that
+  counts attempts. One unparseable answer failed the test, and during the login it failed the
+  run with exit 2. It is now recorded as the assertion's result, and the step continues. At
+  login, the `verify` judgment is asked again, up to `max_retries_per_step`.
+- **A repeated click is recognised by what resolves it, so a text hint no longer disguises it.**
+  `contained-recovery` refuses to repeat a click or submit within a step. Its identity included
+  the button's visible text, so a model that added the text on a retry got a "new" action and
+  clicked again, writing a duplicate row. A commit is now identified by role, name (compared
+  case- and whitespace-insensitively) and value, with the text counted only when there is no
+  role or name. Duplicate writes in the demo suite went from 2 runs in 5 to none (#124).
+
+### Known issues
+
+Found by an adversarial QA pass before this release, and not fixed in it:
+
+- A target with a role but no name clicks the first element of that role, whatever its text
+  (#132). Rare in practice, 2 of 532 clicks in recent runs, but silent.
+- A model call has no timeout: a provider that stops answering holds the run for minutes per
+  attempt, past `--max-duration` (#133).
+- An incomplete run in which nothing executed reports a score of 100 in JUnit, HTML and the
+  Action's `score` output (#134). The exit code is correct.
+- A call that fails inside the AI SDK's own parsing is not counted against the run's budget
+  (#136).
+
 ## [0.22.0] — 2026-10-03
 
 ### Fixed
