@@ -533,7 +533,7 @@ describe('authenticate: steps strategy', () => {
     };
 
     await authenticate({
-      ...options({ steps: ['check something'], cache: false }, brain, browser),
+      ...options({ steps: ['open something'], cache: false }, brain, browser),
       snapshot: undefined, // let the real default snapshotter run, not the helper's stub
       maxSnapshotLines: 10,
     });
@@ -561,7 +561,7 @@ describe('authenticate: steps strategy', () => {
 
     await authenticate({
       ...options(
-        { steps: ['check something'], verify: 'a signed-in indicator is visible', cache: false },
+        { steps: ['open something'], verify: 'a signed-in indicator is visible', cache: false },
         brain,
         browser,
       ),

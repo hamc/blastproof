@@ -355,6 +355,15 @@ describe('a step is judged on its outcome, not its action (judge-the-outcome-not
   });
 });
 
+describe('the executor is told a verification step only looks (a-verification-step-only-looks, D4)', () => {
+  it('names the rule and says it is enforced', () => {
+    const prompt = agentSystemPrompt();
+    expect(prompt).toContain('only looks. Never click or press in it');
+    expect(prompt).toContain('It closes on a passing assertion, never on "done"');
+    expect(prompt).toContain('a click, a press or "done" in such a step is refused');
+  });
+});
+
 describe('what is pinned and what is not (design D1, deterministic-verdicts)', () => {
   it('pins the judgment, because two decisions about one page must agree', async () => {
     const captured: { options?: { temperature?: number } } = {};

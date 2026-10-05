@@ -2397,3 +2397,98 @@ describe('a step closes on what was done (spec agentic-execution, #76)', () => {
     expect(result.failedStep).toBe('log in first');
   });
 });
+
+describe('a verification step only looks (a-verification-step-only-looks, #139)', () => {
+  // Reproduced on the demo app: "verify the page says "Mechanical Keyboard added
+  // to cart."" on a page where nothing was added. Both reference models clicked
+  // "Add to cart"; one then passed the judgment, the other closed on `done`.
+  const VERIFY = 'verify the page says "Mechanical Keyboard added to cart."';
+  const assertIt: AgentAction = { action: 'assert', reasoning: 'r', expectation: 'message shown' };
+
+  it('refuses a click, does not perform it, and still closes on a passing assertion', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add to cart');
+    const events: ExecutorEvent[] = [];
+    const brain = scriptedBrain([click('Add to cart'), assertIt], [{ pass: true, reason: 'shown' }]);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [VERIFY] }),
+      baseOptions(brain, { onEvent: (e) => events.push(e) }),
+    );
+
+    expect(page.calls.some((c) => c.startsWith('click'))).toBe(false);
+    const first = events.find((e) => e.type === 'action');
+    expect(first && first.type === 'action' ? first.result : '').toMatch(/^refused: this step only verifies/);
+    expect(result.status).toBe('passed');
+  });
+
+  it('fails when the agent can only produce the outcome, never judging a page it changed', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add to cart');
+    const brain = scriptedBrain([click('Add to cart'), click('Add to cart'), click('Add to cart')]);
+
+    const result = await executeTest(page, makeTest({ steps: [VERIFY] }), baseOptions(brain, { maxRetries: 3 }));
+
+    expect(result.status).toBe('failed');
+    expect(page.calls.some((c) => c.startsWith('click'))).toBe(false);
+    expect(brain.judgeCalls).toBe(0);
+  });
+
+  it('refuses `done`, whatever succeeded before it', async () => {
+    // A navigation is allowed and succeeds, so `close-a-step-on-what-was-done`
+    // alone would accept the `done` after it.
+    const page = new FakePage();
+    const brain = scriptedBrain([
+      { action: 'navigate', value: '/cart', reasoning: 'look there' },
+      { action: 'done', reasoning: 'it says so' },
+      assertIt,
+    ], [{ pass: true, reason: 'shown' }]);
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [VERIFY] }),
+      baseOptions(brain, { onEvent: (e) => events.push(e) }),
+    );
+
+    const results = events.flatMap((e) => (e.type === 'action' ? [e.result] : []));
+    expect(results[1]).toMatch(/^refused: this step only verifies, so it closes on a passing assertion/);
+    expect(result.status).toBe('passed');
+    expect(result.steps[0]?.failedAttempts).toBe(1);
+  });
+
+  it('leaves an action step that verifies its outcome as it was', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add to cart');
+    const brain = scriptedBrain([click('Add to cart'), { action: 'done', reasoning: 'added' }]);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['click Add to cart and verify the status says "Mechanical Keyboard added to cart."'] }),
+      baseOptions(brain),
+    );
+
+    expect(page.calls.some((c) => c.startsWith('click'))).toBe(true);
+    expect(result.status).toBe('passed');
+  });
+});
+
+describe('StepRecovery: what a verification step refuses (a-verification-step-only-looks, D2)', () => {
+  const recovery = new StepRecovery('check the total is $96.00');
+
+  it('refuses a click and a committing key', () => {
+    expect(recovery.refusalFor(click('Apply promo code'))).toMatch(/^refused: this step only verifies/);
+    expect(recovery.refusalFor({ action: 'press', value: 'Enter', reasoning: 'r' })).toMatch(/only verifies/);
+  });
+
+  it('lets it look: navigate, assert, a non-committing key', () => {
+    expect(recovery.refusalFor({ action: 'navigate', value: '/cart', reasoning: 'r' })).toBeUndefined();
+    expect(recovery.refusalFor({ action: 'assert', expectation: 'x', reasoning: 'r' })).toBeUndefined();
+    expect(recovery.refusalFor({ action: 'press', value: 'Escape', reasoning: 'r' })).toBeUndefined();
+  });
+
+  it('is not applied to a step that begins with its action', () => {
+    expect(new StepRecovery('apply the promo code and verify the total').refusalFor(click('Apply'))).toBeUndefined();
+  });
+});
