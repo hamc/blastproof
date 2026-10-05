@@ -40,6 +40,18 @@ All LLM decisions (next action, assert judgment) SHALL be produced via structure
 - **WHEN** the model omits a value, sending `null`
 - **THEN** the parsed action carries `undefined` for that field, and no consumer of the action distinguishes it from today
 
+#### Scenario: A malformed judgment costs one attempt
+- **WHEN** the judge's answer to an `assert` is malformed, and the step has attempts left
+- **THEN** the error is recorded as the `assert`'s result, one attempt is spent, and the step continues instead of failing
+
+#### Scenario: A malformed judgment at login is retried
+- **WHEN** the judgment of `auth.verify` is malformed once and then answered
+- **THEN** the login is verified on the answered judgment, and no `Authentication` error is reported
+
+#### Scenario: A stop of the run is still a stop
+- **WHEN** a judgment is refused by the provider, or the budget runs out during it
+- **THEN** the run stops as incomplete, as before, and no attempt is counted
+
 ### Requirement: Model defaulting
 The system SHALL provide a sensible default model per provider when `llm.model` is omitted.
 
