@@ -11,6 +11,7 @@ import {
   performAction,
   type PageLike,
 } from './actions.js';
+import { referencedEnvVars } from './env.js';
 import { StepRecovery, describeAction } from './recovery.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
@@ -250,6 +251,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
   // Every test starts from the configured base_url (spec: browser lifecycle).
   await page.goto(new URL(baseUrl).toString());
 
+  // The `{{env.*}}` variables used in the actions of finished steps (design
+  // a-secret-used-earlier-in-the-test-counts, D2). The label check accounts for a
+  // secret a later step names without typing it again — a "log in with … and
+  // verify" step when the login already happened (#141). Names only, from the
+  // masked record, where placeholders survive as written; never prompt input.
+  const usedEarlier = new Set<string>();
+
   for (let index = 0; index < allSteps.length; index++) {
     const { step, setup } = allSteps[index]!;
     const stepStartedAt = Date.now();
@@ -392,6 +400,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
               mask(expectation),
               maskedSnap,
               recovery.stepHistory(),
+              [...usedEarlier],
             );
             if (!judgment.pass) {
               // Re-observe before handing control back to the model (design D3):
@@ -416,6 +425,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
                 mask(expectation),
                 maskedFresh,
                 recovery.stepHistory(),
+                [...usedEarlier],
               );
             }
           } catch (error) {
@@ -498,6 +508,11 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
       if (error instanceof RunStoppedError) throw error;
       // Mask everything that reaches logs/reports, regardless of throw site.
       stepFailedReason = mask(error instanceof Error ? error.message : String(error));
+    }
+
+    // Only actions that succeeded are recorded, so "used" means performed.
+    for (const entry of recovery.stepHistory()) {
+      for (const name of referencedEnvVars(entry.action)) usedEarlier.add(name);
     }
 
     const status = stepFailedReason ? ('failed' as const) : ('passed' as const);

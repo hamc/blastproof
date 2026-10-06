@@ -12,7 +12,7 @@ const cases = loadCorpus();
 describe('the judge regression corpus', () => {
   it('loads, with at least one case per incident it was built from', () => {
     const incidents = new Set(cases.map((c) => c.incident));
-    for (const incident of ['#31', '#35', '#87', '#112', '#120', '#121']) {
+    for (const incident of ['#31', '#35', '#87', '#112', '#120', '#121', '#141']) {
       expect(incidents).toContain(incident);
     }
   });
@@ -164,5 +164,17 @@ describe('replaying on several models (replay-the-judge-corpus-on-two-models, D1
       'openai/gpt-6-luna',
     ]);
     expect(evalModels('a,a,b', 'configured')).toEqual(['a', 'b']);
+  });
+});
+
+describe('a case carries the secrets used before its step (a-secret-used-earlier-in-the-test-counts, D3)', () => {
+  it('hands them to the judgment', async () => {
+    const c = cases.find((x) => x.id === '141-already-signed-in')!;
+    let seen: readonly string[] | undefined;
+    await runCorpus([c], async (_s, _e, _n, _h, usedEarlier) => {
+      seen = usedEarlier;
+      return { pass: true, reason: 'stub' };
+    }, 1);
+    expect(seen).toEqual(['DEMO_EMAIL', 'DEMO_PASSWORD']);
   });
 });

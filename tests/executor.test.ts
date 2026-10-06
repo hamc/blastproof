@@ -2492,3 +2492,61 @@ describe('StepRecovery: what a verification step refuses (a-verification-step-on
     expect(new StepRecovery('apply the promo code and verify the total').refusalFor(click('Apply'))).toBeUndefined();
   });
 });
+
+describe('the judgment learns which secrets earlier steps used (a-secret-used-earlier-in-the-test-counts, D2)', () => {
+  type Seen = { step: string; usedEarlier?: readonly string[] };
+
+  function recordingBrain(script: AgentAction[]): AgentBrain & { seen: Seen[] } {
+    let calls = 0;
+    const seen: Seen[] = [];
+    return {
+      seen,
+      async nextAction() {
+        const next = script[calls++];
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(step, _e, _s, _h, usedEarlier) {
+        seen.push({ step, usedEarlier });
+        return { pass: true, reason: 'fine' };
+      },
+    };
+  }
+
+  it('hands a later step the variables an earlier step typed, by name', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Password');
+    const brain = recordingBrain([
+      { action: 'fill', target: { role: 'textbox', name: 'Password' }, value: '{{env.DEMO_PASSWORD}}', reasoning: 'r' },
+      { action: 'done', reasoning: 'filled' },
+      { action: 'assert', expectation: 'welcome shown', reasoning: 'r' },
+    ]);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the password field with {{env.DEMO_PASSWORD}}', 'log in with {{env.DEMO_PASSWORD}} and verify the welcome heading'] }),
+      baseOptions(brain, { resolveValue: () => 'demo123' }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(brain.seen[0]?.usedEarlier).toEqual(['DEMO_PASSWORD']);
+  });
+
+  it('does not count an action that failed', async () => {
+    const page = new FakePage(); // nothing visible: the fill fails
+    const brain = recordingBrain([
+      { action: 'fill', target: { role: 'textbox', name: 'Password' }, value: '{{env.DEMO_PASSWORD}}', reasoning: 'r' },
+      { action: 'press', value: 'Escape', reasoning: 'move on' },
+      { action: 'done', reasoning: 'r' },
+      { action: 'assert', expectation: 'welcome shown', reasoning: 'r' },
+    ]);
+
+    await executeTest(
+      page,
+      makeTest({ steps: ['fill the password field with {{env.DEMO_PASSWORD}}', 'verify the welcome heading'] }),
+      baseOptions(brain, { resolveValue: () => 'demo123', maxRetries: 3 }),
+    );
+
+    expect(brain.seen[0]?.usedEarlier).toEqual([]);
+  });
+});

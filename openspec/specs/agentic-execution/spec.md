@@ -534,7 +534,7 @@ The rewrite SHALL apply only to what the judge reads. What the executor's model 
 - **THEN** the executor's model is shown the placeholder and the real value is typed, as before
 
 ### Requirement: A step naming one secret cannot pass on a page showing only another
-A judgment SHALL NOT pass a step that names a redacted value `[redacted X]` when that label appears neither in the snapshot nor in the step's own record, and the snapshot shows a different label. In that state the only thing on the page that could stand for X is another secret, which is the mistake this rules out; the step SHALL fail with a reason saying so, naming both labels.
+A judgment SHALL NOT pass a step that names a redacted value `[redacted X]` when that label appears neither in the snapshot, nor in the step's own record, nor among the variables used in the actions of the test's earlier steps, and the snapshot shows a different label. The variables used earlier SHALL be handed to the judgment by name only, from the masked record, and SHALL NOT enter the model's prompt. In that state the only thing on the page that could stand for X is another secret, which is the mistake this rules out; the step SHALL fail with a reason saying so, naming both labels.
 
 The check SHALL be made on the step as the judge reads it, after placeholders are rewritten as labels, and SHALL apply to every judgment. It SHALL NOT apply when the snapshot shows no other label, so a step asserting that a secret is absent from a page showing none is judged as before.
 
@@ -549,6 +549,14 @@ The check SHALL be made on the step as the judge reads it, after placeholders ar
 #### Scenario: A page with no other secret is judged as before
 - **WHEN** a step verifies `{{env.TEST_PASSWORD}}` is not shown, and the snapshot carries no redaction label at all
 - **THEN** the judge's verdict stands
+
+#### Scenario: A secret typed in an earlier step is accounted for
+- **WHEN** an earlier step filled the password field with `{{env.DEMO_PASSWORD}}`, and a later step says "log in with {{env.DEMO_EMAIL}} and {{env.DEMO_PASSWORD}} and verify the page shows a welcome heading" on a page already showing it and `[redacted DEMO_EMAIL]`
+- **THEN** the check does not fail the step, and the judge's verdict stands
+
+#### Scenario: A secret used nowhere in the test is still caught
+- **WHEN** earlier steps typed `{{env.TEST_EMAIL}}` and `{{env.TEST_PASSWORD}}`, and a step verifies the account menu shows `{{env.TEST_OTHER}}` on a page showing `[redacted TEST_EMAIL]`
+- **THEN** the step fails, as before
 
 ### Requirement: A step is judged on the state it asks for, not on its action
 A judgment SHALL decide whether the state a step asks for holds on the page, and SHALL NOT require evidence that the step's action was performed. An outcome that already held before the step acted, whether an earlier step or the application produced it, SHALL pass. An outcome that is an absence (something gone, closed, dismissed or removed) SHALL be satisfied by that thing being absent from the snapshot, and an element the step does not name SHALL NOT count for or against it.
