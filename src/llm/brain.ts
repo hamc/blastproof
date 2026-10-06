@@ -42,6 +42,12 @@ export interface AgentBrain {
     expectation: string,
     snapshot: string,
     stepHistory?: StepHistoryEntry[],
+    /**
+     * The `{{env.*}}` variables used in the actions of the test's earlier steps,
+     * by name (design a-secret-used-earlier-in-the-test-counts, D2). Read by the
+     * label check only; never part of the prompt.
+     */
+    usedEarlier?: readonly string[],
   ): Promise<AssertJudgment>;
 }
 
@@ -175,7 +181,7 @@ export function createBrain(
       return parsed.data;
     },
 
-    async judge(step, expectation, snapshot, stepHistory) {
+    async judge(step, expectation, snapshot, stepHistory, usedEarlier) {
       // Pinned (design D1, deterministic-verdicts). This call decides, and two
       // decisions about one page must agree: it is the verdict `--min-score`
       // gates a merge on. Left at the provider's default — 1.0 for all three —
@@ -212,7 +218,7 @@ export function createBrain(
           `Model returned an invalid assert judgment: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
         );
       }
-      return secretMismatch(placeholdersAsLabels(step), snapshot, asJudged, parsed.data);
+      return secretMismatch(placeholdersAsLabels(step), snapshot, asJudged, usedEarlier ?? [], parsed.data);
     },
   };
 }
@@ -232,11 +238,20 @@ export function createBrain(
  * names one the page no longer shows; and another label being present, because a
  * step asserting a secret is absent is right on a page that shows none. Only
  * ever turns PASS into FAIL.
+ *
+ * A third: a secret used in an earlier step of the same test is accounted for
+ * (design a-secret-used-earlier-in-the-test-counts, D1). Since #121 a step whose
+ * outcome already holds passes without its action, so "log in with
+ * {{env.PASSWORD}} and verify the welcome heading", already signed in, names a
+ * password this step never typed, and this check failed it (#141). The earlier
+ * step that typed it is where it went. A label the test never used at all, the
+ * case this check was built for, is still caught.
  */
 function secretMismatch(
   judgedStep: string,
   snapshot: string,
   judgedRecord: StepHistoryEntry[] | undefined,
+  usedEarlier: readonly string[],
   judgment: AssertJudgment,
 ): AssertJudgment {
   if (!judgment.pass) return judgment;
@@ -244,7 +259,9 @@ function secretMismatch(
   const inRecord = labelledVariables((judgedRecord ?? []).map((e) => `${e.action}\n${e.result}`).join('\n'));
   for (const name of labelledVariables(judgedStep)) {
     const others = onPage.filter((other) => other !== name);
-    if (onPage.includes(name) || inRecord.includes(name) || others.length === 0) continue;
+    if (onPage.includes(name) || inRecord.includes(name) || usedEarlier.includes(name) || others.length === 0) {
+      continue;
+    }
     const shown = others.map((other) => redactionLabel(other)).join(', ');
     return {
       ...judgment,

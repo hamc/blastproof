@@ -283,6 +283,44 @@ describe('a step naming one secret cannot pass on a page showing only another (a
     expect(judgment.pass).toBe(false);
     expect(judgment.reason).toBe('model reason');
   });
+
+  // #141: since #121 a step whose outcome already holds passes without its
+  // action, so a "log in with … and verify" step, already signed in, names a
+  // password it never typed. The earlier step that typed it accounts for it
+  // (design a-secret-used-earlier-in-the-test-counts, D1).
+  const SIGNED_IN = 'log in with {{env.DEMO_EMAIL}} and {{env.DEMO_PASSWORD}} and verify the page shows a welcome heading';
+  const WELCOME = '- heading "Welcome, [redacted DEMO_EMAIL]" [level=1]';
+
+  it('accounts for a secret used in an earlier step of the test', async () => {
+    const judgment = await judgeWith(true).judge(SIGNED_IN, 'welcome shown', WELCOME, [], ['DEMO_EMAIL', 'DEMO_PASSWORD']);
+    expect(judgment.pass).toBe(true);
+  });
+
+  it('still fails the same step when nothing earlier used the secret', async () => {
+    const judgment = await judgeWith(true).judge(SIGNED_IN, 'welcome shown', WELCOME, []);
+    expect(judgment.pass).toBe(false);
+    expect(judgment.reason).toContain('[redacted DEMO_PASSWORD]');
+  });
+
+  it('still catches a secret the test never used, whatever else it used (#120)', async () => {
+    const judgment = await judgeWith(true).judge(STEP, 'shown', '- menuitem: [redacted TEST_EMAIL]', [], [
+      'TEST_EMAIL',
+      'TEST_PASSWORD',
+    ]);
+    expect(judgment.pass).toBe(false);
+    expect(judgment.reason).toContain('[redacted TEST_OTHER]');
+  });
+
+  it('never puts the earlier variables into the prompt', async () => {
+    const captured: { options?: { prompt?: string; system?: string } } = {};
+    const brain = createBrain(
+      fakeModel,
+      stubGenerate({ outcome: 'o', reason: 'r', pass: true }, captured),
+      new RunBudget(),
+    );
+    await brain.judge('verify the heading', 'shown', '- heading "x"', [], ['ZZ_ONLY_EARLIER']);
+    expect(`${captured.options?.system}${captured.options?.prompt}`).not.toContain('ZZ_ONLY_EARLIER');
+  });
 });
 
 describe('the judgment schema asks about the step (ask-the-judge-about-the-step, D2)', () => {

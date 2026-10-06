@@ -1,0 +1,23 @@
+{
+  "incident": "#141",
+  "summary": "A step naming a secret it used in an earlier step is not failed for the secret's absence.",
+  "cases": [
+    {
+      "id": "141-already-signed-in",
+      "verdict": "PASS",
+      "step": "log in with {{env.DEMO_EMAIL}} and {{env.DEMO_PASSWORD}} and verify the page shows a welcome heading",
+      "expectation": "The page shows a welcome heading for the signed-in user.",
+      "snapshot": "url: http://localhost:4173/account.html\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n    - link \"Orders\":\n      - /url: orders.html\n- main:\n  - heading \"Welcome, [redacted DEMO_EMAIL]\" [level=1]\n  - paragraph: You are signed in to the demo shop.\n  - link \"Log out\":\n    - /url: login.html",
+      "history": [],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "reconstructed: snapshot captured from examples/demo-app after signing in, masked as the executor masks it, 2026-10-06; the step and its earlier fills are those of the reproduction in #141; see openspec/changes/archive/2026-10-06-a-secret-used-earlier-in-the-test-counts/design.md"
+      },
+      "note": "The welcome heading is shown. Both secrets were typed in earlier steps of the test, so the password's absence from this page and this step is not a mismatch.",
+      "usedEarlier": [
+        "DEMO_EMAIL",
+        "DEMO_PASSWORD"
+      ]
+    }
+  ]
+}

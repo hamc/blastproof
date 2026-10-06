@@ -37,6 +37,12 @@ const caseSchema = z.object({
    * rather than outliving its bug.
    */
   knownFailing: z.string().regex(/^#\d+$/).optional(),
+  /**
+   * The `{{env.*}}` variables used in the actions of the steps before this one,
+   * by name, handed to the judgment as the executor hands them (design
+   * a-secret-used-earlier-in-the-test-counts, D3).
+   */
+  usedEarlier: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional(),
 });
 
 const incidentSchema = z.object({
@@ -67,6 +73,7 @@ export type Judge = (
   expectation: string,
   snapshot: string,
   history: StepHistoryEntry[],
+  usedEarlier?: readonly string[],
 ) => Promise<AssertJudgment>;
 
 export interface CaseResult {
@@ -104,7 +111,7 @@ export async function runCorpus(cases: JudgeCase[], judge: Judge, samples: numbe
     for (let i = 0; i < samples; i++) {
       let judgment: AssertJudgment;
       try {
-        judgment = await judge(c.step, c.expectation, c.snapshot, c.history);
+        judgment = await judge(c.step, c.expectation, c.snapshot, c.history, c.usedEarlier);
       } catch (error) {
         if (error instanceof RunStoppedError) throw error;
         wrongReason = `error: ${error instanceof Error ? error.message : String(error)}`;
