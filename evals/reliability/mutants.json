@@ -1,0 +1,156 @@
+[
+  {
+    "id": "discount-10pct",
+    "class": "literal",
+    "test": ".blastproof/tests/cart-discount.yaml",
+    "step": "verify a 20% discount of $24.00 is shown",
+    "bug": "SAVE20 takes 10% off instead of 20%",
+    "edits": [
+      {
+        "file": "app.js",
+        "find": "discount = subtotal * 0.2;",
+        "replace": "discount = subtotal * 0.1;"
+      }
+    ]
+  },
+  {
+    "id": "order-number",
+    "class": "literal",
+    "test": ".blastproof/tests/checkout.yaml",
+    "step": "Verify the order number \"#BP-1001\" is displayed in the confirmation message",
+    "bug": "the confirmation shows order #BP-1002",
+    "edits": [
+      {
+        "file": "checkout.html",
+        "find": "<strong>#BP-1001</strong>",
+        "replace": "<strong>#BP-1002</strong>"
+      }
+    ]
+  },
+  {
+    "id": "note-not-saved",
+    "class": "literal",
+    "test": ".blastproof/tests/notes.yaml",
+    "step": "submit the add-note form and verify the note \"Check the invoice\" appears in the notes list",
+    "bug": "the server drops the note it was sent",
+    "edits": [
+      {
+        "file": "serve.mjs",
+        "find": "if (note !== '') notes.push(note);",
+        "replace": "void note;"
+      }
+    ]
+  },
+  {
+    "id": "no-cart-feedback",
+    "class": "literal",
+    "test": ".blastproof/tests/consent.yaml",
+    "step": "click the \"Add to cart\" button for the Mechanical Keyboard and verify the page shows \"Mechanical Keyboard added to cart.\"",
+    "bug": "adding to the cart shows no confirmation",
+    "edits": [
+      {
+        "file": "app.js",
+        "find": "if (feedback) feedback.textContent = button.dataset.name + ' added to cart.';",
+        "replace": ""
+      }
+    ]
+  },
+  {
+    "id": "order-status",
+    "class": "literal",
+    "test": ".blastproof/tests/orders.yaml",
+    "step": "verify order \"#BP-1001\" is listed with status Delivered",
+    "bug": "order #BP-1001 is listed as Shipped",
+    "edits": [
+      {
+        "file": "orders.html",
+        "find": "<td>Delivered</td>",
+        "replace": "<td>Shipped</td>"
+      }
+    ]
+  },
+  {
+    "id": "ticket-number",
+    "class": "literal",
+    "test": ".blastproof/tests/support.yaml",
+    "step": "verify the ticket number \"#ST-4471\" is shown in the confirmation message",
+    "bug": "the confirmation shows ticket #ST-4417",
+    "edits": [
+      {
+        "file": "support-sent.html",
+        "find": "#ST-4471",
+        "replace": "#ST-4417"
+      }
+    ]
+  },
+  {
+    "id": "order-number-elsewhere",
+    "class": "subtle",
+    "incident": "#87, #120: the right token in the wrong place",
+    "test": ".blastproof/tests/checkout.yaml",
+    "step": "Verify the order number \"#BP-1001\" is displayed in the confirmation message",
+    "bug": "the confirmation shows #BP-1002, and #BP-1001 appears in another paragraph as a previous order",
+    "edits": [
+      {
+        "file": "checkout.html",
+        "find": "<p>Thank you for your purchase! Your order number is <strong>#BP-1001</strong>.</p>",
+        "replace": "<p>Thank you for your purchase! Your order number is <strong>#BP-1002</strong>.</p>\n    <p>Your previous order, #BP-1001, has shipped.</p>"
+      }
+    ]
+  },
+  {
+    "id": "promo-message-only",
+    "class": "subtle",
+    "incident": "judge-the-step: a true claim beside the step",
+    "test": ".blastproof/tests/cart-discount.yaml",
+    "step": "verify a 20% discount of $24.00 is shown",
+    "bug": "\"Promo code SAVE20 applied: 20% off.\" is shown, and no discount is applied",
+    "edits": [
+      {
+        "file": "app.js",
+        "find": "discount = subtotal * 0.2;",
+        "replace": "discount = 0;"
+      }
+    ]
+  },
+  {
+    "id": "note-in-textbox",
+    "class": "subtle",
+    "incident": "judge-the-step: a value in an unsubmitted field taken for a committed outcome",
+    "test": ".blastproof/tests/notes.yaml",
+    "step": "submit the add-note form and verify the note \"Check the invoice\" appears in the notes list",
+    "bug": "the note is not saved, and the page comes back with it in the Note field instead of the list",
+    "edits": [
+      {
+        "file": "serve.mjs",
+        "find": "  if (note !== '') notes.push(note);\n  res.writeHead(302, { location: '/notes' });",
+        "replace": "  res.writeHead(302, { location: '/notes?draft=' + encodeURIComponent(note) });"
+      },
+      {
+        "file": "notes.html",
+        "find": "var noteErr = document.getElementById('note-err');",
+        "replace": "var noteErr = document.getElementById('note-err');\n    var draft = new URLSearchParams(location.search).get('draft');\n    if (draft) note.value = draft;"
+      }
+    ]
+  },
+  {
+    "id": "optimistic-ticket",
+    "class": "subtle",
+    "incident": "trustworthy-verdicts (#25): a verdict on a page that had not settled",
+    "test": ".blastproof/tests/support.yaml",
+    "step": "verify the page shows a heading that says \"Support ticket received\"",
+    "bug": "the heading reads \"Support ticket received\" while the request is in flight, then \"Support ticket could not be sent\"",
+    "edits": [
+      {
+        "file": "app.js",
+        "find": "fetch(supportForm.action, { method: 'POST', body: new FormData(supportForm) }).then(",
+        "replace": "document.querySelector('h1').textContent = 'Support ticket received';\n      fetch(supportForm.action, { method: 'POST', body: new FormData(supportForm) }).then("
+      },
+      {
+        "file": "app.js",
+        "find": "window.location.href = response.url; // fetch follows the 302; response.url is the final page",
+        "replace": "void response;\n          document.querySelector('h1').textContent = 'Support ticket could not be sent';"
+      }
+    ]
+  }
+]
