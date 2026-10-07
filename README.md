@@ -299,6 +299,27 @@ export ANTHROPIC_API_KEY=...
 node dist/cli.js run
 ```
 
+### How often a verdict is wrong
+
+A merge gate is judged by two numbers. A **false PASS** is a test that passes on an app with the bug it exists to catch. A **false FAIL** is a test that fails on a correct app. `npm run eval:reliability` measures both. It runs the suite above on the demo app as it is, and each test on **mutants**: copies of the app with one bug seeded. A *literal* mutant changes the value a step quotes. A *subtle* one reproduces the shape of a wrong verdict this project has already had, such as the right value in the wrong place, or a success message with no success behind it.
+
+| | `claude-haiku-4.5` | `gpt-6-luna` |
+| --- | --- | --- |
+| false FAIL, correct app (40 test runs) | 0 (≤ 8.8%) | 0 (≤ 8.8%) |
+| false PASS, literal bugs (30) | 0 (≤ 11.4%) | 0 (≤ 11.4%) |
+| false PASS, subtle bugs (20) | **2 (10%, ≤ 30.1%)** | 0 (≤ 16.1%) |
+
+The bounds are 95% upper bounds: zero errors in 40 runs means "below about 9%", not "never". Both of Haiku's false PASSes are the same case: the confirmation shows order `#BP-1002`, another paragraph mentions `#BP-1001` as a previous order, and a step checking for `#BP-1001` *in the confirmation* passed ([#147](https://github.com/hamc/blastproof/issues/147)). Haiku is the Anthropic default, so the default configuration carries that risk until #147 is fixed.
+
+The demo app is small and well labelled, so these numbers flatter. Expect a real application to do worse. The point of this table is that it can be reproduced, and that every change claiming better verdicts has to move it.
+
+Measured 2026-10-07 on `main` after 0.23.0, 5 samples, through OpenRouter. To reproduce:
+
+```bash
+npm run build
+EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna npm run eval:reliability
+```
+
 ## Development
 
 Built with AI assistance using spec-driven development: every change began as a written proposal with its design rationale, and those documents are kept rather than discarded. `openspec/` holds the reasoning behind each decision, including the alternatives that were rejected and why — start at [`AGENTS.md`](./AGENTS.md) for architecture, conventions and the contribution workflow. Open work lives in [issues](https://github.com/hamc/blastproof/issues). Where it is heading is on the [roadmap](https://github.com/users/hamc/projects/2): those issues grouped by horizon (now, next, later) and theme, with no dates.

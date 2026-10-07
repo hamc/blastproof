@@ -57,6 +57,24 @@ Run it on both of those models. Each one goes through the provider your `.blastp
 
 It needs a model and a key, so it is not part of CI. It exits 1 when a case that used to be judged right is judged wrong in any sample on any model, and names the model. An answer that could not be used counts as a wrong sample, so one broken completion does not end the replay. A case marked `knownFailing` is a bug still open. When your change fixes one on every model, the run tells you, and you remove the marker in the same pull request; fixed on one model only, it stays marked. If you are fixing a new verdict incident, add its case to the corpus as part of the fix, captured from the run if you can, and say where it came from either way.
 
+### Measuring how often a verdict is wrong
+
+`evals/reliability/` runs the dogfood suite against the demo app as it is, and each targeted test against **mutants**: copies of the app with one declared bug seeded by exact text edits. A test that passes on a mutant is a false PASS; a test that fails on the unmodified app is a false FAIL. Run it before a release and before a change that claims to make verdicts more reliable:
+
+```bash
+npm run build
+EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna npm run eval:reliability
+```
+
+It runs the built CLI, so build first. Models resolve as in `eval:judge`. `EVAL_SAMPLES` defaults to 5. `EVAL_MUTANTS=id,…` with `EVAL_SUITE=0` runs single mutants, for checking one you are writing. Logs, JUnit reports and `results.json` go under `.blastproof/reports/reliability-*/`. It needs a key and is not part of CI. A full run costs a few dollars on Haiku, cents on Luna.
+
+A mutant lives in `evals/reliability/mutants.json`. Rules that keep the number honest:
+
+- It breaks **only what its target's steps check**. A bug the steps cannot see measures the test's coverage, not the verdict.
+- Each edit's `find` text occurs exactly once in the demo app. A unit test checks every mutant against the app as it is, so changing the demo app can fail CI. Update the mutant's text in the same pull request.
+- `literal` mutants change the value a step quotes. Models catch those reliably. `subtle` mutants reproduce the shape of a past wrong verdict and name it in `incident`. A new verdict incident whose shape the demo app can show adds a subtle mutant, as it adds a judge-corpus case.
+- A mutant that is caught every time stays. Removing the easy ones would bias the rate.
+
 ## Before you open a pull request
 
 - `npm run build`, `npm test` and `npm run typecheck` all pass, and `npm run eval:judge` too if the change touches how a verdict is reached
