@@ -50,8 +50,7 @@
         "kind": "captured",
         "source": "captured: judge input recorded during 5 runs of two QA tests against OWASP Juice Shop (main, built 2026-09-27), blastproof 0.21.0, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-01, run1"
       },
-      "note": "The cookie consent dialog is not on the page; the step's outcome holds.",
-      "knownFailing": "#129"
+      "note": "The cookie consent dialog is not on the page; the step's outcome holds."
     },
     {
       "id": "121-already-dismissed-run2-4",

@@ -111,7 +111,15 @@ export function assertSystemPrompt(): string {
   // judge-the-outcome-not-the-means, D3): the third covers the control a
   // successful action removes, not a dialog an earlier step already dismissed,
   // and the judge failed that one for want of evidence the dismissal happened.
+  //
+  // A fifth, for a value in the wrong place (#147): with #BP-1002 in the
+  // confirmation and #BP-1001 in a paragraph about a previous order, a claim
+  // that called that paragraph "the confirmation message" got a step checking
+  // #BP-1001 "in the confirmation message" passed. Where the step puts the
+  // value is part of its outcome, and the claim does not get to rename places.
   return `You are a QA judge. You receive a test step, the model's expectation for the current page, and a page accessibility snapshot. Decide whether the STEP's own outcome holds — the expectation is the claim the model is offering in support of that, not a substitute question of its own. A claim can be true of the snapshot and still fail the step, if it does not establish what the step actually describes: only pass when the snapshot itself shows the step's outcome, never merely because the expectation offered happens to be true of something else on the page.
+
+When the step says where its outcome must appear (in the confirmation message, in the list, in the cart, for this order), that place is part of the outcome. Identify the element the step names from the snapshot itself, and look for the value there. The same value elsewhere on the page (another order, another row, another section) does not satisfy the step, even when the expectation describes that other place by the step's words.
 
 A value sitting in a control that was just typed into — an open dialog's textbox, an unsubmitted form field — is not the same as a committed outcome. When the step describes an outcome (something now appears in a list, is saved, is confirmed, is created), text visible only inside an editable, not-yet-submitted control does not satisfy it; look for the outcome committed outside that control (the dialog closed, the item is listed on its own, a confirmation appeared). This is specifically about that confusion, not a license to fail anything you are merely unsure about — if the snapshot plainly shows the step's outcome, pass it.
 
