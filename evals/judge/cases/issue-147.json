@@ -1,0 +1,58 @@
+{
+  "incident": "#147",
+  "summary": "A value shown elsewhere on the page, which the claim calls the place the step names, passed a step that names where it must be.",
+  "cases": [
+    {
+      "id": "147-claim-relocates-the-value-run1",
+      "verdict": "FAIL",
+      "step": "Verify the order number \"#BP-1001\" is displayed in the confirmation message",
+      "expectation": "The text '#BP-1001' should be visible in the confirmation message, specifically in the paragraph stating 'Your previous order, #BP-1001, has shipped.'",
+      "snapshot": "url: http://localhost:38905/checkout\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n- main:\n  - heading \"Order placed\" [level=1]\n  - paragraph:\n    - text: Thank you for your purchase! Your order number is\n    - strong: \"#BP-1002\"\n    - text: .\n  - paragraph: \"Your previous order, #BP-1001, has shipped.\"",
+      "history": [],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded through a relaying proxy during 8 runs of the reliability benchmark mutant order-number-elsewhere (evals/reliability/mutants.json), blastproof main at ed20c07, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-07, run 1, the judgment that passed"
+      },
+      "note": "The confirmation shows #BP-1002. #BP-1001 is in a separate paragraph about a previous order, and the claim calls that paragraph the confirmation. Haiku passed this step."
+    },
+    {
+      "id": "147-claim-names-the-other-paragraph",
+      "verdict": "FAIL",
+      "step": "Verify the order number \"#BP-1001\" is displayed in the confirmation message",
+      "expectation": "The text '#BP-1001' should be visible on the page, appearing in the paragraph about the previous order that has shipped.",
+      "snapshot": "url: http://localhost:37305/checkout\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n- main:\n  - heading \"Order placed\" [level=1]\n  - paragraph:\n    - text: Thank you for your purchase! Your order number is\n    - strong: \"#BP-1002\"\n    - text: .\n  - paragraph: \"Your previous order, #BP-1001, has shipped.\"",
+      "history": [],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded through a relaying proxy during 10 later runs of the reliability benchmark mutant order-number-elsewhere (evals/reliability/mutants.json), blastproof main at ed20c07, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-07 with this fix applied"
+      },
+      "note": "A second claim that points the step at the previous-order paragraph, captured after the fix and judged right there."
+    },
+    {
+      "id": "147-neutral-claim-run3",
+      "verdict": "FAIL",
+      "step": "Verify the order number \"#BP-1001\" is displayed in the confirmation message",
+      "expectation": "The text '#BP-1001' is displayed in the confirmation message on the page.",
+      "snapshot": "url: http://localhost:44241/checkout\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n- main:\n  - heading \"Order placed\" [level=1]\n  - paragraph:\n    - text: Thank you for your purchase! Your order number is\n    - strong: \"#BP-1002\"\n    - text: .\n  - paragraph: \"Your previous order, #BP-1001, has shipped.\"",
+      "history": [],
+      "provenance": {
+        "kind": "captured",
+        "source": "captured: judge input recorded through a relaying proxy during 8 runs of the reliability benchmark mutant order-number-elsewhere (evals/reliability/mutants.json), blastproof main at ed20c07, anthropic/claude-haiku-4.5 via OpenRouter, 2026-10-07, run 3"
+      },
+      "note": "The same page with a claim that does not relocate the value. Judged right in every capture; held so a fix to the case above does not cost this one."
+    },
+    {
+      "id": "147-control-value-in-the-confirmation",
+      "verdict": "PASS",
+      "step": "Verify the order number \"#BP-1001\" is displayed in the confirmation message",
+      "expectation": "The text '#BP-1001' should be visible in the confirmation message, specifically in the paragraph stating 'Thank you for your purchase! Your order number is #BP-1001.'",
+      "snapshot": "url: http://localhost:38905/checkout\n- banner:\n  - navigation \"Main\":\n    - link \"Home\":\n      - /url: index.html\n    - link \"Login\":\n      - /url: login.html\n    - link \"Cart\":\n      - /url: cart.html\n- main:\n  - heading \"Order placed\" [level=1]\n  - paragraph:\n    - text: Thank you for your purchase! Your order number is\n    - strong: \"#BP-1001\"\n    - text: .\n  - paragraph: \"Your previous order, #BP-0998, has shipped.\"",
+      "history": [],
+      "provenance": {
+        "kind": "reconstructed",
+        "source": "examples/demo-app checkout.html as the mutant order-number-elsewhere serves it: the captured snapshot of 147-claim-relocates-the-value-run1 with the confirmation showing #BP-1001 and the previous order renumbered #BP-0998, and a claim of the same shape pointing at the confirmation paragraph"
+      },
+      "note": "The correct page, with another order number elsewhere. A fix that fails any step where a second order is mentioned would fail this."
+    }
+  ]
+}

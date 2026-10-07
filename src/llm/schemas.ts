@@ -148,7 +148,9 @@ export const assertJudgmentSchema = z.object({
         'it never replaces the step. False if any part of the outcome the step asks for is not shown, or cannot ' +
         'be assessed from this snapshot. An action the step names (click, dismiss, submit) is how its outcome is ' +
         'reached, not part of it: an outcome that holds passes whether or not that action was needed. An outcome ' +
-        'that is an absence (gone, closed, dismissed, removed) is shown by the thing being absent.',
+        'that is an absence (gone, closed, dismissed, removed) is shown by the thing being absent. Where the step says ' +
+        'the outcome appears (in the confirmation, in the list, for this order) is part of it: a value found only ' +
+        'somewhere else on the page is false.',
     ),
 });
 
