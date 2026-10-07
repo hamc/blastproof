@@ -24,4 +24,4 @@
 
 - [x] 4.1 `npm run build`, `npm run typecheck`, `npm test` all pass
 - [x] 4.2 `AGENTS.md`: the judge-corpus convention lists #147 among the incidents
-- [ ] 4.3 Archive in the same pull request, as its own commit
+- [x] 4.3 Archive in the same pull request, as its own commit
