@@ -283,6 +283,15 @@ program
 program.exitOverride();
 for (const command of program.commands) command.exitOverride();
 
+// A termination signal ends the process (design bound-every-model-call, D4).
+// Playwright installs its own handlers when a browser launches: on SIGINT it
+// closes the browser and exits 130, but on SIGTERM and SIGHUP it only closes the
+// browser. A registered listener disables Node's default exit, so a pending model
+// call kept the process alive and a cancelled CI job waited for SIGKILL (#133).
+// Playwright's `exit` handler kills the browser on the way out.
+process.once('SIGTERM', () => process.exit(143));
+process.once('SIGHUP', () => process.exit(129));
+
 try {
   await program.parseAsync(process.argv);
 } catch (error) {

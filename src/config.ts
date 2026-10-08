@@ -10,6 +10,13 @@ const llmSchema = z.object({
   model: z.string().min(1).optional(),
   api_key_env: z.string().min(1).optional(),
   base_url: z.string().url().optional(),
+  /**
+   * Seconds a single model call may take before it is aborted and the run stops
+   * (design bound-every-model-call, D2). Optional: undefined takes the provider's
+   * default from `defaultTimeoutSeconds`, because only the user knows how fast
+   * their local hardware is. Coerced, since `BLASTPROOF_LLM_TIMEOUT_S` is text.
+   */
+  timeout_s: z.coerce.number().positive().optional(),
 });
 
 const browserSchema = z.object({
@@ -200,6 +207,7 @@ export const ENV_OVERRIDES: Record<string, readonly [string] | readonly [string,
   BLASTPROOF_LLM_MODEL: ['llm', 'model'],
   BLASTPROOF_LLM_BASE_URL: ['llm', 'base_url'],
   BLASTPROOF_LLM_API_KEY_ENV: ['llm', 'api_key_env'],
+  BLASTPROOF_LLM_TIMEOUT_S: ['llm', 'timeout_s'],
   BLASTPROOF_MAX_LLM_CALLS: ['budget', 'max_llm_calls'],
   BLASTPROOF_MAX_TOKENS: ['budget', 'max_tokens'],
   BLASTPROOF_MAX_DURATION_S: ['budget', 'max_duration_s'],

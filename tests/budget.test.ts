@@ -93,6 +93,22 @@ function getError(fn: () => void): BudgetExhaustedError {
   throw new Error('expected fn to throw');
 }
 
+describe('RunBudget.remainingMs (bound-every-model-call, D3)', () => {
+  it('is undefined without a deadline', () => {
+    expect(new RunBudget({ maxCalls: 3 }).remainingMs()).toBeUndefined();
+  });
+
+  it('is the time left before the deadline, never below zero', () => {
+    let now = 1_000;
+    const budget = new RunBudget({ maxDurationMs: 500, now: () => now });
+    expect(budget.remainingMs()).toBe(500);
+    now = 1_300;
+    expect(budget.remainingMs()).toBe(200);
+    now = 9_000;
+    expect(budget.remainingMs()).toBe(0);
+  });
+});
+
 describe('estimateMaxModelCalls', () => {
   it('is steps times (the iteration ceiling, the retry budget, and the lesser of the two)', () => {
     // One test, 3 steps, N=15, R=3: 3 * (15 + 3 + min(15,3)) = 3 * 21 = 63.

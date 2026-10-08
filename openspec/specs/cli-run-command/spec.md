@@ -3,7 +3,9 @@
 ## Purpose
 
 TBD - created by syncing change m1-yaml-runner. Update purpose after archive.
+
 ## Requirements
+
 ### Requirement: Test discovery
 The `run` command SHALL discover all `.yaml`/`.yml` files under `.blastproof/tests/` recursively and execute them sequentially.
 
@@ -258,3 +260,9 @@ The `run` command SHALL accept `--fail-on-authoring`, which promotes authoring f
 - **WHEN** the user runs `blastproof run --fail-on-authoring` without `--impacted`
 - **THEN** the flag is accepted, unlike `--fail-on-unmapped` which requires a diff to classify
 
+### Requirement: A termination signal ends the process
+SIGTERM SHALL end the process with exit code 143, and SIGHUP with 129, closing the browser, whatever the run is waiting on. No report is written.
+
+#### Scenario: A cancelled CI job
+- **WHEN** a run waiting on a model call receives SIGTERM
+- **THEN** the process exits with code 143 within seconds, and no browser process is left running

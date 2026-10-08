@@ -21,6 +21,11 @@ export interface RunBudgetOptions {
   maxCalls?: number;
   maxTokens?: number;
   maxDurationMs?: number;
+  /**
+   * How long one model call may take before it is aborted and the run stops
+   * (design bound-every-model-call, D2). Undefined never binds.
+   */
+  callTimeoutMs?: number;
   /** Injectable clock, so deadline behaviour is testable without real wall-clock time. */
   now?: () => number;
 }
@@ -115,6 +120,26 @@ export class ProviderRefusedError extends RunStoppedError {
 }
 
 /**
+ * A model call took longer than `llm.timeout_s` (design bound-every-model-call,
+ * D2). It stops the run for the reason a call with no response does (#125): a
+ * call that never answered says nothing about the application, and counting it
+ * as a failed attempt would spend a step's retries at the timeout each.
+ */
+export class ModelCallTimeoutError extends RunStoppedError {
+  readonly timeoutMs: number;
+  constructor(timeoutMs: number) {
+    const seconds = Number((timeoutMs / 1000).toFixed(1));
+    super(
+      `model call timed out: no answer within ${seconds}s (llm.timeout_s). ` +
+        'For a slow local model, raise llm.timeout_s in .blastproof/config.yaml or set BLASTPROOF_LLM_TIMEOUT_S; ' +
+        'otherwise check that the provider is answering, then run again.',
+    );
+    this.name = 'ModelCallTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
  * Counts model calls, tokens and elapsed wall-clock time against optional limits.
  * `check()` is called before spending anything — a model call, or in `runCommand`,
  * a test — so exhaustion always stops the *next* unit of work rather than being
@@ -127,6 +152,8 @@ export class RunBudget {
   private readonly maxCalls?: number;
   private readonly maxTokens?: number;
   private readonly maxDurationMs?: number;
+  /** How long one model call may take; read by `countedGenerate` (design bound-every-model-call, D2). */
+  readonly callTimeoutMs?: number;
   private readonly now: () => number;
   private readonly startedAt: number;
   private calls = 0;
@@ -137,6 +164,7 @@ export class RunBudget {
     this.maxCalls = options.maxCalls;
     this.maxTokens = options.maxTokens;
     this.maxDurationMs = options.maxDurationMs;
+    this.callTimeoutMs = options.callTimeoutMs;
     this.now = options.now ?? Date.now;
     this.startedAt = this.now();
   }
@@ -170,6 +198,16 @@ export class RunBudget {
         throw new BudgetExhaustedError('duration', elapsed, this.maxDurationMs);
       }
     }
+  }
+
+  /**
+   * Milliseconds left before the deadline, or undefined without one (design
+   * bound-every-model-call, D3). Lets a call in flight be aborted when the
+   * deadline passes, rather than only the next call being refused.
+   */
+  remainingMs(): number | undefined {
+    if (this.maxDurationMs === undefined) return undefined;
+    return Math.max(0, this.maxDurationMs - (this.now() - this.startedAt));
   }
 
   /** Records what a completed model call spent. */

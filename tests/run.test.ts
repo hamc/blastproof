@@ -533,7 +533,9 @@ describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)',
 
     const resolved = resolveBudgetOptions(config, {});
 
-    expect(resolved).toEqual({ maxCalls: undefined, maxTokens: undefined, maxDurationMs: undefined });
+    // The budget's limits stay unbound. The call timeout is not a budget limit and
+    // always applies (design bound-every-model-call, D2): 300 s for the default provider.
+    expect(resolved).toEqual({ maxCalls: undefined, maxTokens: undefined, maxDurationMs: undefined, callTimeoutMs: 300_000 });
   });
 
   it('uses the file when nothing else is set', async () => {
@@ -577,7 +579,9 @@ describe('resolveBudgetOptions precedence: flag > env > file (spec run-budget)',
   });
 
   it('converts the seconds flag/config to milliseconds for the budget', () => {
-    const config = { budget: undefined } as unknown as Parameters<typeof resolveBudgetOptions>[0];
+    const config = { budget: undefined, llm: { provider: 'anthropic' } } as unknown as Parameters<
+      typeof resolveBudgetOptions
+    >[0];
 
     const resolved = resolveBudgetOptions(config, { maxDuration: 30 });
 
