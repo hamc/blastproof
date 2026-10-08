@@ -31,6 +31,7 @@ file edit, and a single invocation can override the CI job.
 | `BLASTPROOF_LLM_MODEL` | the model name |
 | `BLASTPROOF_LLM_BASE_URL` | the provider endpoint — *not* the app |
 | `BLASTPROOF_LLM_API_KEY_ENV` | the **name** of the variable holding your key |
+| `BLASTPROOF_LLM_TIMEOUT_S` | `llm.timeout_s` — seconds one model call may take |
 | `BLASTPROOF_MAX_LLM_CALLS` | `budget.max_llm_calls` |
 | `BLASTPROOF_MAX_TOKENS` | `budget.max_tokens` |
 | `BLASTPROOF_MAX_DURATION_S` | `budget.max_duration_s` |
@@ -96,6 +97,20 @@ No key, no network beyond your own host. Smaller local models are more likely to
 return malformed actions, which a step spends from its retry budget — expect more
 retries than a hosted model, and prefer tests whose steps state their outcomes
 plainly.
+
+### Every model call is bounded: output and time
+
+**Output.** Every call asks for at most 4096 output tokens, reasoning included where the provider counts it. The largest answer measured, on any model, was about 425 tokens, and the longest reasoning of `gpt-oss` was about 1,600 at the 99th percentile. Without a limit, each call reserved the provider's maximum, so an account with credit left was refused ([#126](https://github.com/hamc/blastproof/issues/126)). Some open-weight models open their JSON answer and then emit whitespace without end, up to 131k tokens over minutes. An answer cut at the limit counts as one failed attempt, and the step's reason says it reached the output limit.
+
+**Time.** A call that has not answered within `llm.timeout_s` is aborted, and the run stops as incomplete, as it does when the provider refuses ([#133](https://github.com/hamc/blastproof/issues/133)):
+
+```yaml
+llm:
+  provider: ollama
+  timeout_s: 1200   # default: 300, or 900 for ollama
+```
+
+Raise it for a model on slow hardware: a local model on a CPU can take minutes for a long answer, and that is slow, not broken. With a deadline (`budget.max_duration_s`, `--max-duration`), a call still waiting when the deadline passes is aborted too, and the run stops for the deadline.
 
 ### Temperature is not configurable, on purpose
 

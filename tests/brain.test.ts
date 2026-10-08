@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { APICallError, RetryError, type LanguageModel } from 'ai';
+import { APICallError, NoObjectGeneratedError, RetryError, type LanguageModel } from 'ai';
 import {
   createBrain,
   createPlanner,
   MalformedModelOutputError,
+  MAX_OUTPUT_TOKENS,
   type GenerateObjectFn,
 } from '../src/llm/brain.js';
 import {
@@ -14,7 +15,13 @@ import {
   plannerSystemPrompt,
   plannerUserPrompt,
 } from '../src/llm/prompts.js';
-import { BudgetExhaustedError, ProviderRefusedError, RunBudget, RunStoppedError } from '../src/runner/budget.js';
+import {
+  BudgetExhaustedError,
+  ModelCallTimeoutError,
+  ProviderRefusedError,
+  RunBudget,
+  RunStoppedError,
+} from '../src/runner/budget.js';
 import { assertJudgmentSchema } from '../src/llm/schemas.js';
 
 const fakeModel = { provider: 'test', modelId: 'test-model' } as unknown as LanguageModel;
@@ -694,5 +701,111 @@ describe('a call the provider refused stops the run (stop-the-run-when-the-provi
     await expect(
       createPlanner(fakeModel, generate, new RunBudget()).planTest({ route: '/', snapshot: '', changedFiles: [] }),
     ).rejects.toThrow(ProviderRefusedError);
+  });
+});
+
+describe('every model call is bounded (bound-every-model-call)', () => {
+  type Options = Parameters<GenerateObjectFn>[0];
+  const action = { action: 'click', target: { role: 'button', name: 'Save' }, reasoning: 'r' };
+  const judgment = { outcome: 'o', reason: 'r', pass: true };
+  const draft = { summary: 's', steps: ['a'], priority: 'P1', tags: [] };
+
+  function recording(object: unknown, seen: Options[]): GenerateObjectFn {
+    return async (options) => {
+      seen.push(options);
+      return { object };
+    };
+  }
+
+  /** A provider that never answers: resolves only when the call is aborted. */
+  const hanging: GenerateObjectFn = (options) =>
+    new Promise((_, reject) => {
+      options.abortSignal?.addEventListener('abort', () => reject(options.abortSignal?.reason));
+    });
+
+  function noObject(finishReason: 'length' | 'stop', totalTokens: number): NoObjectGeneratedError {
+    return new NoObjectGeneratedError({
+      message: 'No object generated: could not parse the response.',
+      text: '{\n  "outcome": "',
+      response: { id: 'r', timestamp: new Date(0), modelId: 'test-model' },
+      usage: { inputTokens: 1000, outputTokens: totalTokens - 1000, totalTokens } as never,
+      finishReason,
+    });
+  }
+
+  it('asks every call shape for at most the output limit (D1, #126)', async () => {
+    const seen: Options[] = [];
+    await createBrain(fakeModel, recording(action, seen), new RunBudget()).nextAction({
+      step: 'x',
+      snapshot: '',
+      retriesLeft: 3,
+      iterationsLeft: 10,
+    });
+    await createBrain(fakeModel, recording(judgment, seen), new RunBudget()).judge('verify x', 'x', '- text "x"');
+    await createPlanner(fakeModel, recording(draft, seen), new RunBudget()).planTest({
+      route: '/',
+      snapshot: '',
+      changedFiles: [],
+    });
+    expect(seen.map((o) => o.maxOutputTokens)).toEqual([4096, 4096, 4096]);
+    expect(MAX_OUTPUT_TOKENS).toBe(4096);
+  });
+
+  it('passes no abort signal when neither a timeout nor a deadline is configured', async () => {
+    const seen: Options[] = [];
+    await createBrain(fakeModel, recording(judgment, seen), new RunBudget()).judge('verify x', 'x', '');
+    expect(seen[0]?.abortSignal).toBeUndefined();
+  });
+
+  it('clears its timer when the call settles, so a finished call never holds the process', async () => {
+    vi.useFakeTimers();
+    try {
+      const seen: Options[] = [];
+      await createBrain(fakeModel, recording(judgment, seen), new RunBudget({ callTimeoutMs: 120_000 })).judge(
+        'verify x',
+        'x',
+        '',
+      );
+      expect(seen[0]?.abortSignal).toBeDefined();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops the run when a call outlives llm.timeout_s, naming the setting (D2, #133)', async () => {
+    const brain = createBrain(fakeModel, hanging, new RunBudget({ callTimeoutMs: 20 }));
+    const thrown = await brain.judge('verify x', 'x', '').catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(ModelCallTimeoutError);
+    expect(thrown).toBeInstanceOf(RunStoppedError);
+    expect((thrown as Error).message).toContain('llm.timeout_s');
+    expect((thrown as Error).message).toContain('BLASTPROOF_LLM_TIMEOUT_S');
+  });
+
+  it('stops for the deadline, not a timeout, when the deadline ends the call (D3)', async () => {
+    const brain = createBrain(fakeModel, hanging, new RunBudget({ callTimeoutMs: 60_000, maxDurationMs: 30 }));
+    const started = Date.now();
+    const thrown = await brain.nextAction({ step: 'x', snapshot: '', retriesLeft: 3, iterationsLeft: 10 }).catch(
+      (error: unknown) => error,
+    );
+    expect(thrown).toBeInstanceOf(BudgetExhaustedError);
+    expect((thrown as BudgetExhaustedError).limit).toBe('duration');
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('turns an answer cut at the limit into a malformed answer that names the limit (D1)', async () => {
+    const brain = createBrain(fakeModel, async () => { throw noObject('length', 5096); }, new RunBudget());
+    const thrown = await brain.judge('verify x', 'x', '').catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(MalformedModelOutputError);
+    expect(thrown).not.toBeInstanceOf(RunStoppedError);
+    expect((thrown as Error).message).toContain('4096-token output limit');
+  });
+
+  it('counts the tokens of a call whose answer could not be used (#136)', async () => {
+    const budget = new RunBudget({ maxTokens: 100_000 });
+    const brain = createBrain(fakeModel, async () => { throw noObject('stop', 66_766); }, budget);
+    const thrown = await brain.judge('verify x', 'x', '').catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(NoObjectGeneratedError);
+    expect(budget.spend()).toMatchObject({ calls: 1, tokens: 66_766, callsWithUsage: 1 });
   });
 });

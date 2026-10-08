@@ -1,4 +1,4 @@
-import { APICallError, generateObject, RetryError, type LanguageModel } from 'ai';
+import { APICallError, generateObject, NoObjectGeneratedError, RetryError, type LanguageModel } from 'ai';
 import type { z } from 'zod';
 import {
   agentSystemPrompt,
@@ -10,7 +10,7 @@ import {
   type AgentIterationInput,
   type PlannerInput,
 } from './prompts.js';
-import { ProviderRefusedError, type RunBudget } from '../runner/budget.js';
+import { ModelCallTimeoutError, ProviderRefusedError, type RunBudget } from '../runner/budget.js';
 import { labelledVariables, placeholdersAsLabels, redactionLabel } from '../runner/env.js';
 import type { StepHistoryEntry } from '../runner/recovery.js';
 import {
@@ -65,7 +65,19 @@ export type GenerateObjectFn = (options: {
   system?: string;
   prompt?: string;
   temperature?: number;
+  maxOutputTokens?: number;
+  abortSignal?: AbortSignal;
 }) => Promise<{ object: unknown; usage?: { totalTokens?: number } }>;
+
+/**
+ * The most any model call may produce, reasoning included where the provider
+ * counts it (design bound-every-model-call, D1). The largest answer measured, on
+ * any model and any call shape, was about 425 tokens, and the reasoning of
+ * `gpt-oss` reached about 1,600 at p99. Without a limit, every call reserved the
+ * provider's maximum (#126), and a model that opened its object and then emitted
+ * whitespace ran to 65k–131k tokens over minutes.
+ */
+export const MAX_OUTPUT_TOKENS = 4096;
 
 export class MalformedModelOutputError extends Error {
   constructor(message: string) {
@@ -128,17 +140,62 @@ function asProviderRefusal(error: unknown): unknown {
   return new ProviderRefusedError(cause.statusCode, cause.message);
 }
 
+/**
+ * Aborts one call at the sooner of the call timeout and the run's deadline
+ * (design bound-every-model-call, D2, D3), or not at all when neither is
+ * configured, so an unbounded budget still makes an unbounded call. Which of the
+ * two fired is decided after the abort, by the budget.
+ *
+ * One timer held here, not `AbortSignal.any()` over `AbortSignal.timeout()`s:
+ * the sources of `any()` are held weakly, and in a long run they were collected
+ * before firing. A run with `--max-duration 20` was still waiting after 200 s.
+ * The timer is cleared when the call settles, so it never outlives it.
+ */
+function callAbort(budget: RunBudget): { signal: AbortSignal; clear: () => void } | undefined {
+  const limits = [budget.callTimeoutMs, budget.remainingMs()].filter((ms): ms is number => ms !== undefined);
+  if (limits.length === 0) return undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(...limits));
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
+/**
+ * A call that failed after the model answered still spent what it spent (#136):
+ * the SDK's `NoObjectGeneratedError` carries the usage of an answer that did not
+ * parse, missed the schema or was cut off, and the budget must see it, or a
+ * model that loops can run past `--max-tokens` unnoticed. An answer cut off at
+ * the output limit says so, since "could not parse the response" hides the
+ * one fact that explains it.
+ */
+function spentAndExplained(error: unknown, budget: RunBudget): unknown {
+  if (!NoObjectGeneratedError.isInstance(error)) return error;
+  budget.record(error.usage);
+  if (error.finishReason !== 'length') return error;
+  return new MalformedModelOutputError(
+    `the answer reached the ${MAX_OUTPUT_TOKENS}-token output limit before its JSON was complete`,
+  );
+}
+
 async function countedGenerate(
   generate: GenerateObjectFn,
   budget: RunBudget,
   options: Parameters<GenerateObjectFn>[0],
 ): ReturnType<GenerateObjectFn> {
   budget.check();
+  const abort = callAbort(budget);
   let result: Awaited<ReturnType<GenerateObjectFn>>;
   try {
-    result = await generate(options);
+    result = await generate({ ...options, maxOutputTokens: MAX_OUTPUT_TOKENS, abortSignal: abort?.signal });
   } catch (error) {
-    throw asProviderRefusal(withProviderDetail(error));
+    if (abort?.signal.aborted) {
+      // The deadline first (design D3): a call cut short by --max-duration is the
+      // deadline's stop, and only a call that outlived llm.timeout_s is a timeout.
+      budget.check();
+      if (budget.callTimeoutMs !== undefined) throw new ModelCallTimeoutError(budget.callTimeoutMs);
+    }
+    throw asProviderRefusal(withProviderDetail(spentAndExplained(error, budget)));
+  } finally {
+    abort?.clear();
   }
   // Recorded even when the output later fails schema validation: the call was
   // made and spent tokens regardless of whether the model's answer parses.

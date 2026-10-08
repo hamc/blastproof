@@ -9,6 +9,8 @@ import {
   findUnknownConfigKeys,
   loadConfig,
 } from '../src/config.js';
+import { timeoutSeconds } from '../src/llm/provider.js';
+import { resolveBudgetOptions } from '../src/commands/run.js';
 
 let dir: string;
 
@@ -318,6 +320,30 @@ describe('budget section (spec run-budget)', () => {
     await expect(
       loadConfig(dir, { BLASTPROOF_MAX_LLM_CALLS: 'lots' }),
     ).rejects.toThrow(/BLASTPROOF_MAX_LLM_CALLS/);
+  });
+
+  // design bound-every-model-call, D2
+  it('reads llm.timeout_s from the file and from BLASTPROOF_LLM_TIMEOUT_S, env winning', async () => {
+    await writeConfig('base_url: http://localhost:3000\nllm:\n  provider: ollama\n  timeout_s: 900\n');
+    expect((await loadConfig(dir, {})).llm.timeout_s).toBe(900);
+    expect((await loadConfig(dir, { BLASTPROOF_LLM_TIMEOUT_S: '45' })).llm.timeout_s).toBe(45);
+  });
+
+  it('rejects a timeout that is not a positive number, naming the variable', async () => {
+    await writeConfig('base_url: http://localhost:3000\n');
+    await expect(loadConfig(dir, { BLASTPROOF_LLM_TIMEOUT_S: '0' })).rejects.toThrow(/BLASTPROOF_LLM_TIMEOUT_S/);
+  });
+
+  it('defaults the call timeout by provider: 300 s hosted, 900 s for ollama', () => {
+    expect(timeoutSeconds({ provider: 'anthropic' })).toBe(300);
+    expect(timeoutSeconds({ provider: 'openai' })).toBe(300);
+    expect(timeoutSeconds({ provider: 'ollama' })).toBe(900);
+    expect(timeoutSeconds({ provider: 'ollama', timeout_s: 900 })).toBe(900);
+  });
+
+  it('gives every run its call timeout through the budget', () => {
+    const config = { llm: { provider: 'ollama' } } as Parameters<typeof resolveBudgetOptions>[0];
+    expect(resolveBudgetOptions(config, {}).callTimeoutMs).toBe(900_000);
   });
 });
 

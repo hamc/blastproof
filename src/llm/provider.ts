@@ -16,6 +16,24 @@ export const DEFAULT_API_KEY_ENVS: Record<Exclude<LlmConfig['provider'], 'ollama
 
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 
+/**
+ * Seconds one model call may take when `llm.timeout_s` is unset (design
+ * bound-every-model-call, D2). The longest healthy call is a full answer at the
+ * output limit: a gateway's slower providers stream open-weight models at tens of
+ * tokens per second, and one such call took more than 120 s in verification. A
+ * local model on a CPU, at around 5 tokens per second, needs about 820 s for it.
+ * A provider that never answers still stops the run within the default.
+ */
+export const DEFAULT_TIMEOUT_SECONDS: Record<LlmConfig['provider'], number> = {
+  anthropic: 300,
+  openai: 300,
+  ollama: 900,
+};
+
+export function timeoutSeconds(llm: LlmConfig): number {
+  return llm.timeout_s ?? DEFAULT_TIMEOUT_SECONDS[llm.provider];
+}
+
 export class MissingApiKeyError extends Error {
   constructor(variable: string, provider: string) {
     super(

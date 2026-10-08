@@ -4,7 +4,7 @@ import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
 import { DiffError, getChangedFiles, getUncommittedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
 import { createBrain } from '../llm/brain.js';
-import { createModel, MissingApiKeyError } from '../llm/provider.js';
+import { createModel, MissingApiKeyError, timeoutSeconds } from '../llm/provider.js';
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
@@ -123,6 +123,7 @@ export function resolveBudgetOptions(config: BlastproofConfig, options: BudgetFl
     maxCalls: options.maxLlmCalls ?? config.budget?.max_llm_calls,
     maxTokens: options.maxTokens ?? config.budget?.max_tokens,
     maxDurationMs: maxDurationSeconds === undefined ? undefined : maxDurationSeconds * 1000,
+    callTimeoutMs: timeoutSeconds(config.llm) * 1000,
   };
 }
 
