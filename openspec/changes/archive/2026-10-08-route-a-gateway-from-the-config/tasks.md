@@ -12,4 +12,4 @@
   - *Done.* A project whose config sets `extra_body.provider` to `{ require_parameters: true, ignore: [Darkbloom, Venice] }` ran the login and consent tests: 2/2 PASS. All 17 requests carried that object and `max_tokens: 4096`. Answers came from Parasail, DeepInfra, AkashML, Novita, CoreWeave and DekaLLM, none from an ignored provider
   - A test with a recording `fetch` fails if `extra_body` is allowed to win over blastproof's fields
 - [x] 2.3 `npm run build`, `npm run typecheck`, `npm test` all pass
-- [ ] 2.4 Archive in the same pull request, as its own commit
+- [x] 2.4 Archive in the same pull request, as its own commit
