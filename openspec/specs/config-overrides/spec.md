@@ -71,3 +71,14 @@ Override values SHALL be validated exactly as file values are, and an invalid ov
 #### Scenario: Key indirection preserved
 - **WHEN** `BLASTPROOF_LLM_API_KEY_ENV=MY_PROVIDER_KEY` is set and `MY_PROVIDER_KEY` holds the key
 - **THEN** the provider is created with that key, and a missing `MY_PROVIDER_KEY` fails with an error naming `MY_PROVIDER_KEY`
+
+### Requirement: Environment override for the model call timeout
+The system SHALL override `llm.timeout_s` from `BLASTPROOF_LLM_TIMEOUT_S`, validated as a positive number of seconds.
+
+#### Scenario: Timeout raised for one run
+- **WHEN** `BLASTPROOF_LLM_TIMEOUT_S=900` is set
+- **THEN** every model call of the run is allowed 900 seconds, and the config file is not modified
+
+#### Scenario: Invalid timeout
+- **WHEN** `BLASTPROOF_LLM_TIMEOUT_S=0` is set
+- **THEN** the CLI exits with code 2 naming the variable

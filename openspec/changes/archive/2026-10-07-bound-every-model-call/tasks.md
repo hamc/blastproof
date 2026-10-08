@@ -28,4 +28,4 @@
   - *First run, 120 s default:* `gpt-oss-20b` passed 7 tests, with 5 runaways cut at 4096 tokens and recovered. Then one call outlived 120 s and stopped the run. The default was raised (design D2)
   - *Second run, 300 s default:* **8/8 PASS, exit 0**, 97 calls, 1 runaway cut at the limit and recovered. Before this change, in the triage, no open model finished the suite
 - [x] 4.4 `npm run build`, `npm run typecheck`, `npm test` all pass
-- [ ] 4.5 Archive in the same pull request, as its own commit
+- [x] 4.5 Archive in the same pull request, as its own commit
