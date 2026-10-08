@@ -13,10 +13,30 @@ const llmSchema = z.object({
   /**
    * Seconds a single model call may take before it is aborted and the run stops
    * (design bound-every-model-call, D2). Optional: undefined takes the provider's
-   * default from `defaultTimeoutSeconds`, because only the user knows how fast
+   * default from `DEFAULT_TIMEOUT_SECONDS`, because only the user knows how fast
    * their local hardware is. Coerced, since `BLASTPROOF_LLM_TIMEOUT_S` is text.
    */
   timeout_s: z.coerce.number().positive().optional(),
+  /**
+   * Fields merged into every request body for an OpenAI-compatible endpoint
+   * (design route-a-gateway-from-the-config, D1): a gateway's own extensions,
+   * such as OpenRouter's `provider` routing, which the SDK does not know. The
+   * fields blastproof sets always win (D2). Opaque on purpose: its keys are the
+   * gateway's API, not ours.
+   */
+  extra_body: z.record(z.unknown()).optional(),
+}).superRefine((llm, ctx) => {
+  // design route-a-gateway-from-the-config, D3: the Anthropic API rejects unknown
+  // fields, so this would fail on the first call; say so when the file loads.
+  if (llm.extra_body !== undefined && llm.provider === 'anthropic') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['extra_body'],
+      message:
+        'applies only to the OpenAI-compatible providers (openai, ollama); the Anthropic API rejects unknown fields. ' +
+        'Remove llm.extra_body, or reach the model through a gateway with provider: openai and llm.base_url.',
+    });
+  }
 });
 
 const browserSchema = z.object({
