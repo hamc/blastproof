@@ -34,6 +34,27 @@ export function timeoutSeconds(llm: LlmConfig): number {
   return llm.timeout_s ?? DEFAULT_TIMEOUT_SECONDS[llm.provider];
 }
 
+/**
+ * A `fetch` that merges `extra` under every JSON request body (design
+ * route-a-gateway-from-the-config, D1, D2). Shallow, with the SDK's fields
+ * winning: routing can be added, and neither the JSON schema nor the output
+ * limit can be overridden from the config. A body that is not a JSON object is
+ * sent as it is.
+ */
+export function withExtraBody(extra: Record<string, unknown>, base: typeof fetch = fetch): typeof fetch {
+  return (input, init) => {
+    if (typeof init?.body !== 'string') return base(input, init);
+    let body: unknown;
+    try {
+      body = JSON.parse(init.body);
+    } catch {
+      return base(input, init);
+    }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return base(input, init);
+    return base(input, { ...init, body: JSON.stringify({ ...extra, ...body }) });
+  };
+}
+
 export class MissingApiKeyError extends Error {
   constructor(variable: string, provider: string) {
     super(
@@ -69,6 +90,7 @@ export function createModel(
         throw new MissingApiKeyError(keyEnv, llm.provider);
       }
       const baseURL = llm.base_url ? { baseURL: llm.base_url } : {};
+      const extra = llm.extra_body ? { fetch: withExtraBody(llm.extra_body) } : {};
       const model =
         llm.provider === 'anthropic'
           ? // A configured endpoint applies to whichever provider is selected —
@@ -77,13 +99,14 @@ export function createModel(
             createAnthropic({ apiKey, ...baseURL })(modelId)
           : // `.chat` = Chat Completions: works with official OpenAI and any
             // OpenAI-compatible endpoint (OpenRouter, LiteLLM, vLLM) via base_url.
-            createOpenAI({ apiKey, ...baseURL }).chat(modelId);
+            createOpenAI({ apiKey, ...baseURL, ...extra }).chat(modelId);
       return { model, provider: llm.provider, modelId };
     }
     case 'ollama': {
       const baseURL = llm.base_url ?? DEFAULT_OLLAMA_BASE_URL;
       // Ollama exposes an OpenAI-compatible Chat Completions endpoint; a dummy key satisfies the client.
-      const model = createOpenAI({ baseURL, apiKey: 'ollama' }).chat(modelId);
+      const extra = llm.extra_body ? { fetch: withExtraBody(llm.extra_body) } : {};
+      const model = createOpenAI({ baseURL, apiKey: 'ollama', ...extra }).chat(modelId);
       return { model, provider: 'ollama', modelId };
     }
   }

@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createBrain } from '../src/llm/brain.js';
 import {
   createModel,
   DEFAULT_MODELS,
   MissingApiKeyError,
+  withExtraBody,
 } from '../src/llm/provider.js';
+import { RunBudget } from '../src/runner/budget.js';
 
 describe('createModel', () => {
   it('uses documented default models per provider', () => {
@@ -87,5 +90,81 @@ describe('createModel', () => {
     );
     const model = resolved.model as unknown as { config?: { baseURL?: string } };
     expect(model.config?.baseURL).not.toBe('https://proxy.internal/v1');
+  });
+});
+
+describe('llm.extra_body (route-a-gateway-from-the-config)', () => {
+  function recordingFetch(bodies: unknown[]): typeof fetch {
+    return async (_input, init) => {
+      const raw = init?.body;
+      bodies.push(typeof raw === 'string' && raw.startsWith('{') ? JSON.parse(raw) : raw);
+      return new Response('{}');
+    };
+  }
+
+  it('merges the extra fields under a JSON body, the body winning (D1, D2)', async () => {
+    const bodies: unknown[] = [];
+    const send = withExtraBody({ provider: { require_parameters: true }, max_tokens: 64000 }, recordingFetch(bodies));
+    await send('https://gw.test/v1/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'm', max_tokens: 4096 }),
+    });
+    expect(bodies[0]).toEqual({ provider: { require_parameters: true }, model: 'm', max_tokens: 4096 });
+  });
+
+  it('sends a body that is not a JSON object as it is', async () => {
+    const bodies: unknown[] = [];
+    const send = withExtraBody({ provider: {} }, recordingFetch(bodies));
+    await send('https://gw.test/x', { method: 'POST', body: 'not json' });
+    await send('https://gw.test/x', { method: 'GET' });
+    expect(bodies).toEqual(['not json', undefined]);
+  });
+
+  describe('end to end, through the brain', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    async function requestBodyFor(llm: Parameters<typeof createModel>[0]): Promise<Record<string, unknown>> {
+      const bodies: Record<string, unknown>[] = [];
+      vi.stubGlobal('fetch', async (_input: unknown, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({
+            id: 'x',
+            object: 'chat.completion',
+            created: 0,
+            model: 'm',
+            choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: '{"outcome":"o","reason":"r","pass":true}' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      });
+      const { model } = createModel(llm, { OPENROUTER_API_KEY: 'k' });
+      await createBrain(model, undefined, new RunBudget()).judge('verify x', 'x', '');
+      return bodies[0]!;
+    }
+
+    it('reaches the gateway with the routing, and the output limit intact', async () => {
+      const body = await requestBodyFor({
+        provider: 'openai',
+        model: 'openai/gpt-oss-20b',
+        base_url: 'https://openrouter.ai/api/v1',
+        api_key_env: 'OPENROUTER_API_KEY',
+        extra_body: { provider: { require_parameters: true, ignore: ['Venice'] }, max_tokens: 64000 },
+      });
+      expect(body.provider).toEqual({ require_parameters: true, ignore: ['Venice'] });
+      expect(body.max_tokens ?? body.max_completion_tokens).toBe(4096);
+      expect(body.response_format).toBeDefined();
+    });
+
+    it('sends nothing extra without it', async () => {
+      const body = await requestBodyFor({
+        provider: 'openai',
+        model: 'm',
+        base_url: 'https://openrouter.ai/api/v1',
+        api_key_env: 'OPENROUTER_API_KEY',
+      });
+      expect(body.provider).toBeUndefined();
+    });
   });
 });

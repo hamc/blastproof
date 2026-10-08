@@ -334,6 +334,21 @@ describe('budget section (spec run-budget)', () => {
     await expect(loadConfig(dir, { BLASTPROOF_LLM_TIMEOUT_S: '0' })).rejects.toThrow(/BLASTPROOF_LLM_TIMEOUT_S/);
   });
 
+  // design route-a-gateway-from-the-config
+  it('reads llm.extra_body as an opaque object for an OpenAI-compatible provider', async () => {
+    await writeConfig(
+      'base_url: http://localhost:3000\nllm:\n  provider: openai\n  extra_body:\n    provider:\n      require_parameters: true\n      ignore: [Venice]\n',
+    );
+    const config = await loadConfig(dir, {});
+    expect(config.llm.extra_body).toEqual({ provider: { require_parameters: true, ignore: ['Venice'] } });
+    expect(findUnknownConfigKeys({ base_url: 'x', llm: { provider: 'openai', extra_body: { provider: {} } } })).toEqual([]);
+  });
+
+  it('refuses llm.extra_body with the anthropic provider, naming both', async () => {
+    await writeConfig('base_url: http://localhost:3000\nllm:\n  provider: anthropic\n  extra_body:\n    foo: 1\n');
+    await expect(loadConfig(dir, {})).rejects.toThrow(/llm\.extra_body: applies only to the OpenAI-compatible providers/);
+  });
+
   it('defaults the call timeout by provider: 300 s hosted, 900 s for ollama', () => {
     expect(timeoutSeconds({ provider: 'anthropic' })).toBe(300);
     expect(timeoutSeconds({ provider: 'openai' })).toBe(300);

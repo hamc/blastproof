@@ -84,6 +84,28 @@ export BLASTPROOF_LLM_API_KEY_ENV=OPENROUTER_API_KEY
 blastproof run --impacted --min-score 80
 ```
 
+#### Open-weight models through a gateway: route around providers that ignore the schema
+
+A gateway serves an open-weight model (`gpt-oss`, `qwen`, `gemma`…) through many providers and picks one per request. Every call blastproof makes sends a JSON schema, and some providers do not honor it. Measured on OpenRouter, one answered with plain text instead of an object, and another emitted whitespace until the output limit. Each such answer costs a step one attempt, and enough of them fail the test ([#150](https://github.com/hamc/blastproof/issues/150)).
+
+`llm.extra_body` adds fields to every request body, for the gateway's own options. On OpenRouter, routing:
+
+```yaml
+llm:
+  provider: openai
+  model: openai/gpt-oss-20b
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  extra_body:
+    provider:
+      require_parameters: true   # only providers that accept every parameter sent
+      ignore: [ProviderName]     # those that accept the schema and do not honor it
+```
+
+`require_parameters` alone was not enough. The two providers that failed declare support for the schema, so only `ignore` kept them out. Which providers misbehave changes over time, so this page does not list them. When answers fail to parse, the provider is named in OpenRouter's activity log.
+
+`extra_body` cannot override what blastproof sets: the model, the messages, the JSON schema, the output limit and the temperature always win. It applies only to `provider: openai` and `ollama`. The Anthropic API rejects unknown fields, so `extra_body` with `provider: anthropic` is a configuration error.
+
 ### Ollama, for a run that never leaves the machine
 
 ```yaml
