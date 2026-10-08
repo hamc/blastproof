@@ -3,6 +3,54 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.24.0] — 2026-10-07
+
+### Fixed
+
+- **A value shown elsewhere on the page no longer passes a step that names where it must be.**
+  The confirmation showed order `#BP-1002`, another paragraph mentioned `#BP-1001` as a previous
+  order, and *"Verify the order number "#BP-1001" is displayed in the confirmation message"*
+  passed on `claude-haiku-4.5`, the Anthropic default, in 3 of 13 runs. The executor's claim had
+  called the previous-order paragraph "the confirmation message", and the judge took it. A place
+  the step names is now part of its outcome, and a claim cannot rename it: 0 wrong passes in 10
+  runs after the fix (#147).
+- **A verification step only looks.** On a page that did not show the message a step checked
+  for, both reference models clicked "Add to cart" to produce it, and the step passed. A step
+  whose first word is `verify`, `check`, `confirm`, `ensure`, `assert`, `expect` or `validate`
+  (or `make sure`, `see that`) may no longer click or press Enter, and closes only on a passing
+  judgment, never on `done` (#139). **Behaviour change:** a "verify" step that relied on an
+  action to reach its state now fails on the refusal. Put the action in a step of its own, or
+  start the step with the action ("click Save and verify the note is listed").
+- **A secret typed in an earlier step of the test counts for the label check.** Since 0.23.0 a
+  step such as *"log in with {{env.PASSWORD}} and verify the welcome heading"*, run when the
+  login had already happened, passes without typing. The check that fails a step naming a
+  secret the page does not show then failed it, because this step never typed the password.
+  A variable used in an earlier step's action now counts as accounted for (#141).
+
+### Added
+
+- **`npm run eval:reliability`: how often a verdict is wrong, measured.** The dogfood suite runs
+  on the demo app as it is, and each test on mutants: copies of the app with one bug seeded.
+  Some mutants change the value a step quotes; others reproduce a past wrong verdict. The README
+  gives the first numbers, for `claude-haiku-4.5` and `gpt-6-luna`, 5 samples each: no false
+  FAIL in 40 runs on the correct app, and no false PASS in 50 runs on mutants, after #147's fix
+  (#143). The demo app is small, so these numbers flatter. The command is there to reproduce
+  them.
+- **The judge corpus is replayed on two models.** `EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna npm run eval:judge`
+  fails on a regression on either model, and an unusable answer is scored instead of crashing
+  the replay (contributor tooling, no change to the CLI).
+
+### Known issues
+
+- Every model call reserves the provider's maximum output (#126). Open-weight models with
+  reasoning sometimes emit whitespace until that ceiling, 65k–131k tokens in one call.
+- A model call has no timeout of its own (#133). The runaways above end only at the HTTP
+  client's 5-minute timeout and stop the run as "no response".
+- Through a gateway, open-weight models can reach providers that ignore the JSON schema. There
+  is no setting to route around them (#150).
+- The judge sometimes takes a different dialog for the one a step says is gone, on Haiku only
+  (#129). One of its three cases is now judged right.
+
 ## [0.23.0] — 2026-10-05
 
 ### Fixed
