@@ -15,4 +15,4 @@
 - [x] 3.1 `gpt-6-luna` through the `openai` provider, model omitted, live: the request names `gpt-6-luna` and the API knows the id
   - *Done, short of a run.* `GET /v1/models/gpt-6-luna` on the OpenAI API answers with the model. `blastproof run` with `provider: openai` and no `model` printed `model=gpt-6-luna` and reached the API, which refused for quota (HTTP 429 `insufficient_quota`), not for an unknown model. The suite's verdicts on this model are the benchmark's, through OpenRouter
 - [x] 3.2 `npm run build`, `npm run typecheck`, `npm test` all pass
-- [ ] 3.3 Archive in the same pull request, as its own commit
+- [x] 3.3 Archive in the same pull request, as its own commit
