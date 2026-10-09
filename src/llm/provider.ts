@@ -3,10 +3,16 @@ import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel } from 'ai';
 import type { LlmConfig } from '../config.js';
 
+/**
+ * The model a provider uses when `llm.model` is unset. Each was chosen on the
+ * reliability benchmark, whose table is in docs/configuration.md ("Choosing a
+ * model"); changing one means running it again (design
+ * pick-the-defaults-by-measurement).
+ */
 export const DEFAULT_MODELS: Record<LlmConfig['provider'], string> = {
   anthropic: 'claude-haiku-4-5',
-  openai: 'gpt-4o-mini',
-  ollama: 'qwen2.5',
+  openai: 'gpt-6-luna',
+  ollama: 'gpt-oss:20b',
 };
 
 export const DEFAULT_API_KEY_ENVS: Record<Exclude<LlmConfig['provider'], 'ollama'>, string> = {

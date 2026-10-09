@@ -24,6 +24,14 @@ describe('createModel', () => {
     expect(ollama.modelId).toBe(DEFAULT_MODELS.ollama);
   });
 
+  it('defaults to the models the reliability benchmark chose (docs/configuration.md)', () => {
+    expect(DEFAULT_MODELS).toEqual({
+      anthropic: 'claude-haiku-4-5',
+      openai: 'gpt-6-luna',
+      ollama: 'gpt-oss:20b',
+    });
+  });
+
   it('honours an explicit model override', () => {
     const resolved = createModel(
       { provider: 'anthropic', model: 'claude-opus-4-1' },

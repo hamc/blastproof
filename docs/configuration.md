@@ -64,12 +64,41 @@ llm:
 | provider | key variable | default model | notes |
 | --- | --- | --- | --- |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` | |
-| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | |
-| `ollama` | none | `qwen2.5` | local, set `base_url` to your endpoint |
+| `openai` | `OPENAI_API_KEY` | `gpt-6-luna` | |
+| `ollama` | none | `gpt-oss:20b` | local, set `base_url` to your endpoint; `ollama pull gpt-oss:20b` first |
 
 **`api_key_env` names the variable, it does not hold the key.** This is
 deliberate: the key never appears in a file that could be committed, and error
 messages can keep naming the variable *you* chose rather than a generic one.
+
+### Choosing a model
+
+Each default above was chosen on the reliability benchmark (`npm run eval:reliability`). It runs the demo app's suite on the app as it is and on copies with one bug seeded. A **false FAIL** is a test failing on the correct app. A **false PASS** is a test passing on an app with the bug it checks. "Right step" counts bugs caught at the step that checks them, not at some earlier step that broke. Five samples per case, through OpenRouter, 2026-10-07 to 2026-10-09:
+
+| model | false FAIL (of 40) | false PASS (of 50) | right step (of 50) | sign-in failed |
+| --- | --- | --- | --- | --- |
+| `claude-haiku-4.5` | 0 | 0 | 47 | 0 of 55 |
+| `gpt-6-luna` | 0 | 0 | 50 | 0 of 55 |
+| `gpt-4o-mini` | 35 | 0 | 12 | 35 of 55 |
+| `gpt-oss-20b` | 2 | 1 | 32 | 10 of 55 |
+| `gpt-oss-120b` | 26 | 0 | 35 | 13 of 55 |
+| `qwen3.6-35b-a3b` | 11 | 0 | 43 | 0 of 55 |
+| `qwen3.5-9b` | 32 of 33 | 0 of 43 | 4 of 43 | 38 of 48 |
+| `gemma-4-26b-a4b-it` | 40 | 0 | 3 | 47 of 55 |
+| `qwen-2.5-7b-instruct` | 40 | 0 | 1 | 47 of 55 |
+
+False FAIL decided first. A gate that is red on a correct app is soon turned off, and then it catches nothing. On false PASS, no model can be told apart from another at this sample size: every 95% upper bound is between 11% and 17%.
+
+- **`gpt-oss-20b` is the Ollama default.** Its one false PASS accepted order `#BP-1002` as the `#BP-1001` the step asked for. It was measured on OpenRouter, not on Ollama. The weights are the same, in the MXFP4 format the model was released in, but the runtime is not.
+- **`qwen3.6-35b-a3b`** caught the most bugs at the right step and never failed to sign in. It also failed 11 of 40 tests on the correct app and needs more memory. Choose it if you would rather see a red build than miss a bug.
+- **`qwen2.5` and `gpt-4o-mini`, the previous defaults,** failed almost every test on the correct app.
+
+The demo app is small and well labelled, so expect a real application to do worse. To measure a model yourself:
+
+```bash
+npm run build
+EVAL_MODELS=openai/gpt-oss-20b npm run eval:reliability
+```
 
 ### OpenAI-compatible gateways
 
@@ -111,7 +140,7 @@ llm:
 ```yaml
 llm:
   provider: ollama
-  model: qwen2.5
+  model: gpt-oss:20b
   base_url: http://localhost:11434/v1
 ```
 
