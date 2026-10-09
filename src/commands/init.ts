@@ -12,7 +12,7 @@ base_url: http://localhost:4173
 llm:
   # anthropic | openai | ollama
   provider: anthropic
-  # Optional. Defaults: anthropic=claude-haiku-4-5, openai=gpt-4o-mini, ollama=qwen2.5
+  # Optional. Defaults: anthropic=claude-haiku-4-5, openai=gpt-6-luna, ollama=gpt-oss:20b
   # model: claude-haiku-4-5
   # Env var holding your API key (not needed for ollama).
   api_key_env: ANTHROPIC_API_KEY

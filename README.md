@@ -313,6 +313,8 @@ The bounds are 95% upper bounds: zero errors in 40 runs means "below about 9%", 
 
 The demo app is small and well labelled, so these numbers flatter. Expect a real application to do worse. The point of this table is that it can be reproduced, and that every change claiming better verdicts has to move it.
 
+The same benchmark over seven more models, and why it chose the OpenAI and Ollama defaults, is in [Choosing a model](./docs/configuration.md#choosing-a-model).
+
 Measured 2026-10-07 on `main` after 0.23.0 with #147's fix, 5 samples, through OpenRouter. To reproduce:
 
 ```bash
