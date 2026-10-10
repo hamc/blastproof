@@ -122,3 +122,30 @@ describe('action.yml', () => {
     });
   });
 });
+
+describe('the Marketplace listing (design list-the-action-on-the-marketplace)', () => {
+  it('has a name no GitHub account can hold, and a description under 125 characters', async () => {
+    const manifest = parse(await readFile(path.join(root, 'action.yml'), 'utf8')) as {
+      name: string;
+      description: string;
+    };
+    // An organization `blastproof` exists and is not ours, so the bare name is refused.
+    expect(manifest.name).toContain(' ');
+    expect(manifest.description.length).toBeLessThan(125);
+    expect(manifest.description).toMatch(/pull request/i);
+  });
+});
+
+describe('docs/ci.md pins the current release (design list-the-action-on-the-marketplace, D2)', () => {
+  it('pins every action ref and every version: input to package.json', async () => {
+    const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')) as { version: string };
+    const page = await readFile(path.join(root, 'docs', 'ci.md'), 'utf8');
+    const refs = [...page.matchAll(/hamc\/blastproof@v(\d+\.\d+\.\d+)/g)].map(([, v]) => `@v${v}`);
+    const pins = [...page.matchAll(/^\s*version:\s*['"]?(\d+\.\d+\.\d+)/gm)].map(([, v]) => `version: ${v}`);
+    expect(refs.length).toBeGreaterThan(0);
+    expect(pins.length).toBeGreaterThan(0);
+    // The 0.24.0 page installed the 0.11.0 CLI: the release commit moved the
+    // action refs and never the version: pin.
+    expect([...refs, ...pins].filter((pin) => !pin.endsWith(version))).toEqual([]);
+  });
+});
