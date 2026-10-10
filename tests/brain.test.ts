@@ -793,6 +793,21 @@ describe('every model call is bounded (bound-every-model-call)', () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 
+  it('stops for the deadline even when its timer fires before the clock reaches it (D3)', async () => {
+    // A clock that never advances is the extreme of a timer firing a millisecond
+    // early: when the abort arrives, reading the clock says the deadline has not
+    // passed. Re-reading it reported a timeout, and failed the 0.25.0 release.
+    const frozen = Date.now();
+    const brain = createBrain(
+      fakeModel,
+      hanging,
+      new RunBudget({ callTimeoutMs: 60_000, maxDurationMs: 30, now: () => frozen }),
+    );
+    const thrown = await brain.judge('verify x', 'x', '').catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(BudgetExhaustedError);
+    expect((thrown as BudgetExhaustedError).limit).toBe('duration');
+  });
+
   it('turns an answer cut at the limit into a malformed answer that names the limit (D1)', async () => {
     const brain = createBrain(fakeModel, async () => { throw noObject('length', 5096); }, new RunBudget());
     const thrown = await brain.judge('verify x', 'x', '').catch((error: unknown) => error);
