@@ -1,5 +1,8 @@
-name: blastproof
-description: Map the blast radius of a pull request, run the tests that cover it, and gate the merge on a score.
+# The Marketplace refuses a name matching a GitHub account it is not published by,
+# and an organization `blastproof` exists that is not ours. A name with a space
+# cannot match any account (design list-the-action-on-the-marketplace, D1).
+name: blastproof e2e AI testing
+description: 'AI end-to-end tests for pull requests: runs the plain-English tests a diff affects in Playwright and gates the merge.'
 author: Heitor Cardozo
 
 branding:

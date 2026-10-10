@@ -29,7 +29,7 @@ jobs:
 
       - uses: hamc/blastproof@v0.24.0
         with:
-          version: '0.11.0'       # pin both when this gates merges
+          version: '0.24.0'       # pin both when this gates merges
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
           min-score: '80'
