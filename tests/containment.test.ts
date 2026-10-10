@@ -17,13 +17,11 @@ function fakePage(): { page: PageLike; visited: string[]; filled: string[] } {
     press: async () => {},
     selectOption: async () => undefined,
     waitFor: async () => {},
-    first: () => locator,
+    count: async () => 1,
   };
   const page = {
     goto: async (url: string) => void visited.push(url),
-    getByRole: () => locator,
-    getByLabel: () => locator,
-    getByText: () => locator,
+    locator: () => locator,
     keyboard: { press: async () => {} },
     screenshot: async () => undefined,
     url: () => visited[visited.length - 1] ?? BASE,
@@ -103,7 +101,7 @@ describe('secret boundary', () => {
         return seenByModel.length === 1
           ? {
               action: 'fill' as const,
-              target: { role: 'textbox', name: 'Password' },
+              target: { ref: 'e1', role: 'textbox', name: 'Password' },
               // The model echoes the placeholder, as the prompt instructs.
               value: '{{env.CONTAINMENT_TEST_PASSWORD}}',
               reasoning: 'type it',
@@ -121,7 +119,7 @@ describe('secret boundary', () => {
       baseUrl: BASE,
       resolveValue: (v) => substituteEnv(v),
       timeoutMs: 30_000,
-      snapshot: async () => '- textbox "Password"',
+      snapshot: async () => '- textbox "Password" [ref=e1]',
     });
 
     expect(result.status).toBe('passed');
@@ -190,7 +188,7 @@ describe('secret boundary', () => {
     const { page, filled } = fakePage();
     await performAction(
       page,
-      { action: 'fill', target: { role: 'textbox', name: 'Email' }, value: 'a@b.test', reasoning: '' },
+      { action: 'fill', target: { ref: 'e1', role: 'textbox', name: 'Email' }, value: 'a@b.test', reasoning: '' },
       { baseUrl: BASE, resolveValue: (v) => substituteEnv(v) },
     );
     expect(filled).toEqual(['a@b.test']);

@@ -29,17 +29,21 @@ export const agentActionSchema = z.object({
   action: z.enum(ACTION_NAMES).describe('The next browser action to perform for the current step.'),
   target: absentAsNull(
     z.object({
+      ref: absentAsNull(
+        z.string().describe('The ref of the target element, copied from its [ref=...] in the snapshot, e.g. "f1e25".'),
+      ),
       role: absentAsNull(
-        z.string().describe('ARIA role of the target element, e.g. "button", "link", "textbox".'),
+        z.string().describe('ARIA role of that element, as its snapshot line shows it, e.g. "button", "link", "textbox".'),
       ),
       name: absentAsNull(
-        z.string().describe('Accessible name of the target element, exactly as shown in the snapshot.'),
-      ),
-      text: absentAsNull(
-        z.string().describe('Visible text of the target element, used as a fallback when no role matches.'),
+        z
+          .string()
+          .describe(
+            'Accessible name of that element, exactly as its snapshot line shows it; its text after the colon when it has no quoted name.',
+          ),
       ),
     }),
-  ).describe('Element to act on, resolved from the accessibility snapshot. Null for navigate/done/fail.'),
+  ).describe('Element to act on, named by its ref in the accessibility snapshot. Null for navigate/done/fail, and for press on the focused element.'),
   value: absentAsNull(
     z
       .string()
@@ -77,9 +81,9 @@ const parsedAgentActionSchema = z.object({
   action: z.enum(ACTION_NAMES),
   target: z
     .object({
+      ref: z.string().optional(),
       role: z.string().optional(),
       name: z.string().optional(),
-      text: z.string().optional(),
     })
     .optional(),
   value: z.string().optional(),

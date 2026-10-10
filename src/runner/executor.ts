@@ -6,12 +6,14 @@ import { RunStoppedError } from './budget.js';
 import type { TestFile } from './testfile.js';
 import {
   allowedOriginsFor,
+  bindTarget,
   describeBoundary,
   isOriginAllowed,
   performAction,
   type PageLike,
 } from './actions.js';
 import { referencedEnvVars } from './env.js';
+import { indexRefs, withoutRefs } from './snapshot.js';
 import { StepRecovery, describeAction } from './recovery.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
@@ -309,7 +311,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         // D2/D4): what the model was shown is what it may quote from, and a
         // value it reads here stays quotable after the page has moved on.
         const maskedSnap = mask(snap);
-        recovery.observe(maskedSnap);
+        // The model chooses elements by ref and reads them here; everything
+        // else, the judge included, reads the page without them (design
+        // act-on-the-element-the-model-read, D3). A ref is not something the
+        // page says, so it is not a value the model may type either.
+        const refs = indexRefs(maskedSnap);
+        const pageSnap = withoutRefs(maskedSnap);
+        recovery.observe(pageSnap);
 
         let action: AgentAction;
         try {
@@ -398,7 +406,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             judgment = await brain.judge(
               mask(step),
               mask(expectation),
-              maskedSnap,
+              pageSnap,
               recovery.stepHistory(),
               [...usedEarlier],
             );
@@ -414,7 +422,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
               // is what let the model invent an action instead of looking again.
               await waitForSettled(page);
               const freshSnap = await takeSnapshot(page);
-              const maskedFresh = mask(freshSnap);
+              const maskedFresh = withoutRefs(mask(freshSnap));
               // Every snapshot that crosses into a prompt during this step, not
               // only the ones the acting model sees: the judge's reason comes back
               // through `lastResult`, so this page has entered the step's record
@@ -458,6 +466,22 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           lastResult = result;
           if (failedAttempts >= maxRetries) {
             throw new StepFailure(judgment.reason);
+          }
+          continue;
+        }
+
+        // The element is the one the model's ref names, checked against what
+        // it said that element is (design act-on-the-element-the-model-read,
+        // D2). From here on the action carries the snapshot's role and name, so
+        // the repeat check, the record and the log describe what is acted on.
+        try {
+          action = bindTarget(action, refs);
+        } catch (error) {
+          failedAttempts++;
+          lastResult = error instanceof Error ? error.message : String(error);
+          emitAction(index, action, lastResult);
+          if (failedAttempts >= maxRetries) {
+            throw new StepFailure(lastResult);
           }
           continue;
         }

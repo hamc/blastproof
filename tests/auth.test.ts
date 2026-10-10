@@ -37,9 +37,6 @@ function fakeBrowser(overrides: { fail?: boolean } = {}): {
             // `http://localhost` is a different origin from `http://localhost:4173`.
             url: () => 'http://localhost:4173/account',
             waitForLoadState: async () => {},
-            getByRole: () => ({}) as never,
-            getByLabel: () => ({}) as never,
-            getByText: () => ({}) as never,
             keyboard: { press: async () => {} },
             screenshot: async () => undefined,
           } as never;
@@ -62,6 +59,10 @@ function fakeBrowser(overrides: { fail?: boolean } = {}): {
  * element resolution (browser-patience), not just that `authenticate()` accepts
  * the option. Mirrors the fakes in `executor.test.ts`.
  */
+function splitKey(key: string): string[] {
+  return [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+}
+
 function delayedElementPage(delayedKey: string, thresholdMs: number): { page: PageLike; calls: string[] } {
   const calls: string[] = [];
   let currentUrl = 'about:blank';
@@ -69,7 +70,7 @@ function delayedElementPage(delayedKey: string, thresholdMs: number): { page: Pa
   const locatorFor = (kind: string, query: string): LocatorLike => {
     const key = `${kind}:${query}`;
     const locator: LocatorLike = {
-      first: () => locator,
+      count: async () => (key === delayedKey ? 1 : 0),
       async waitFor(options?: { timeout?: number }) {
         if (key !== delayedKey || (options?.timeout ?? 0) < thresholdMs) {
           throw new Error(`not visible: ${key}`);
@@ -98,9 +99,9 @@ function delayedElementPage(delayedKey: string, thresholdMs: number): { page: Pa
       currentUrl = url;
       return undefined;
     },
-    getByRole: (role: string, opts?: { name?: string }) => locatorFor('role', `${role}|${opts?.name ?? ''}`),
-    getByLabel: (text: string) => locatorFor('label', text),
-    getByText: (text: string) => locatorFor('text', text),
+    // The one element this page has is printed as ref e1 (see `clickThenDoneBrain`).
+    locator: (selector: string) =>
+      selector === 'aria-ref=e1' ? locatorFor(...(splitKey(delayedKey) as [string, string])) : locatorFor('none', selector),
     keyboard: {
       press: async (k: string) => {
         calls.push(`keyboard ${k}`);
@@ -129,9 +130,6 @@ function fakeSnapshotPage(rawYaml: string): PageLike {
     async goto() {
       return undefined;
     },
-    getByRole: () => ({}) as never,
-    getByLabel: () => ({}) as never,
-    getByText: () => ({}) as never,
     keyboard: { press: async () => {} },
     screenshot: async () => undefined,
     url: () => 'http://localhost:4173/login',
@@ -209,7 +207,7 @@ function clickThenDoneBrain(name: string): AgentBrain {
   return {
     async nextAction() {
       calls++;
-      if (calls === 1) return { action: 'click' as const, target: { role: 'button', name }, reasoning: 'click' };
+      if (calls === 1) return { action: 'click' as const, target: { ref: 'e1', role: 'button', name }, reasoning: 'click' };
       return { action: 'done' as const, reasoning: 'signed in' };
     },
     async judge() {
@@ -488,6 +486,7 @@ describe('authenticate: steps strategy', () => {
       // the whole login — so succeeding here proves the element resolved on the
       // first attempt, not merely "eventually, within some retry budget".
       maxRetries: 1,
+      snapshot: async () => '- button "Sign in" [ref=e1]',
       timeoutMs: 10_000,
     });
 
@@ -503,6 +502,7 @@ describe('authenticate: steps strategy', () => {
       authenticate({
         ...options({ steps: ['click sign in'], cache: false }, brain, browser),
         maxRetries: 1,
+        snapshot: async () => '- button "Sign in" [ref=e1]',
         timeoutMs: 1_000,
       }),
     ).rejects.toThrow(AuthError);

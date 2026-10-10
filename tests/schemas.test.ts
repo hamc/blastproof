@@ -15,7 +15,7 @@ describe('agentActionSchema', () => {
   it('accepts a full click action with target', () => {
     const result = agentActionSchema.safeParse({
       action: 'click',
-      target: { role: 'button', name: 'Add to cart', text: null },
+      target: { ref: 'e5', role: 'button', name: 'Add to cart' },
       reasoning: 'need to add the item',
       value: null,
       expectation: null,
@@ -47,7 +47,7 @@ describe('agentActionSchema', () => {
     // separation exists to prevent.
     const wire = agentActionSchema.safeParse({
       action: 'click',
-      target: { role: 'button', name: 'Save', text: null },
+      target: { ref: 'e6', role: 'button', name: 'Save' },
       reasoning: 'save it',
       value: null,
       expectation: null,

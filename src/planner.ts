@@ -6,6 +6,7 @@ import type { GeneratedTest } from './llm/schemas.js';
 import type { PageLike } from './runner/actions.js';
 import { entersNamedValue } from './runner/authoring.js';
 import { defaultSnapshot } from './runner/executor.js';
+import { withoutRefs } from './runner/snapshot.js';
 import { TESTS_RELATIVE_DIR, type TestFile } from './runner/testfile.js';
 import { fsReason } from './report/errors.js';
 
@@ -184,7 +185,9 @@ export async function generateForRoute(
 
   // Kept, not inlined: the draft is checked against the very page the model saw
   // (design D4), not a second snapshot of a page that may have changed since.
-  const pageSnapshot = mask(await takeSnapshot(page));
+  // The planner chooses no element, so it reads the page without refs
+  // (design act-on-the-element-the-model-read, D3).
+  const pageSnapshot = withoutRefs(mask(await takeSnapshot(page)));
   const generated = await brain.planTest({
     route,
     snapshot: pageSnapshot,

@@ -7,6 +7,7 @@ import type { PageLike } from './runner/actions.js';
 import { RunStoppedError } from './runner/budget.js';
 import { SecretsMask, substituteEnv } from './runner/env.js';
 import { defaultSnapshot, executeTest, type ExecutorEvent } from './runner/executor.js';
+import { withoutRefs } from './runner/snapshot.js';
 
 /** Where a captured session is cached when `auth.cache` is enabled (design D9). */
 export const AUTH_STATE_RELATIVE_PATH = path.join('.blastproof', '.auth-state.json');
@@ -269,7 +270,8 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
       const judgment = await verifyJudgment(
         brain,
         auth.verify,
-        async () => mask.mask(await takeSnapshot(page)),
+        // The judge reads the page without refs (design act-on-the-element-the-model-read, D3).
+        async () => withoutRefs(mask.mask(await takeSnapshot(page))),
         (text) => mask.mask(text),
         maxRetries,
       );
