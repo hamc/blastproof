@@ -33,9 +33,8 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   tokens; open-weight models ran whitespace up to 131k tokens without a limit, and an account
   with credit left was refused for the reservation (#126). An answer cut at the limit costs one
   attempt. A call has a timeout, `llm.timeout_s` (300 s, 900 s for `ollama`), and the run's
-  deadline now aborts a call in flight (#133), and that stop is reported as the deadline even
-  when the timer fires a millisecond before the clock reaches it. The tokens of an unusable
-  answer are counted (#136).
+  deadline now aborts a call in flight (#133). The tokens of an unusable answer are counted
+  (#136).
 
 ### Added
 
