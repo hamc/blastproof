@@ -3,7 +3,9 @@
 ## Purpose
 
 Emit the run as JUnit XML, the format CI systems already know how to render, so results and score are machine-readable without scraping console output.
+
 ## Requirements
+
 ### Requirement: JUnit XML structure
 The system SHALL emit a single `testsuite` element for the run, carrying `tests`, `failures`, `skipped` and total `time` attributes, containing one `testcase` per test with `classname` set to the repo-relative test file path, `name` set to the test summary, and `time` in seconds.
 
@@ -30,7 +32,7 @@ Tests skipped as unrouted under `--impacted` SHALL appear in the XML as `testcas
 - **THEN** the XML contains a `testcase` for it with a `skipped` child
 
 ### Requirement: Score exposed as a property
-The XML SHALL expose the run score as a `property` named `score`, so a CI parser can read it without scraping console output.
+The XML SHALL expose the run score as a `property` named `score`, so a CI parser can read it without scraping console output. A run with no score SHALL have no `score` property, never a placeholder value.
 
 The XML SHALL likewise expose what the run spent: a property named `llm_calls`, and a property named `llm_tokens` when any completed call reported token usage. Both SHALL carry the same figures the summary states, taken from the same source, so the report and the console cannot disagree.
 
@@ -45,6 +47,10 @@ The XML SHALL likewise expose what the run spent: a property named `llm_calls`, 
 #### Scenario: No token usage to expose
 - **WHEN** no completed call reported token usage
 - **THEN** no `llm_tokens` property is emitted, rather than one carrying zero
+
+#### Scenario: No property for a run with no score
+- **WHEN** a run is stopped before any test executed and writes a JUnit report
+- **THEN** the XML has no `score` property and still marks the run incomplete
 
 ### Requirement: XML escaping
 All interpolated text SHALL be XML-escaped, covering `&`, `<`, `>`, `"` and `'`, so that user- and model-authored summaries, steps and failure reasons cannot produce invalid XML.
@@ -67,4 +73,3 @@ The `run` command SHALL write the JUnit report only when asked: to an explicitly
 #### Scenario: Not requested
 - **WHEN** the user runs without requesting a JUnit report
 - **THEN** no JUnit file is written
-

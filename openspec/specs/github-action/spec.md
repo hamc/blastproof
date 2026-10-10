@@ -40,7 +40,7 @@ When the selected command computes a diff, the action SHALL verify the checkout 
 - **THEN** the action proceeds
 
 ### Requirement: Score output
-The action SHALL expose the run score as an output, read from the JUnit report it produces.
+The action SHALL expose the run score as an output, read from the JUnit report it produces. The output SHALL be empty whenever the report carries no score.
 
 #### Scenario: Score available to a later step
 - **WHEN** a run scores 85
@@ -49,6 +49,10 @@ The action SHALL expose the run score as an output, read from the JUnit report i
 #### Scenario: No report produced
 - **WHEN** the run fails before writing a report
 - **THEN** the `score` output is empty rather than a fabricated number
+
+#### Scenario: A run stopped before any test
+- **WHEN** the provider refuses the first call and the report is written without a score
+- **THEN** the `score` output is empty, not 100
 
 ### Requirement: The action can be listed on the Marketplace
 The action's `name` SHALL be one the GitHub Marketplace accepts: it SHALL NOT match a GitHub account it is not published by, so it contains a space, which no account name can. Its `description` SHALL be under 125 characters and SHALL say that the action tests pull requests.
