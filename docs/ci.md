@@ -27,9 +27,9 @@ jobs:
 
       - run: npm start &          # however your app boots
 
-      - uses: hamc/blastproof@v0.24.0
+      - uses: hamc/blastproof@v0.25.0
         with:
-          version: '0.24.0'       # pin both when this gates merges
+          version: '0.25.0'       # pin both when this gates merges
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           base: ${{ github.event.pull_request.base.ref }}
           min-score: '80'
@@ -51,7 +51,7 @@ failed" from "nothing ran".
 
 ```yaml
       - id: bp
-        uses: hamc/blastproof@v0.24.0
+        uses: hamc/blastproof@v0.25.0
         with:
           api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -73,7 +73,7 @@ workflow, which asserts that a shallow checkout is rejected.
 
 Two versions are in play, and they are independent:
 
-- the **action** ref (`hamc/blastproof@v0.24.0`) — the wrapper
+- the **action** ref (`hamc/blastproof@v0.25.0`) — the wrapper
 - the **`version`** input — which blastproof release the wrapper installs from
   npm, defaulting to `latest`
 
