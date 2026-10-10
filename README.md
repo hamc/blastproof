@@ -8,6 +8,7 @@
 
 [![CI](https://github.com/hamc/blastproof/actions/workflows/ci.yml/badge.svg)](https://github.com/hamc/blastproof/actions/workflows/ci.yml)
 [![Dogfood](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml/badge.svg)](https://github.com/hamc/blastproof/actions/workflows/dogfood.yml)
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-blastproof%20e2e%20AI%20testing-blue?logo=github)](https://github.com/marketplace/actions/blastproof-e2e-ai-testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 **Open-source AI testing agent for pull requests.** Write end-to-end tests as plain English. An agent drives a real browser to run them, selects only the ones your diff can affect, and scores the result before merge.
@@ -252,7 +253,7 @@ blastproof run --min-score 80    # one failing P2 is tolerated
 
 The calls that *choose* an action, and the one that drafts a test, are deliberately left free — that latitude is what re-resolves a control after a redesign instead of failing on it.
 
-Wiring this into a pipeline, with the gating patterns worth knowing: [Running in CI](./docs/ci.md).
+Wiring this into a pipeline, with the gating patterns worth knowing: [Running in CI](./docs/ci.md). The Action is listed on the GitHub Marketplace as [blastproof e2e AI testing](https://github.com/marketplace/actions/blastproof-e2e-ai-testing).
 
 ## Without a browser or a key
 
