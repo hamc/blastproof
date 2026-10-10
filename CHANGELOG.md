@@ -3,6 +3,52 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [0.25.0] — 2026-10-10
+
+### Changed
+
+- **The OpenAI and Ollama default models changed, chosen by measurement.** A config that omits
+  `llm.model` now gets `gpt-6-luna` on `openai` (was `gpt-4o-mini`) and `gpt-oss:20b` on `ollama`
+  (was `qwen2.5`). On the reliability benchmark, `gpt-4o-mini` failed 35 of 40 tests on the
+  correct demo app and `qwen2.5` all 40. `gpt-6-luna` failed none, and `gpt-oss-20b` failed 2.
+  `docs/configuration.md` publishes the table for nine models under "Choosing a model" (#154).
+  **Upgrade note:** on Ollama, run `ollama pull gpt-oss:20b` (about 14 GB) before a run whose
+  config sets no `model`, or set `model: qwen2.5` to keep the old one. A config that sets
+  `llm.model` is unaffected.
+- **The action is named `blastproof e2e AI testing`**, so that it can be listed on the GitHub
+  Marketplace, which refuses `blastproof` (#155). `uses: hamc/blastproof@…`, its inputs and its
+  output do not change; the new name shows in the job log.
+
+### Fixed
+
+- **An action lands on the element the model read.** The model used to describe an element and
+  the runner searched the page for the description, taking the first match: a target with a
+  role and no name clicked the first button of the page, "Apply promo code" for "Checkout"
+  (#132), and two controls sharing a name resolved to the first (#60). Every snapshot now gives
+  each element a ref, and an action names it. The ref resolves to that element or to nothing.
+  The role and name the model gives are checked against it, so the ref of a neighbouring line is
+  refused instead of clicked. The log names the element actually clicked. Measured on the
+  reference pair, 5 samples: verdicts unchanged, about 10% more tokens.
+- **Every model call is bounded, in output and in time.** Calls ask for at most 4096 output
+  tokens; open-weight models ran whitespace up to 131k tokens without a limit, and an account
+  with credit left was refused for the reservation (#126). An answer cut at the limit costs one
+  attempt. A call has a timeout, `llm.timeout_s` (300 s, 900 s for `ollama`), and the run's
+  deadline now aborts a call in flight (#133). The tokens of an unusable answer are counted
+  (#136).
+
+### Added
+
+- **`llm.extra_body`** adds fields to every request to an OpenAI-compatible endpoint, for a
+  gateway's own options. On OpenRouter it routes open-weight models around providers that ignore
+  the JSON schema; `docs/configuration.md` has the recipe (#150).
+
+### Known issues
+
+- An incomplete run with no test executed reports a score of 100 in JUnit, HTML and the action
+  output, though it says it is not a verdict and exits 1 (#134).
+- The judge sometimes takes a different dialog for the one a step says is gone, on Haiku only
+  (#129).
+
 ## [0.24.0] — 2026-10-07
 
 ### Fixed
