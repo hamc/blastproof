@@ -1,4 +1,5 @@
 import type { AgentAction, AgentTarget } from '../llm/schemas.js';
+import type { SnapshotElement } from './snapshot.js';
 
 /**
  * Narrow Playwright subset used by the runner. Real `Page`/`Locator` objects are
@@ -10,22 +11,17 @@ export interface LocatorLike {
   press(key: string): Promise<void>;
   selectOption(option: { label: string }): Promise<unknown>;
   waitFor(options?: { state?: 'attached' | 'visible'; timeout?: number }): Promise<void>;
-  first(): LocatorLike;
+  count(): Promise<number>;
 }
 
 export interface PageLike {
   goto(url: string, options?: { timeout?: number }): Promise<unknown>;
   /**
-   * `exact` is passed explicitly at every call site (design match-the-name D1):
-   * Playwright's default matches an accessible name by substring, which silently
-   * widens the rule the prompt states — pick the element by its *exact* role and
-   * accessible name. An optional flag here would be the same shape that let
-   * `timeoutMs` go unset at one call site, so a double that cannot express
-   * exactness cannot support this guarantee.
+   * Only ever called with `aria-ref=<ref>` (design act-on-the-element-the-model-read,
+   * D1): the element the snapshot line the model read was printed from, or
+   * nothing. There is no search by role, name or text to widen.
    */
-  getByRole(role: string, options?: { name?: string; exact?: boolean }): LocatorLike;
-  getByLabel(text: string, options?: { exact?: boolean }): LocatorLike;
-  getByText(text: string, options?: { exact?: boolean }): LocatorLike;
+  locator(selector: string): LocatorLike;
   keyboard: { press(key: string): Promise<void> };
   screenshot(options: { path: string; fullPage?: boolean }): Promise<unknown>;
   url(): string;
@@ -143,67 +139,106 @@ function describeTarget(target: AgentTarget): string {
   const parts: string[] = [];
   if (target.role) parts.push(`role=${target.role}`);
   if (target.name) parts.push(`name="${target.name}"`);
-  if (target.text) parts.push(`text="${target.text}"`);
   return parts.join(' ') || '(no target)';
 }
 
+function normaliseName(text: string | undefined): string {
+  return (text ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** `f1e25`, however the model wrapped it: `[ref=f1e25]`, `ref=f1e25`. */
+function bareRef(ref: string): string {
+  return ref.trim().replace(/^\[/, '').replace(/^ref=/, '').replace(/\]$/, '');
+}
+
+function describeElement(element: SnapshotElement): string {
+  const name = element.name ?? element.text;
+  return name === undefined ? element.role : `${element.role} "${name}"`;
+}
+
 /**
- * Resolves an element from the live accessibility tree only (self-healing, design D4):
- * getByRole → getByLabel → getByText, each tried with an **exact** accessible-name
- * match before the substring one Playwright defaults to (design match-the-name D1),
- * and each with a visibility wait bounded by `resolveTimeoutMs` — the configured
- * `browser.timeout_ms`, threaded here via {@link ActionContext.resolveTimeoutMs} by
- * every real caller. The `2_000` default only applies to a caller that resolves a
- * target without going through `performAction`'s context (e.g. a direct unit test).
+ * Binds an action's target to the element its ref names in the snapshot the
+ * model was given (design act-on-the-element-the-model-read, D2/D5). The ref
+ * alone decides the element; the role and name the model wrote are checked
+ * against that element's line, so a ref copied from the neighbouring line is
+ * refused instead of clicking the neighbour. The returned action carries the
+ * snapshot's own role and name, which is what the record, the reports and the
+ * commit-repeat identity read: the element acted on, never the model's words.
  *
- * An ambiguous name is still resolved by `.first()`, in document order, silently.
- * That was designed away and then measured back in: refusing a name answering to
- * several visible elements would refuse ordinary navigation on real accessible
- * sites, because the `.sr-only` pattern keeps a real box and Playwright counts it
- * visible. See the change's design (D2/D7) for the measurement and for why the
- * answer is a wider signal set rather than a stricter visibility test.
+ * Throws {@link ActionError}, one failed attempt, on a missing, unknown or
+ * mismatched ref. An action with no target (navigate, a bare press) is
+ * returned unchanged.
+ */
+export function bindTarget(action: AgentAction, refs: ReadonlyMap<string, SnapshotElement>): AgentAction {
+  const target = action.target;
+  // An empty target is no target: a press of the focused element sends one.
+  if (!target || (!target.ref && !target.role && !target.name)) return { ...action, target: undefined };
+  const fix = 'Use the [ref=…] on the line of the element you mean in the current snapshot.';
+  if (!target.ref) {
+    throw new ActionError(`refused: the target names no ref, so nothing was done. ${fix}`);
+  }
+  const ref = bareRef(target.ref);
+  const element = refs.get(ref);
+  if (!element) {
+    throw new ActionError(`refused: no element in the current snapshot has ref "${ref}". ${fix}`);
+  }
+  const shown = element.name ?? element.text;
+  const sameRole = normaliseName(target.role) === normaliseName(element.role);
+  const sameName = normaliseName(target.name) === normaliseName(shown);
+  if (!sameRole || !sameName) {
+    const said = [target.role ?? '(no role)', target.name === undefined ? '' : `"${target.name}"`]
+      .filter(Boolean)
+      .join(' ');
+    throw new ActionError(
+      `refused: ref ${ref} is ${describeElement(element)}, not ${said}, so nothing was done. ${fix}`,
+    );
+  }
+  return { ...action, target: { ref, role: element.role, name: shown } };
+}
+
+/**
+ * Resolves the element a ref names (design act-on-the-element-the-model-read,
+ * D1/D4), and nothing else: Playwright's `aria-ref` locator answers with the
+ * element the snapshot line was printed from or with none. None means the page
+ * changed since the snapshot (the element was replaced, or the page navigated,
+ * which Playwright reports as an invalid frame), and fails at once instead of
+ * waiting `browser.timeout_ms` for an element that cannot come back. A resolved
+ * element is still waited on to be visible, bounded by `resolveTimeoutMs`.
  */
 export async function resolveTarget(
   page: PageLike,
   target: AgentTarget,
   resolveTimeoutMs = 2_000,
 ): Promise<LocatorLike> {
-  const candidates: LocatorLike[] = [];
-  // Exact before loose, *within* each strategy rather than across them (design
-  // match-the-name D1). Strategy order carries the model's own reading of the
-  // snapshot and stays outermost: a role match must still beat a text match, even
-  // an exact one, or a step naming a field resolves to the heading above it.
-  if (target.role) {
-    if (target.name) {
-      candidates.push(page.getByRole(target.role, { name: target.name, exact: true }));
-    }
-    candidates.push(page.getByRole(target.role, target.name ? { name: target.name } : {}));
+  if (!target.ref) throw new ActionError(`Element not found: ${describeTarget(target)} has no ref`);
+  const ref = bareRef(target.ref);
+  const locator = page.locator(`aria-ref=${ref}`);
+  let count: number;
+  try {
+    count = await locator.count();
+  } catch {
+    count = 0;
   }
-  if (target.name) {
-    candidates.push(page.getByLabel(target.name, { exact: true }));
-    candidates.push(page.getByLabel(target.name));
+  if (count === 0) {
+    throw new ActionError(
+      `Element not found: ${describeTarget(target)} (ref ${ref}) is no longer on the page; it changed since the ` +
+        'snapshot. Choose the element again from the fresh snapshot.',
+    );
   }
-  const text = target.text ?? target.name;
-  if (text) {
-    candidates.push(page.getByText(text, { exact: true }));
-    candidates.push(page.getByText(text));
+  try {
+    await locator.waitFor({ state: 'visible', timeout: resolveTimeoutMs });
+  } catch {
+    throw new ActionError(
+      `Element not found: ${describeTarget(target)} (ref ${ref}) is on the page but did not become visible ` +
+        `within ${resolveTimeoutMs}ms.`,
+    );
   }
-
-  for (const candidate of candidates) {
-    const locator = candidate.first();
-    try {
-      await locator.waitFor({ state: 'visible', timeout: resolveTimeoutMs });
-      return locator;
-    } catch {
-      // try the next resolution strategy
-    }
-  }
-  throw new ActionError(`Element not found: ${describeTarget(target)}`);
+  return locator;
 }
 
 function requireTarget(action: AgentAction): AgentTarget {
-  if (!action.target || (!action.target.role && !action.target.name && !action.target.text)) {
-    throw new ActionError(`Action "${action.action}" requires a target (role/name/text)`);
+  if (!action.target?.ref) {
+    throw new ActionError(`Action "${action.action}" requires a target (its ref in the snapshot)`);
   }
   return action.target;
 }
@@ -349,7 +384,7 @@ async function performResolvedAction(
     }
     case 'press': {
       const key = action.value ? resolve(action.value, ctx) : 'Enter';
-      if (action.target && (action.target.role || action.target.name || action.target.text)) {
+      if (action.target?.ref) {
         const locator = await resolveTarget(page, action.target, ctx.resolveTimeoutMs);
         await locator.press(key);
         return `ok: pressed ${key} on ${describeTarget(action.target)}`;

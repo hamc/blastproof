@@ -17,12 +17,71 @@ import {
 import { BudgetExhaustedError, ProviderRefusedError } from '../src/runner/budget.js';
 import { MalformedModelOutputError } from '../src/llm/brain.js';
 import { SecretsMask } from '../src/runner/env.js';
-import { executeTest, SETTLE_TIMEOUT_MS, type ExecutorEvent, type ExecutorOptions } from '../src/runner/executor.js';
+import {
+  executeTest as executeTestOnRefs,
+  SETTLE_TIMEOUT_MS,
+  type ExecutorEvent,
+  type ExecutorOptions,
+} from '../src/runner/executor.js';
 import { describeAction, StepRecovery } from '../src/runner/recovery.js';
 import { captureSnapshot, trimSnapshot } from '../src/runner/snapshot.js';
 import type { TestFile } from '../src/runner/testfile.js';
 
 // --- fakes -----------------------------------------------------------------
+
+/**
+ * Refs for the fakes (design act-on-the-element-the-model-read). A real ref is
+ * an opaque id the snapshot gives an element; here it encodes the element's
+ * role and name, so `FakePage.locator('aria-ref=…')` can answer with the same
+ * `role:<role>|<name>` key every test registers in `visible`, `intercepted` and
+ * `delayedVisible`.
+ */
+const refFor = (role = '', name = ''): string => `r${Buffer.from(`${role}|${name}`).toString('hex')}`;
+
+function keyOfRef(ref: string): string | undefined {
+  if (!/^r[0-9a-f]*$/.test(ref)) return undefined;
+  return `role:${Buffer.from(ref.slice(1), 'hex').toString()}`;
+}
+
+/** The action a scripted model would write: its target named by ref as well. */
+function withRef(action: AgentAction): AgentAction {
+  const target = action.target;
+  if (!target || target.ref !== undefined || (!target.role && !target.name)) return action;
+  return { ...action, target: { ...target, ref: refFor(target.role, target.name) } };
+}
+
+/** One snapshot line per element the fake page has, as AI mode prints it. */
+function elementLines(page: PageLike): string {
+  if (!(page instanceof FakePage)) return '';
+  const keys = new Set([...page.present, ...page.visible, ...page.delayedVisible.keys(), ...page.intercepted]);
+  return [...keys]
+    .filter((key) => key.startsWith('role:'))
+    .map((key) => {
+      const [role, name] = key.slice('role:'.length).split('|') as [string, string];
+      return `\n- ${role}${name ? ` ${JSON.stringify(name)}` : ''} [ref=${refFor(role, name)}]`;
+    })
+    .join('');
+}
+
+/**
+ * The executor under test, with the scripted model's targets given refs and the
+ * fake page's elements listed in its snapshot. Scripts keep naming elements by
+ * role and name, as they did before refs existed; what resolution does with the
+ * ref is tested where it lives, in the `resolveTarget` and `bindTarget` tests.
+ */
+function executeTest(page: PageLike, test: TestFile, options: ExecutorOptions): ReturnType<typeof executeTestOnRefs> {
+  const brain = options.brain;
+  const snapshot = options.snapshot;
+  return executeTestOnRefs(page, test, {
+    ...options,
+    brain: {
+      ...brain,
+      nextAction: async (input) => withRef(await brain.nextAction(input)),
+      judge: (...args) => brain.judge(...args),
+    },
+    snapshot: snapshot ? async (p) => (await snapshot(p)) + elementLines(p) : undefined,
+  });
+}
 
 class FakeLocator implements LocatorLike {
   constructor(
@@ -31,8 +90,10 @@ class FakeLocator implements LocatorLike {
     readonly query: string,
   ) {}
 
-  first(): LocatorLike {
-    return this;
+  async count(): Promise<number> {
+    const key = `${this.kind}:${this.query}`;
+    const p = this.page;
+    return p.present.has(key) || p.visible.has(key) || p.delayedVisible.has(key) || p.intercepted.has(key) ? 1 : 0;
   }
 
   private resolve(): void {
@@ -113,6 +174,8 @@ class FakeLocator implements LocatorLike {
 
 class FakePage implements PageLike {
   calls: string[] = [];
+  /** Keys in the snapshot whose element is not visible (yet). */
+  present = new Set<string>();
   visible = new Set<string>();
   /** key ("role:button|Checkout") → ms the requested `waitFor` timeout must meet
    *  or exceed to resolve (browser-patience regression tests). */
@@ -156,18 +219,6 @@ class FakePage implements PageLike {
     this.gotoTimeouts.push(options?.timeout);
   }
 
-  getByRole(role: string, options?: { name?: string }): LocatorLike {
-    return new FakeLocator(this, 'role', `${role}|${options?.name ?? ''}`);
-  }
-
-  getByLabel(text: string): LocatorLike {
-    return new FakeLocator(this, 'label', text);
-  }
-
-  getByText(text: string): LocatorLike {
-    return new FakeLocator(this, 'text', text);
-  }
-
   async screenshot(options: { path: string }): Promise<void> {
     this.screenshots.push(options.path);
   }
@@ -184,9 +235,15 @@ class FakePage implements PageLike {
     }
   }
 
-  /** Not part of `PageLike`; only `defaultSnapshot`'s cast to a real `Page` uses it. */
-  locator(_selector: string): { ariaSnapshot(): Promise<string> } {
-    return { ariaSnapshot: async () => this.snapshotYaml };
+  /**
+   * `aria-ref=…` answers with the element the ref encodes (see `refFor`);
+   * `body` answers with `snapshotYaml`, for `defaultSnapshot`'s cast to a real
+   * `Page`.
+   */
+  locator(selector: string): LocatorLike & { ariaSnapshot(): Promise<string> } {
+    const key = selector.startsWith('aria-ref=') ? keyOfRef(selector.slice('aria-ref='.length)) : undefined;
+    const [kind, query] = key ? [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)] : ['none', selector];
+    return Object.assign(new FakeLocator(this, kind, query), { ariaSnapshot: async () => this.snapshotYaml });
   }
 }
 
@@ -363,7 +420,8 @@ describe('executeTest', () => {
   });
 
   it('exhausts the retry budget on repeated element failures and fails the step', async () => {
-    const page = new FakePage(); // nothing visible
+    const page = new FakePage();
+    page.present.add('role:button|Nope'); // in the snapshot, never visible
     const brain = scriptedBrain([click('Nope'), click('Nope'), click('Nope')]);
 
     const result = await executeTest(page, makeTest(), baseOptions(brain, { maxRetries: 3 }));
@@ -630,6 +688,61 @@ describe('executeTest', () => {
   });
 });
 
+describe('refs reach only the model that chooses an element (act-on-the-element-the-model-read, D3)', () => {
+  it('gives the acting model the refs and the judge the page without them', async () => {
+    const page = new FakePage();
+    const acted: string[] = [];
+    const judged: string[] = [];
+    const brain: AgentBrain = {
+      nextAction: async (input) => {
+        acted.push(input.snapshot);
+        return { action: 'assert', reasoning: 'check', expectation: 'the cart is shown' };
+      },
+      judge: async (_step, _expectation, snapshot) => {
+        judged.push(snapshot);
+        return { pass: true, reason: 'shown' };
+      },
+    };
+
+    await executeTest(
+      page,
+      makeTest({ steps: ['verify the cart is shown'] }),
+      baseOptions(brain, { snapshot: async () => '- heading "Your cart" [level=1] [ref=f1e8]\n- button "Checkout" [ref=f1e25]' }),
+    );
+
+    expect(acted[0]).toContain('[ref=f1e25]');
+    expect(judged[0]).toBe('- heading "Your cart" [level=1]\n- button "Checkout"');
+  });
+
+  it('acts on the element the ref names when two share a name, and logs what it acted on', async () => {
+    const page = new FakePage();
+    const events: ExecutorEvent[] = [];
+    const brain = scriptedBrain([
+      { action: 'click', target: { ref: 'row2', role: 'button', name: 'delete' }, reasoning: 'second row' },
+      { action: 'done', reasoning: 'deleted' },
+    ]);
+    page.visible.add('role:button|Delete');
+
+    await executeTestOnRefs(
+      new (class extends FakePage {
+        override locator(selector: string) {
+          // Two buttons named Delete: only the ref tells them apart.
+          return page.locator(selector === 'aria-ref=row2' ? `aria-ref=${refFor('button', 'Delete')}` : 'aria-ref=none');
+        }
+      })(),
+      makeTest(),
+      baseOptions(brain, {
+        snapshot: async () => '- button "Delete" [ref=row1]\n- button "Delete" [ref=row2]',
+        onEvent: (e) => events.push(e),
+      }),
+    );
+
+    expect(page.calls).toContain('click role:button|Delete');
+    const clicked = events.find((e) => e.type === 'action' && e.action.action === 'click');
+    expect(clicked?.type === 'action' && clicked.result).toBe('ok: clicked role=button name="Delete"');
+  });
+});
+
 // --- action mapping ---------------------------------------------------------
 
 describe('performAction / resolveTarget', () => {
@@ -644,14 +757,6 @@ describe('performAction / resolveTarget', () => {
     expect(result).toContain('/login');
   });
 
-  it('falls back to getByLabel then getByText when role resolution misses', async () => {
-    const page = new FakePage();
-    page.visible.add('text:Save changes');
-    const locator = await resolveTarget(page, { role: 'button', name: 'Save changes' });
-    await locator.click();
-    expect(page.calls).toContain('click text:Save changes');
-  });
-
   it('throws ActionError naming the target when nothing resolves', async () => {
     const page = new FakePage();
     await expect(resolveTarget(page, { role: 'button', name: 'Ghost' })).rejects.toThrow(
@@ -662,7 +767,7 @@ describe('performAction / resolveTarget', () => {
   it('requires a value for fill and a target for click', async () => {
     const page = new FakePage();
     await expect(
-      performAction(page, { action: 'fill', target: { role: 'textbox', name: 'x' }, reasoning: 'r' }, { baseUrl: 'http://x.test' }),
+      performAction(page, { action: 'fill', target: { ref: 'e1', role: 'textbox', name: 'x' }, reasoning: 'r' }, { baseUrl: 'http://x.test' }),
     ).rejects.toThrow(/requires a value/);
     await expect(
       performAction(page, { action: 'click', reasoning: 'r' }, { baseUrl: 'http://x.test' }),
@@ -1341,11 +1446,16 @@ describe('executeTest recovery containment', () => {
     expect(result.status).toBe('failed');
   });
 
-  it("does not let #124's text hint through: the page receives one click on Add note", async () => {
+  it("does not let #124's other wording through: the page receives one click on Add note", async () => {
     const page = new FakePage();
     page.visible.add('role:button|Add note');
     page.visible.add('role:textbox|Note');
-    const withText: AgentAction = { action: 'click', target: { role: 'button', name: 'Add note', text: 'Add note' }, reasoning: 'again' };
+    // The same ref, worded differently: the binding records the snapshot's name, so it is the same commit.
+    const withText: AgentAction = {
+      action: 'click',
+      target: { ref: refFor('button', 'Add note'), role: 'button', name: 'add  NOTE' },
+      reasoning: 'again',
+    };
     const refill: AgentAction = { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Check the invoice', reasoning: 'refill' };
     const brain = recordingBrain(
       [click('Add note'), refill, withText, withText, withText],
@@ -1945,8 +2055,12 @@ describe('StepRecovery commit keys', () => {
   });
 });
 
-describe('StepRecovery: a commit is identified by what resolves it (identify-a-commit-by-what-resolves-it)', () => {
-  const clickOn = (target: { role?: string; name?: string; text?: string }): AgentAction => ({
+// The executor binds every target to its ref's snapshot line before the
+// recovery sees it (act-on-the-element-the-model-read, D5), so these targets are
+// already the page's own role and name; an element with no name carries its
+// inline text there.
+describe('StepRecovery: a commit is identified by the element acted on (act-on-the-element-the-model-read)', () => {
+  const clickOn = (target: { ref?: string; role?: string; name?: string }): AgentAction => ({
     action: 'click',
     target,
     reasoning: 'r',
@@ -1957,25 +2071,27 @@ describe('StepRecovery: a commit is identified by what resolves it (identify-a-c
     return recovery.refusalFor(next);
   };
 
-  it("refuses #124's repeat: the same button with a text hint the resolver never reads", () => {
+  it("refuses #124's repeat: the same button under a new ref after a re-render", () => {
     const recovery = new StepRecovery('submit the add-note form and verify the note appears');
-    const first = clickOn({ role: 'button', name: 'Add note' });
+    const first = clickOn({ ref: 'e7', role: 'button', name: 'Add note' });
     recovery.record(first, describeAction(first), 'ok: clicked');
     const refill: AgentAction = { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Check the invoice', reasoning: 'r' };
     recovery.observe('- textbox "Note"\n- text: Check the invoice');
     expect(recovery.refusalFor(refill)).toBeUndefined();
     recovery.record(refill, describeAction(refill), 'ok: filled');
-    expect(recovery.refusalFor(clickOn({ role: 'button', name: 'Add note', text: 'Add note' }))).toContain('refused:');
+    expect(recovery.refusalFor(clickOn({ ref: 'e12', role: 'button', name: 'Add note' }))).toContain('refused:');
   });
 
-  it('refuses a name differing only in case or spacing, as the loose resolution matches it', () => {
+  it('refuses a name differing only in case or spacing, as the binding compares it', () => {
     expect(
       performedThen(clickOn({ role: 'button', name: 'Add note' }), clickOn({ role: 'button', name: '  add   NOTE ' })),
     ).toContain('refused:');
   });
 
-  it('still tells apart two targets that have only text', () => {
-    expect(performedThen(clickOn({ text: 'Save' }), clickOn({ text: 'Save as draft' }))).toBeUndefined();
+  it('still tells apart two elements that have only inline text', () => {
+    expect(
+      performedThen(clickOn({ role: 'generic', name: 'Save' }), clickOn({ role: 'generic', name: 'Save as draft' })),
+    ).toBeUndefined();
   });
 
   it('still tells apart two different names, and a different role', () => {

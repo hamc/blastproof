@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   ActionError,
+  bindTarget,
   performAction,
   resolveTarget,
   type LocatorLike,
   type PageLike,
 } from '../src/runner/actions.js';
 import type { AgentAction } from '../src/llm/schemas.js';
+import { indexRefs } from '../src/runner/snapshot.js';
 
 const BASE = 'http://localhost:3000';
 
@@ -46,13 +48,11 @@ function pageThatFailsWith(error: Error): PageLike {
       throw error;
     },
     waitFor: async () => {},
-    first: () => locator,
+    count: async () => 1,
   };
   return {
     goto: async () => undefined,
-    getByRole: () => locator,
-    getByLabel: () => locator,
-    getByText: () => locator,
+    locator: () => locator,
     keyboard: { press: async () => {} },
     screenshot: async () => undefined,
     url: () => BASE,
@@ -62,7 +62,7 @@ function pageThatFailsWith(error: Error): PageLike {
 
 const CLICK: AgentAction = {
   action: 'click',
-  target: { role: 'button', name: 'Me want it!' },
+  target: { ref: 'e1', role: 'button', name: 'Me want it!' },
   reasoning: '',
 };
 
@@ -115,14 +115,14 @@ describe('an obstructed action', () => {
 
   it('translates a fill and a select identically, because the guard is over the action path', async () => {
     const fill = await failureFor(
-      { action: 'fill', target: { role: 'textbox', name: 'Email' }, value: 'a@b.c', reasoning: '' },
+      { action: 'fill', target: { ref: 'e2', role: 'textbox', name: 'Email' }, value: 'a@b.c', reasoning: '' },
       new Error(INTERCEPTED_CLICK.replace('locator.click', 'locator.fill')),
     );
     expect(fill).toBeInstanceOf(ActionError);
     expect(fill.message).toMatch(/^blocked: the fill on role=textbox name="Email" was NOT performed\./);
 
     const select = await failureFor(
-      { action: 'select', target: { role: 'combobox', name: 'Country' }, value: 'Brazil', reasoning: '' },
+      { action: 'select', target: { ref: 'e3', role: 'combobox', name: 'Country' }, value: 'Brazil', reasoning: '' },
       new Error(INTERCEPTED_CLICK.replace('locator.click', 'locator.selectOption')),
     );
     expect(select).toBeInstanceOf(ActionError);
@@ -141,30 +141,7 @@ describe('an obstructed action', () => {
   it('leaves an unresolvable target reading as an unresolvable target', async () => {
     const page = {
       goto: async () => undefined,
-      getByRole: () => ({
-        waitFor: async () => {
-          throw new Error('timeout');
-        },
-        first() {
-          return this;
-        },
-      }),
-      getByLabel: () => ({
-        waitFor: async () => {
-          throw new Error('timeout');
-        },
-        first() {
-          return this;
-        },
-      }),
-      getByText: () => ({
-        waitFor: async () => {
-          throw new Error('timeout');
-        },
-        first() {
-          return this;
-        },
-      }),
+      locator: () => ({ count: async () => 0 }),
       keyboard: { press: async () => {} },
       screenshot: async () => undefined,
       url: () => BASE,
@@ -175,151 +152,151 @@ describe('an obstructed action', () => {
 });
 
 /**
- * A page whose elements have accessible names, so exact and substring matching are
- * distinguishable — the doubles above return one locator whatever is asked for, which
- * is fine for the failure paths they cover and useless here.
- *
- * `visible` is per element, and document order is array order, so the fake reproduces
- * the two Playwright defaults this change is about: a name matches by substring, and
- * `.first()` breaks a tie by position.
+ * A page that answers `aria-ref=` locators from a table, as Playwright does: the
+ * element the ref was printed for, or none. `stale` refs throw the way Playwright
+ * does after a navigation.
  */
-interface FakeElement {
-  role: string;
-  name: string;
-  visible?: boolean;
-}
-
-function pageOf(elements: FakeElement[]): {
-  page: PageLike;
-  resolvedNames: () => string[];
-  queries: string[];
-} {
-  const queries: string[] = [];
-  const resolved: string[] = [];
-
-  const locatorFor = (matches: FakeElement[]): LocatorLike => {
-    const self: LocatorLike = {
-      click: async () => {},
-      fill: async () => {},
-      press: async () => {},
-      selectOption: async () => undefined,
-      waitFor: async () => {
-        const head = matches[0];
-        if (!head || head.visible === false) throw new Error('timeout');
-        resolved.push(head.name);
-      },
-      first: () => locatorFor(matches.slice(0, 1)),
-    };
-    return self;
-  };
-
-  const byName = (name: string, exact: boolean, role?: string): FakeElement[] =>
-    elements.filter(
-      (el) =>
-        (role === undefined || el.role === role) &&
-        (exact ? el.name === name : el.name.toLowerCase().includes(name.toLowerCase())),
-    );
-
+function pageOfRefs(
+  elements: Record<string, { name: string; visible?: boolean }>,
+  stale: string[] = [],
+): { page: PageLike; selectors: string[]; clicked: string[] } {
+  const selectors: string[] = [];
+  const clicked: string[] = [];
   const page = {
     goto: async () => undefined,
-    getByRole: (role: string, options?: { name?: string; exact?: boolean }) => {
-      queries.push(`role:${role}:${options?.name ?? ''}:${options?.exact ? 'exact' : 'loose'}`);
-      return locatorFor(
-        options?.name === undefined
-          ? elements.filter((el) => el.role === role)
-          : byName(options.name, options.exact === true, role),
-      );
-    },
-    // No labels in this fake: the label strategy finds nothing, which is what a page
-    // of plain buttons does, and keeps these tests about role and text.
-    getByLabel: (text: string, options?: { exact?: boolean }) => {
-      queries.push(`label:${text}:${options?.exact ? 'exact' : 'loose'}`);
-      return locatorFor([]);
-    },
-    getByText: (text: string, options?: { exact?: boolean }) => {
-      queries.push(`text:${text}:${options?.exact ? 'exact' : 'loose'}`);
-      return locatorFor(byName(text, options?.exact === true));
+    locator: (selector: string) => {
+      selectors.push(selector);
+      const ref = selector.slice('aria-ref='.length);
+      const element = elements[ref];
+      return {
+        count: async () => {
+          if (stale.includes(ref)) throw new Error(`Invalid frame in aria-ref selector "${selector}"`);
+          return element ? 1 : 0;
+        },
+        waitFor: async () => {
+          if (element?.visible === false) throw new Error('timeout');
+        },
+        click: async () => {
+          clicked.push(element!.name);
+        },
+      };
     },
     keyboard: { press: async () => {} },
     screenshot: async () => undefined,
     url: () => BASE,
     waitForLoadState: async () => undefined,
   } as unknown as PageLike;
-
-  return { page, resolvedNames: () => resolved, queries };
+  return { page, selectors, clicked };
 }
 
-describe('resolveTarget: exact accessible name before substring (spec agentic-execution: live element resolution)', () => {
-  it('does not lose an exact name to a longer one that contains it', async () => {
-    // "Add New" is first in document order, so today's substring match plus .first()
-    // clicks it — successfully, on the wrong control, with nothing able to say so.
-    const { page, resolvedNames } = pageOf([
-      { role: 'button', name: 'Add New' },
-      { role: 'button', name: 'Add' },
-    ]);
-
-    await resolveTarget(page, { role: 'button', name: 'Add' });
-
-    expect(resolvedNames()).toEqual(['Add']);
+describe('resolveTarget: the element the ref names, or none (spec agentic-execution: live element resolution)', () => {
+  it('acts on the ref, never on a search for the name', async () => {
+    const { page, selectors, clicked } = pageOfRefs({ e1: { name: 'Add New' }, e2: { name: 'Add' } });
+    await performAction(page, { action: 'click', target: { ref: 'e2', role: 'button', name: 'Add' }, reasoning: '' }, { baseUrl: BASE });
+    expect(selectors).toEqual(['aria-ref=e2']);
+    expect(clicked).toEqual(['Add']);
   });
 
-  it('still resolves a name that matches nothing exactly', async () => {
-    // The forgiving behaviour the fallback exists for: a snapshot whose text differs
-    // from the accessible name by truncation still drives the page.
-    const { page, resolvedNames } = pageOf([{ role: 'button', name: 'Create a local account' }]);
-
-    await resolveTarget(page, { role: 'button', name: 'Create' });
-
-    expect(resolvedNames()).toEqual(['Create a local account']);
+  it('fails at once, saying the page changed, when the element is gone', async () => {
+    const { page, clicked } = pageOfRefs({});
+    await expect(resolveTarget(page, { ref: 'e9', role: 'button', name: 'Checkout' })).rejects.toThrow(
+      /no longer on the page; it changed since the snapshot/,
+    );
+    expect(clicked).toEqual([]);
   });
 
-  it('keeps strategy order above match precision', async () => {
-    // The heading matches the text strategy exactly; the field matches the role
-    // strategy only loosely. The field must win, or a step naming a field types into
-    // the heading above it.
-    const { page, resolvedNames, queries } = pageOf([
-      { role: 'heading', name: 'E-mail' },
-      { role: 'textbox', name: 'E-mail de contato' },
-    ]);
-
-    await resolveTarget(page, { role: 'textbox', name: 'E-mail' });
-
-    expect(resolvedNames()).toEqual(['E-mail de contato']);
-    // Locators are built up front and tried in order, so the text-exact query is
-    // still constructed — it simply never wins, because role comes first.
-    expect(queries.indexOf('role:textbox:E-mail:loose')).toBeLessThan(
-      queries.indexOf('text:E-mail:exact'),
+  it('reads an invalid frame, after a navigation, as the page having changed', async () => {
+    const { page } = pageOfRefs({ e3: { name: 'Checkout' } }, ['e3']);
+    await expect(resolveTarget(page, { ref: 'e3', role: 'button', name: 'Checkout' })).rejects.toThrow(
+      /changed since the snapshot/,
     );
   });
 
-  it('asks for the exact match first on every strategy', async () => {
-    const { page, queries } = pageOf([]);
-
-    await expect(resolveTarget(page, { role: 'button', name: 'Ghost' })).rejects.toThrow(
-      /^Element not found:/,
+  it('still waits for a resolved element to be visible', async () => {
+    const { page } = pageOfRefs({ e4: { name: 'Hidden', visible: false } });
+    await expect(resolveTarget(page, { ref: 'e4', role: 'button', name: 'Hidden' }, 1_500)).rejects.toThrow(
+      'is on the page but did not become visible within 1500ms',
     );
+  });
+});
 
-    expect(queries).toEqual([
-      'role:button:Ghost:exact',
-      'role:button:Ghost:loose',
-      'label:Ghost:exact',
-      'label:Ghost:loose',
-      'text:Ghost:exact',
-      'text:Ghost:loose',
-    ]);
+describe('bindTarget: the model names a ref, and the ref decides the element', () => {
+  // The demo app's cart (#132) and two controls sharing a name (#60), as AI mode prints them.
+  const refs = indexRefs(
+    [
+      '- region "Promo code" [ref=f1e11]:',
+      '  - textbox "Promo code" [ref=f1e15]',
+      '  - button "Apply promo code" [ref=f1e16]',
+      '- button "Checkout" [ref=f1e25]',
+      '- row "Invoice 1" [ref=f1e30]:',
+      '  - button "Delete" [ref=f1e31]',
+      '- row "Invoice 2" [ref=f1e32]:',
+      '  - button "Delete" [ref=f1e33]',
+      '- generic [ref=f1e40]: Save   draft',
+      '- generic [ref=f1e41]',
+      "- 'heading \"Notes on file: 1\" [level=2] [ref=f1e16b]'",
+      "- paragraph [ref=f1e50]: 'It''s: done'",
+    ].join('\n'),
+  );
+  const click = (target: AgentAction['target']): AgentAction => ({ action: 'click', target, reasoning: '' });
+
+  it("binds #132's shape to the element read, not the first of its role", () => {
+    const bound = bindTarget(click({ ref: 'f1e25', role: 'button', name: 'Checkout' }), refs);
+    expect(bound.target).toEqual({ ref: 'f1e25', role: 'button', name: 'Checkout' });
   });
 
-  it('resolves an ambiguous name by document order, as it did before', async () => {
-    // Not an oversight. Refusing here was designed and then measured out: on real
-    // accessible sites the .sr-only pattern gives ordinary links a visible twin, so
-    // the refusal would refuse navigation. See the change's design D2/D7.
-    const { page, resolvedNames } = pageOf([
-      { role: 'button', name: 'Excluir' },
-      { role: 'button', name: 'Excluir' },
-    ]);
+  it('refuses a role with no name when the element has one', () => {
+    expect(() => bindTarget(click({ ref: 'f1e25', role: 'button' }), refs)).toThrow(
+      'refused: ref f1e25 is button "Checkout", not button, so nothing was done.',
+    );
+  });
 
-    await resolveTarget(page, { role: 'button', name: 'Excluir' });
+  it("binds #60's shape to the second of two same-named controls when that is the ref given", () => {
+    expect(bindTarget(click({ ref: 'f1e33', role: 'button', name: 'Delete' }), refs).target?.ref).toBe('f1e33');
+  });
 
-    expect(resolvedNames()).toEqual(['Excluir']);
+  it("refuses a neighbour's ref, naming what the model said and what the ref is", () => {
+    expect(() => bindTarget(click({ ref: 'f1e16', role: 'button', name: 'Checkout' }), refs)).toThrow(
+      'refused: ref f1e16 is button "Apply promo code", not button "Checkout", so nothing was done.',
+    );
+  });
+
+  it('refuses a ref the snapshot does not have, and a target with no ref', () => {
+    expect(() => bindTarget(click({ ref: 'f9e1', role: 'button', name: 'Checkout' }), refs)).toThrow(
+      'no element in the current snapshot has ref "f9e1"',
+    );
+    expect(() => bindTarget(click({ role: 'button', name: 'Checkout' }), refs)).toThrow('the target names no ref');
+  });
+
+  it("records the snapshot's words, compared without case or runs of whitespace", () => {
+    const bound = bindTarget(click({ ref: '[ref=f1e16]', role: 'Button', name: 'apply  PROMO code' }), refs);
+    expect(bound.target).toEqual({ ref: 'f1e16', role: 'button', name: 'Apply promo code' });
+  });
+
+  it('uses the inline text of an element with no name, and nothing for one with neither', () => {
+    expect(bindTarget(click({ ref: 'f1e40', role: 'generic', name: 'Save draft' }), refs).target?.name).toBe(
+      'Save   draft',
+    );
+    expect(bindTarget(click({ ref: 'f1e41', role: 'generic' }), refs).target).toEqual({
+      ref: 'f1e41',
+      role: 'generic',
+      name: undefined,
+    });
+    expect(() => bindTarget(click({ ref: 'f1e41', role: 'generic', name: 'Save' }), refs)).toThrow(/is generic, not/);
+  });
+
+  it('reads the lines YAML wraps in single quotes', () => {
+    expect(bindTarget(click({ ref: 'f1e16b', role: 'heading', name: 'Notes on file: 1' }), refs).target?.name).toBe(
+      'Notes on file: 1',
+    );
+    expect(bindTarget(click({ ref: 'f1e50', role: 'paragraph', name: "It's: done" }), refs).target?.name).toBe(
+      "It's: done",
+    );
+  });
+
+  it('leaves an action without a target alone, and treats an empty target as none', () => {
+    const press: AgentAction = { action: 'press', value: 'Escape', reasoning: '' };
+    expect(bindTarget(press, refs)).toEqual({ ...press, target: undefined });
+    expect(bindTarget({ ...press, target: {} }, refs).target).toBeUndefined();
   });
 });

@@ -9,7 +9,7 @@ metadata:
 
 # blastproof
 
-blastproof runs end-to-end tests written as plain English in YAML. An agent drives a real Chromium and resolves every element from the **accessibility tree** by role and accessible name. There are no CSS selectors or XPath anywhere in the tool, and no fallback to them.
+blastproof runs end-to-end tests written as plain English in YAML. An agent drives a real Chromium and resolves every element from the **accessibility tree**, acting on the element it read there. There are no CSS selectors or XPath anywhere in the tool, and no fallback to them.
 
 Read `references/authoring.md` before writing or editing any test — the rules there decide whether a suite is worth having. Read `references/cli.md` for commands, flags and exit codes, and `references/mapping.md` before touching `routes:` or `ignore:`.
 

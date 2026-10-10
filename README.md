@@ -77,7 +77,7 @@ Three questions. The first one decides most cases.
 
 **A hard requirement, not a preference.** blastproof finds elements the way a screen reader does — by role, by label, by visible text. That is what removes selectors and survives redesigns. The cost is that there is deliberately no CSS or XPath fallback, so anything the accessibility tree cannot describe cannot be driven at all.
 
-The name is matched **exactly first**, then by substring if nothing matches exactly — so a control named `Add` is found even when `Add New` sits above it. When several controls answer to the same name, the first one on the page wins. Give each control an accessible name no other control on the page shares; a page that cannot offer one cannot be driven unambiguously, and no matching rule fixes that.
+The agent acts on the element it read, not on a search for its name. Each element in the snapshot it reads carries a ref, and an action names that ref: two controls called `Delete` are two different targets, and `Add` is never mistaken for `Add New`. If the role and name the agent gives do not match the element the ref points at, the action is refused rather than performed. A ref is valid only for the snapshot it came from, so nothing like a selector is ever stored.
 
 | works | cannot be driven |
 | --- | --- |

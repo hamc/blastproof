@@ -86,7 +86,7 @@ export interface StepHistoryEntry {
 /** Renders an action the way the CLI shows it: `click button "Add note" [value]`. */
 export function describeAction(action: AgentAction): string {
   const target = action.target
-    ? ` ${action.target.role ?? ''} "${action.target.name ?? action.target.text ?? ''}"`
+    ? ` ${action.target.role ?? ''} "${action.target.name ?? ''}"`
     : '';
   const value = action.value ? ` [${action.value}]` : '';
   return `${action.action}${target}${value}`;
@@ -100,24 +100,18 @@ export function describeAction(action: AgentAction): string {
  * a substituted credential (design D1). Its case is content, not presentation:
  * "Check the invoice" and "check the invoice" are two different notes.
  *
- * The target is identified by what resolution uses to choose its element
- * (design identify-a-commit-by-what-resolves-it, D1). `resolveTarget` tries the
- * role and the name first and falls back to `text` only when those find
- * nothing, matching the name loosely, without case. So `text` counts only when
- * there is no role and no name, and the name is normalised. Identifying by the
- * raw fields let a model that added `text="Add note"` to a button it had just
- * clicked submit the form twice, and a duplicate note was written (#124).
+ * The target is identified by the element acted on, as the snapshot showed
+ * it: the executor binds every target to its ref's line before this is asked
+ * (design act-on-the-element-the-model-read, D5), so `role` and `name` are the
+ * page's, and `name` is the line's inline text where it has no accessible name.
+ * The ref itself is left out, because a control the application re-renders
+ * gets a new one, and the #124 duplicate commit would pass. The name is
+ * normalised, as the binding compares it.
  */
 function identity(action: AgentAction): string {
   const role = action.target?.role ?? '';
   const name = action.target?.name ?? '';
-  return JSON.stringify([
-    action.action,
-    role,
-    normalise(name),
-    role || name ? '' : (action.target?.text ?? ''),
-    action.value ?? '',
-  ]);
+  return JSON.stringify([action.action, role, normalise(name), action.value ?? '']);
 }
 
 /**
@@ -295,9 +289,14 @@ export class StepRecovery {
   private repeatedCommitRefusal(action: AgentAction): string | undefined {
     if (!isCommit(action)) return undefined;
     if (!this.performed.has(identity(action))) return undefined;
+    // The element named, and the ref disowned (design act-on-the-element-the-model-read,
+    // D5): after a reload the same control has a new ref, and a model told only that
+    // "this exact action" succeeded read the new ref as a different action and
+    // insisted, 4 runs in 5 on the demo app's notes test.
+    const target = action.target ? ` on ${action.target.role ?? ''} "${action.target.name ?? ''}"` : '';
     return (
-      `refused: this exact action already succeeded earlier in this step, so it was NOT performed again. ` +
-      `Repeating something that commits repeats whatever it changed in the application. If the page no longer ` +
+      `refused: this ${action.action}${target} already succeeded earlier in this step, so it was NOT performed ` +
+      `again. It is the same control even under a new ref: refs are renumbered when the page changes. Repeating something that commits repeats whatever it changed in the application. If the page no longer ` +
       `shows that it worked, that is normal for a submit answered by a redirect — check the record of what you ` +
       `have already done. Verify the step's outcome another way, or fail the step.`
     );
