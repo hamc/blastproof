@@ -210,6 +210,17 @@ export class RunBudget {
     return Math.max(0, this.maxDurationMs - (this.now() - this.startedAt));
   }
 
+  /**
+   * The deadline's stop, for a call its timer aborted (design
+   * bound-every-model-call, D3). Not `check()`: a timer can fire a millisecond
+   * before the clock `check()` reads has reached the deadline, and that call
+   * then left as a timeout, failing a test in the 0.25.0 release workflow.
+   */
+  deadlineReached(): BudgetExhaustedError {
+    const configured = this.maxDurationMs ?? 0;
+    return new BudgetExhaustedError('duration', Math.max(this.now() - this.startedAt, configured), configured);
+  }
+
   /** Records what a completed model call spent. */
   record(usage: CallUsage | undefined): void {
     this.calls += 1;

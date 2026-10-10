@@ -151,12 +151,18 @@ function asProviderRefusal(error: unknown): unknown {
  * before firing. A run with `--max-duration 20` was still waiting after 200 s.
  * The timer is cleared when the call settles, so it never outlives it.
  */
-function callAbort(budget: RunBudget): { signal: AbortSignal; clear: () => void } | undefined {
-  const limits = [budget.callTimeoutMs, budget.remainingMs()].filter((ms): ms is number => ms !== undefined);
-  if (limits.length === 0) return undefined;
+function callAbort(
+  budget: RunBudget,
+): { signal: AbortSignal; byDeadline: boolean; clear: () => void } | undefined {
+  const timeout = budget.callTimeoutMs;
+  const remaining = budget.remainingMs();
+  if (timeout === undefined && remaining === undefined) return undefined;
+  // Which limit armed the timer is decided here, once, rather than re-read from
+  // the clock when it fires: a timer can fire before the clock says it is due.
+  const byDeadline = remaining !== undefined && (timeout === undefined || remaining <= timeout);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.min(...limits));
-  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+  const timer = setTimeout(() => controller.abort(), byDeadline ? remaining : timeout);
+  return { signal: controller.signal, byDeadline, clear: () => clearTimeout(timer) };
 }
 
 /**
@@ -190,7 +196,7 @@ async function countedGenerate(
     if (abort?.signal.aborted) {
       // The deadline first (design D3): a call cut short by --max-duration is the
       // deadline's stop, and only a call that outlived llm.timeout_s is a timeout.
-      budget.check();
+      if (abort.byDeadline) throw budget.deadlineReached();
       if (budget.callTimeoutMs !== undefined) throw new ModelCallTimeoutError(budget.callTimeoutMs);
     }
     throw asProviderRefusal(withProviderDetail(spentAndExplained(error, budget)));
