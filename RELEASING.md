@@ -54,3 +54,5 @@ Listing is manual, from the release page, because GitHub has no API for it:
 2. Tick **Publish this Action to the GitHub Marketplace**. The first time, accept the Marketplace Developer Agreement; the account needs two-factor authentication.
 3. The metadata check must say **Everything looks good!**. Primary category **Testing**, secondary **Continuous integration**.
 4. **Update release**, then check `https://github.com/marketplace/actions/blastproof-e2e-ai-testing`.
+
+First listed with 0.25.0, on 2026-10-10. Whether a later release must tick the box again, or is picked up by the listing on its own, is not known yet: check the listing's version after the next release and record the answer here.
