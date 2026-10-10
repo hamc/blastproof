@@ -295,6 +295,21 @@ describe('renderHtml: incomplete runs (spec run-budget)', () => {
     expect(row).not.toContain('tag fail');
   });
 
+  it('shows no number and no gate verdict for a run with no score (#134)', async () => {
+    const html = await renderHtml([notRun('never got here', 'refused')], [], {
+      score: undefined,
+      durationMs: 1,
+      screenshots: 'embed',
+      minScore: 80,
+      incomplete: 'refused',
+    });
+    const block = html.slice(html.indexOf('<section class="score">'), html.indexOf('</section>', html.indexOf('<section class="score">')));
+    expect(block).toContain('<b>—</b>');
+    expect(block).toContain('no score: no test executed');
+    expect(block).not.toContain('min-score');
+    expect(block).not.toMatch(/<b>\d+<\/b>/);
+  });
+
   it('puts not-run tests after failures but before passes, and counts them separately', async () => {
     const html = await renderHtml(
       [passed('a pass'), notRun('never got here', 'stopped'), failed('a failure')],

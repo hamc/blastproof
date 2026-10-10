@@ -43,11 +43,13 @@ A non-zero exit blocks the merge. The full input list is in
 
 | output | |
 | --- | --- |
-| `score` | 0–100, empty when no report was produced |
+| `score` | 0–100, empty when the run has no score |
 
-Empty rather than zero is deliberate: a run that produced no report has no
-score, and a downstream step comparing against `0` would read "everything
-failed" from "nothing ran".
+A run has no score when it produced no report, or when it stopped before any
+test executed, because the provider refused the first call or the budget ran
+out during sign-in. Empty rather than zero is deliberate: a downstream step
+comparing against `0` would read "everything failed" from "nothing ran", and
+one reading `100` would read "everything passed".
 
 ```yaml
       - id: bp

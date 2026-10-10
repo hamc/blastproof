@@ -151,6 +151,16 @@ describe('renderJUnit: incomplete runs (spec run-budget)', () => {
     expect(xml).toContain('skipped="2"');
   });
 
+  it('omits the score property for a run with no score, and still marks it incomplete (#134)', () => {
+    const xml = renderJUnit([notRun('one', 'the model provider refused the call')], [], {
+      score: undefined,
+      durationMs: 10,
+      incomplete: 'the model provider refused the call',
+    });
+    expect(xml).not.toContain('name="score"');
+    expect(xml).toContain('<property name="incomplete" value="true"/>');
+  });
+
   it('records the run as incomplete, naming the reason, only when it is', () => {
     const complete = renderJUnit([passed('x')], [], { score: 100, durationMs: 10 });
     expect(complete).not.toContain('name="incomplete"');

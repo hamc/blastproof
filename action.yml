@@ -80,8 +80,9 @@ inputs:
 outputs:
   score:
     description: >
-      Priority-weighted score for the run, 0-100. Empty when no report was
-      produced, so "no score" stays distinguishable from "scored zero".
+      Priority-weighted score for the run, 0-100. Empty when the run has no
+      score, either no report was produced or the run stopped before any test
+      executed, so "no score" stays distinguishable from "scored zero".
     value: ${{ steps.score.outputs.score }}
 
 runs:

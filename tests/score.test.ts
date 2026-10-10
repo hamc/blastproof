@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeScore, formatIncompleteLine, formatScoreLine, WEIGHTS } from '../src/report/score.js';
+import { computeScore, formatIncompleteLine, formatScoreLine, scoreOf, WEIGHTS } from '../src/report/score.js';
 import type { TestResult } from '../src/runner/executor.js';
 
 function result(priority: string, status: 'passed' | 'failed' | 'not-run'): TestResult {
@@ -97,5 +97,28 @@ describe('formatIncompleteLine (spec run-budget, design D3/D4)', () => {
     expect(line).toContain('model call budget exhausted');
     expect(line).toContain('not a verdict');
     expect(line).toContain('regardless of --min-score');
+  });
+
+  it('says there is no score when no test executed before the stop (#134)', () => {
+    const line = formatIncompleteLine(undefined, 'the model provider refused the call');
+    expect(line).toContain('Run incomplete: the model provider refused the call');
+    expect(line).toContain('Score: none (no test executed before the stop)');
+    expect(line).not.toMatch(/\d+/);
+  });
+});
+
+describe('scoreOf (design no-score-when-nothing-ran, D1)', () => {
+  it('has no score for an interrupted run in which no test executed (#134)', () => {
+    expect(scoreOf([result('P1', 'not-run'), result('P0', 'not-run')], true)).toBeUndefined();
+    expect(scoreOf([], true)).toBeUndefined();
+  });
+
+  it('keeps 100 for a finished run whose selection was empty', () => {
+    expect(scoreOf([], false)).toBe(100);
+  });
+
+  it('scores the executed tests of an interrupted run that executed some', () => {
+    expect(scoreOf([result('P1', 'passed'), result('P1', 'not-run')], true)).toBe(100);
+    expect(scoreOf([result('P1', 'failed'), result('P1', 'not-run')], true)).toBe(0);
   });
 });

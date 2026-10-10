@@ -27,7 +27,8 @@ export interface SkippedCase {
 }
 
 export interface JUnitMeta {
-  score: number;
+  /** `undefined` when the run has none (design no-score-when-nothing-ran, D2). */
+  score: number | undefined;
   durationMs: number;
   /** Repo root, so `classname` is repo-relative rather than absolute. */
   cwd?: string;
@@ -68,7 +69,10 @@ export function renderJUnit(
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<testsuite name="blastproof" tests="${results.length + skipped.length}" failures="${failures}" skipped="${skipped.length + notRun.length}" time="${seconds(meta.durationMs)}">`,
     '  <properties>',
-    `    <property name="score" value="${meta.score}"/>`,
+    // Absent rather than a placeholder (design no-score-when-nothing-ran, D2):
+    // the action reads this property as its `score` output, and an empty output
+    // is how it already says "no score". A sentinel would be a number to compare.
+    ...(meta.score === undefined ? [] : [`    <property name="score" value="${meta.score}"/>`]),
     ...(meta.spend ? [`    <property name="llm_calls" value="${meta.spend.calls}"/>`] : []),
     // Omitted rather than emitted as zero when no call reported usage: a
     // property carrying 0 would be read by a pipeline as "this run spent no

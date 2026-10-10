@@ -9,7 +9,7 @@ import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
 import { printUncommitted } from '../report/uncommitted.js';
-import { computeScore, formatIncompleteLine, formatScoreLine, formatSpendLine } from '../report/score.js';
+import { computeScore, formatIncompleteLine, scoreOf, formatScoreLine, formatSpendLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
 import {
   RunStoppedError,
@@ -411,9 +411,11 @@ async function finalize(
   // whether the limit was too tight needs both.
   if (spend) console.log(formatSpendLine(spend));
 
-  const score = computeScore(results);
+  const score = scoreOf(results, incomplete !== undefined);
   console.log(
-    incomplete ? formatIncompleteLine(score, incomplete.message) : formatScoreLine(score, results, options.minScore),
+    incomplete
+      ? formatIncompleteLine(score, incomplete.message)
+      : formatScoreLine(computeScore(results), results, options.minScore),
   );
 
   if (options.junit) {
@@ -463,7 +465,7 @@ async function finalize(
   if (reportUnclassified(options, impact)) return EXIT_FAILED;
 
   if (options.minScore !== undefined) {
-    return score >= options.minScore ? EXIT_OK : EXIT_FAILED;
+    return computeScore(results) >= options.minScore ? EXIT_OK : EXIT_FAILED;
   }
   return results.some((result) => result.status === 'failed') ? EXIT_FAILED : EXIT_OK;
 }

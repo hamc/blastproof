@@ -3,6 +3,18 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [Unreleased]
+
+### Fixed
+
+- **A run stopped before any test executed has no score, where it reported 100.** When the
+  provider refused the first call or the budget ran out during sign-in, the JUnit report, the HTML
+  report and the action's `score` output all said 100, though the run exited 1. The JUnit report
+  now omits the `score` property, the HTML report shows no number, and the console says
+  `Score: none` (#134). **Upgrade note:** a step reading `outputs.score` gets an empty string for
+  that run, as it already did when no report was produced. A finished run whose selection was
+  empty still scores 100.
+
 ## [0.25.0] — 2026-10-10
 
 ### Changed

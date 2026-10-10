@@ -29,6 +29,19 @@ export function computeScore(results: TestResult[]): number {
 }
 
 /**
+ * The run's score, or `undefined` when it has none (design
+ * no-score-when-nothing-ran, D1). An interrupted run in which no test executed
+ * has nothing to score: {@link computeScore}'s 100 for zero executed weight was
+ * written for a finished run whose selection was empty, and reaching it from a
+ * stop published 100 for a run that tested nothing (#134). Decided here rather
+ * than in `computeScore`, which cannot tell the two apart.
+ */
+export function scoreOf(results: TestResult[], incomplete: boolean): number | undefined {
+  if (incomplete && results.every((result) => result.status === 'not-run')) return undefined;
+  return computeScore(results);
+}
+
+/**
  * The summary score line. Names the threshold when one is set so the gate
  * decision is visible without recomputing it, and flags the empty case so a
  * score of 100 is never mistaken for verified quality (design D2).
@@ -54,10 +67,12 @@ export function formatScoreLine(
  * executed tests are whichever happened to run first, not a verdict, and
  * `--min-score` never overrides this — the process exits non-zero regardless.
  */
-export function formatIncompleteLine(score: number, reason: string): string {
+export function formatIncompleteLine(score: number | undefined, reason: string): string {
   return (
     `Run incomplete: ${reason}\n` +
-    `Score over executed tests: ${score} (not a verdict — exit code 1 regardless of --min-score)`
+    (score === undefined
+      ? 'Score: none (no test executed before the stop)'
+      : `Score over executed tests: ${score} (not a verdict — exit code 1 regardless of --min-score)`)
   );
 }
 

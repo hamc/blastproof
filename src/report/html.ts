@@ -46,7 +46,8 @@ export async function embedScreenshot(file: string): Promise<string | undefined>
 export type ScreenshotPolicy = 'embed' | { withheldRelativeTo: string };
 
 export interface HtmlMeta {
-  score: number;
+  /** `undefined` when the run has none (design no-score-when-nothing-ran, D3). */
+  score: number | undefined;
   durationMs: number;
   /** Threshold, when one was given, so the gate verdict can be shown. */
   minScore?: number;
@@ -211,8 +212,10 @@ export async function renderHtml(
   const ordered = [...failures, ...notRun, ...results.filter((r) => r.status === 'passed')];
   const detail = (await Promise.all(ordered.map((r) => renderTest(r, meta.screenshots, meta.cwd)))).join('\n');
 
+  // No verdict for a run with no score: there is nothing to hold against the
+  // threshold (design no-score-when-nothing-ran, D3).
   const verdict =
-    meta.minScore === undefined
+    meta.minScore === undefined || meta.score === undefined
       ? ''
       : meta.score >= meta.minScore
         ? `<span class="verdict pass">min-score ${meta.minScore}: pass</span>`
@@ -264,7 +267,7 @@ export async function renderHtml(
   }</p>
 
 ${banner}  <section class="score">
-    <b>${meta.score}</b>
+    <b>${meta.score ?? '—'}</b>${meta.score === undefined ? '\n    <span class="counts">no score: no test executed</span>' : ''}
     ${verdict}
     <span class="counts">${passed} passed · ${failures.length} failed${
       notRun.length > 0 ? ` · ${notRun.length} not run` : ''
