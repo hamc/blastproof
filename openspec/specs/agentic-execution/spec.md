@@ -245,6 +245,8 @@ The record of successful actions SHALL be scoped to the step and reset at every 
 
 This requirement is deliberately about repetition, not about mutation: the executor cannot tell from a role and an accessible name whether an action writes to the application, and does not attempt to. It applies to the whole step and not only to recovery after a failed judgment, because the duplicate commit does not require a judgment to have failed — the trigger is a page that has lost the evidence of what was done to it.
 
+One repeat SHALL be performed: a commit that follows its own previous success in the step, with no other action succeeding in between, when the snapshot the model decided it on differs, refs aside, from the one that previous success was decided on. A step that pages through a tour or a wizard needs that, and the measured duplicates each performed another action in between to restore the form.
+
 #### Scenario: A commit is not repeated
 - **WHEN** the model proposes a `click` identical to one that already succeeded in the same step
 - **THEN** the click is not performed, the model is told it was refused and why, and one failed attempt is spent
@@ -284,6 +286,18 @@ This requirement is deliberately about repetition, not about mutation: the execu
 #### Scenario: Refusal cannot loop
 - **WHEN** the model keeps proposing refused actions
 - **THEN** the failed attempts accumulate and the step fails on the existing retry budget
+
+#### Scenario: A control that moves the page may be pressed again
+- **WHEN** a step clicks button "Next", the page's tour counter moves from "1 of 8" to "2 of 8", and the model proposes clicking "Next" again with nothing in between
+- **THEN** the click is performed
+
+#### Scenario: Something done in between closes the exception
+- **WHEN** a step clicks button "Add note", fills the note field again, and proposes clicking "Add note" again, on a page that changed
+- **THEN** the click is refused
+
+#### Scenario: A press that did not move the page is still refused
+- **WHEN** a step clicks a button and the next snapshot, refs aside, is identical to the one before it
+- **THEN** clicking the same button again is refused
 
 ### Requirement: The model recovers with the step's own history in view
 The model SHALL receive, on every iteration of a step, the actions already performed successfully in that step together with their results, presented as a record of what it has done and not as instructions. The record SHALL be scoped to the current step, and every value in it SHALL pass through the run-wide mask exactly as the snapshot and the last result already do.
