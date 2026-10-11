@@ -7,6 +7,15 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ### Fixed
 
+- **A dialog opened at the end of a long page survives the snapshot cap.** Frameworks render
+  dialogs, menus and command palettes at the end of the page, and a snapshot over
+  `max_snapshot_lines` kept only the top, so the element the last action opened was the first
+  thing dropped. On a budgeting app's 670-line page, the command palette sat at line 606, and both
+  of its tests failed 2 runs in 2 at the default cap. A cut now keeps the open dialogs and the
+  focused element first and fills the rest from the top, and both tests passed 2 in 2. Omitted
+  lines are marked where they were, and a step that fails on a cut snapshot names
+  `max_snapshot_lines` in its reason (#162).
+
 - **A run stopped before any test executed has no score, where it reported 100.** When the
   provider refused the first call or the budget ran out during sign-in, the JUnit report, the HTML
   report and the action's `score` output all said 100, though the run exited 1. The JUnit report

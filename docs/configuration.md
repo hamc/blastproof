@@ -211,9 +211,17 @@ Caps how much of the accessibility tree is sent to the model per snapshot.
 Dense pages are truncated at 200 lines by default.
 
 **Truncation is always marked in the snapshot**, so the model is never misled
-into believing it saw the whole page. Raise this if your pages are genuinely
-large; the cost is tokens on every call of every step, which is the single
-largest lever on what a run spends.
+into believing it saw the whole page: each run of dropped lines is replaced by
+`- ... (N lines omitted: max_snapshot_lines is M)` where it was. A step that
+fails on a cut snapshot says so in its reason, naming this setting.
+
+A cut does not simply keep the top of the page. React, Vue and Angular render
+dialogs, menus and command palettes at the end of the page, so the open
+dialogs (the last one opened first) and the focused element are kept first,
+with what they contain, and the rest of the cap is filled from the top.
+
+Raise this if your pages are genuinely large; the cost is tokens on every call
+of every step, which is the single largest lever on what a run spends.
 
 ### `headless`
 

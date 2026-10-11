@@ -538,7 +538,7 @@ describe('authenticate: steps strategy', () => {
       maxSnapshotLines: 10,
     });
 
-    expect(seenSnapshot).toContain('truncated after 10 lines');
+    expect(seenSnapshot).toContain('lines omitted: max_snapshot_lines is 10');
   });
 
   it('caps the snapshot passed to auth.verify\'s judge call too (DEF-003)', async () => {
@@ -569,7 +569,7 @@ describe('authenticate: steps strategy', () => {
       maxSnapshotLines: 10,
     });
 
-    expect(judgeSnapshot).toContain('truncated after 10 lines');
+    expect(judgeSnapshot).toContain('lines omitted: max_snapshot_lines is 10');
   });
 });
 

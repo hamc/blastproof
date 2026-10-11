@@ -11,9 +11,63 @@ function indentOf(line: string): number {
   return line.length - line.trimStart().length;
 }
 
+// A line whose role is a dialog, YAML single-quoted or not.
+const DIALOG_LINE = /^\s*- '?(?:dialog|alertdialog)(?=[\s:"']|$)/;
+const OMITTED_LINE = /^\s*- \.\.\. \(\d+ lines? omitted: max_snapshot_lines is (\d+)\)$/m;
+
+/**
+ * The cap a snapshot was cut at, read from its markers, or `undefined` when
+ * nothing was omitted (design keep-the-open-dialog-in-the-snapshot, D3). Read
+ * from the text so a step's reason cannot disagree with what the model saw.
+ */
+export function snapshotCutAt(snapshot: string): number | undefined {
+  const match = OMITTED_LINE.exec(snapshot);
+  return match ? Number(match[1]) : undefined;
+}
+
+/**
+ * Which lines of an over-cap snapshot to keep (design
+ * keep-the-open-dialog-in-the-snapshot, D1). Frameworks render dialogs, menus
+ * and palettes in a portal at the end of `<body>`, so a cut from the top
+ * dropped first the element the last action opened (#162). The open dialogs
+ * (the last one, on top, first) and the focused element are kept with their
+ * subtree and the lines they sit under; the rest of the cap is filled from the
+ * top, as before. Never more than `maxLines`.
+ */
+function linesToKeep(lines: string[], maxLines: number): Set<number> {
+  const keep = new Set<number>();
+  const subtreeEnd = (i: number): number => {
+    let j = i + 1;
+    while (j < lines.length && indentOf(lines[j]!) > indentOf(lines[i]!)) j++;
+    return j;
+  };
+  const ancestors = (i: number): number[] => {
+    const found: number[] = [];
+    let indent = indentOf(lines[i]!);
+    for (let j = i - 1; j >= 0 && indent > 0; j--) {
+      if (indentOf(lines[j]!) < indent) {
+        found.unshift(j);
+        indent = indentOf(lines[j]!);
+      }
+    }
+    return found;
+  };
+
+  const dialogs = lines.flatMap((line, i) => (DIALOG_LINE.test(line) ? [i] : [])).reverse();
+  const focused = lines.flatMap((line, i) => (line.includes('[active]') ? [i] : []));
+  for (const anchor of [...dialogs.slice(0, 1), ...focused, ...dialogs.slice(1)]) {
+    for (const line of ancestors(anchor)) if (keep.size < maxLines) keep.add(line);
+    for (let line = anchor; line < subtreeEnd(anchor) && keep.size < maxLines; line++) keep.add(line);
+  }
+  for (let line = 0; line < lines.length && keep.size < maxLines; line++) keep.add(line);
+  return keep;
+}
+
 /**
  * Trims an aria snapshot: drops empty containers (e.g. `- group:` with no children)
- * and caps the line count. Pure function, exported for tests.
+ * and caps the line count. Over the cap, each run of omitted lines is replaced in
+ * place by a marker naming the setting that cut it (design
+ * keep-the-open-dialog-in-the-snapshot, D2). Pure function, exported for tests.
  */
 export function trimSnapshot(snapshotYaml: string, maxLines: number = DEFAULT_MAX_LINES): string {
   let lines = snapshotYaml.split('\n').filter((line) => line.trim().length > 0);
@@ -39,10 +93,24 @@ export function trimSnapshot(snapshotYaml: string, maxLines: number = DEFAULT_MA
     if (removed === 0) break;
   }
 
-  if (lines.length > maxLines) {
-    lines = [...lines.slice(0, maxLines), `- ... (snapshot truncated after ${maxLines} lines)`];
+  if (lines.length <= maxLines) return lines.join('\n');
+
+  const keep = linesToKeep(lines, maxLines);
+  const out: string[] = [];
+  let omitted = 0;
+  for (let i = 0; i <= lines.length; i++) {
+    if (i < lines.length && !keep.has(i)) {
+      omitted++;
+      continue;
+    }
+    if (omitted > 0) {
+      const indent = ' '.repeat(indentOf(lines[i - omitted]!));
+      out.push(`${indent}- ... (${omitted} ${omitted === 1 ? 'line' : 'lines'} omitted: max_snapshot_lines is ${maxLines})`);
+      omitted = 0;
+    }
+    if (i < lines.length) out.push(lines[i]!);
   }
-  return lines.join('\n');
+  return out.join('\n');
 }
 
 /**

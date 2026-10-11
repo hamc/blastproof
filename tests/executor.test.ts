@@ -24,7 +24,7 @@ import {
   type ExecutorOptions,
 } from '../src/runner/executor.js';
 import { describeAction, StepRecovery } from '../src/runner/recovery.js';
-import { captureSnapshot, trimSnapshot } from '../src/runner/snapshot.js';
+import { captureSnapshot, snapshotCutAt, trimSnapshot } from '../src/runner/snapshot.js';
 import type { TestFile } from '../src/runner/testfile.js';
 
 // --- fakes -----------------------------------------------------------------
@@ -1255,7 +1255,7 @@ describe('the accessibility snapshot cap is configurable', () => {
     const snap = await captureSnapshot(fakePage as unknown as Page);
     const lines = snap.split('\n');
     expect(lines).toHaveLength(1 + 200 + 1); // url line + 200 kept + truncation note
-    expect(snap).toContain('truncated after 200 lines');
+    expect(snap).toContain('lines omitted: max_snapshot_lines is 200');
   });
 
   it('a raised cap admits more lines than the default', async () => {
@@ -1264,7 +1264,7 @@ describe('the accessibility snapshot cap is configurable', () => {
     const snap = await captureSnapshot(fakePage as unknown as Page, { maxLines: 300 });
     const lines = snap.split('\n');
     expect(lines).toHaveLength(1 + 250); // every line admitted, no truncation
-    expect(snap).not.toContain('truncated');
+    expect(snap).not.toContain('omitted');
   });
 
   it("executeTest's default snapshotter honours maxSnapshotLines, unset behaves exactly as before", async () => {
@@ -1313,7 +1313,38 @@ describe('the accessibility snapshot cap is configurable', () => {
       maxSnapshotLines: 10,
     });
 
-    expect(seenSnapshot).toContain('truncated after 10 lines');
+    expect(seenSnapshot).toContain('lines omitted: max_snapshot_lines is 10');
+  });
+
+  it('a step that fails on a cut snapshot names max_snapshot_lines in its reason (#162)', async () => {
+    const failing: AgentBrain = {
+      async nextAction() {
+        return { action: 'fail', reasoning: 'no Command Bar combobox on the page' };
+      },
+      async judge() {
+        return { pass: false, reason: 'n/a' };
+      },
+    };
+    const run = async (lines: number) => {
+      const page = new FakePage();
+      page.snapshotYaml = Array.from({ length: lines }, (_, i) => `- text "line ${i}"`).join('\n');
+      return executeTest(page, makeTest(), {
+        brain: failing,
+        sessionDir,
+        baseUrl: 'http://x.test',
+        timeoutMs: DEFAULT_TEST_TIMEOUT_MS,
+        maxSnapshotLines: 10,
+      });
+    };
+
+    const cut = await run(50);
+    expect(cut.status).toBe('failed');
+    expect(cut.reason).toContain('no Command Bar combobox on the page');
+    expect(cut.reason).toContain("The page's snapshot was cut at max_snapshot_lines (10)");
+
+    const whole = await run(5);
+    expect(whole.status).toBe('failed');
+    expect(whole.reason).not.toContain('max_snapshot_lines');
   });
 });
 
@@ -1339,7 +1370,103 @@ describe('trimSnapshot', () => {
     const yaml = Array.from({ length: 30 }, (_, i) => `- text "line ${i}"`).join('\n');
     const trimmed = trimSnapshot(yaml, 10);
     expect(trimmed.split('\n')).toHaveLength(11);
-    expect(trimmed).toContain('truncated after 10 lines');
+    expect(trimmed).toContain('lines omitted: max_snapshot_lines is 10');
+  });
+
+  // A portal-shaped page (#162): a long page, then the dialog its last action
+  // opened, rendered at the end of <body>.
+  const page = (bodyLines: number, dialog: string[]): string =>
+    [
+      '- banner:',
+      '  - heading "Budget" [level=1] [ref=e1]',
+      '- main:',
+      ...Array.from({ length: bodyLines }, (_, i) => `  - row "row ${i}" [ref=r${i}]`),
+      ...dialog,
+    ].join('\n');
+  const palette = [
+    '- dialog "Command Bar":',
+    '  - generic "Command Bar" [ref=e39]:',
+    '    - combobox "Command Bar" [expanded] [active] [ref=e41]',
+    '    - listbox "Suggestions" [ref=e42]:',
+    '      - option "Budget" [ref=e43]',
+  ];
+
+  it('keeps a dialog rendered at the end of a long page, within the cap (#162)', () => {
+    const trimmed = trimSnapshot(page(600, palette), 20);
+    const kept = trimmed.split('\n').filter((line) => !line.includes('omitted'));
+    expect(kept).toHaveLength(20);
+    for (const line of palette) expect(trimmed).toContain(line);
+    // The rest of the cap is filled from the top, in document order.
+    expect(trimmed.startsWith('- banner:\n  - heading "Budget"')).toBe(true);
+    expect(trimmed.indexOf('row "row 0"')).toBeLessThan(trimmed.indexOf('- dialog "Command Bar"'));
+    expect(trimmed).toMatch(/^ {2}- \.\.\. \(\d+ lines omitted: max_snapshot_lines is 20\)$/m);
+  });
+
+  it('keeps the focused element and the lines it sits under, outside any dialog', () => {
+    const yaml = [
+      '- main:',
+      ...Array.from({ length: 100 }, (_, i) => `  - row "row ${i}" [ref=r${i}]`),
+      '  - grid "Transactions" [ref=g1]:',
+      '    - row "new" [ref=g2]:',
+      '      - textbox "Payee" [active] [ref=g3]',
+      ...Array.from({ length: 100 }, (_, i) => `    - row "old ${i}" [ref=o${i}]`),
+    ].join('\n');
+    const trimmed = trimSnapshot(yaml, 15);
+    expect(trimmed).toContain('  - grid "Transactions" [ref=g1]:\n    - row "new" [ref=g2]:\n      - textbox "Payee" [active] [ref=g3]');
+    expect(trimmed.split('\n').filter((line) => !line.includes('omitted'))).toHaveLength(15);
+  });
+
+  it('takes the last dialog first when two are open', () => {
+    const first = ['- dialog "Settings":', ...Array.from({ length: 10 }, (_, i) => `  - checkbox "option ${i}"`)];
+    const last = ['- alertdialog "Delete account?":', '  - button "Delete"', '  - button "Cancel"'];
+    const trimmed = trimSnapshot(page(100, [...first, ...last]), 6);
+    for (const line of last) expect(trimmed).toContain(line);
+    expect(trimmed).toContain('- dialog "Settings":');
+  });
+
+  it('puts the focused element before a dialog opened earlier', () => {
+    const yaml = [
+      '- main:',
+      ...Array.from({ length: 50 }, (_, i) => `  - row "row ${i}"`),
+      '  - textbox "Search" [active]',
+      '- dialog "Settings":',
+      ...Array.from({ length: 10 }, (_, i) => `  - checkbox "option ${i}"`),
+      '- alertdialog "Delete account?":',
+      '  - button "Delete"',
+      '  - button "Cancel"',
+    ].join('\n');
+    const trimmed = trimSnapshot(yaml, 6);
+    expect(trimmed).toContain('- alertdialog "Delete account?":\n  - button "Delete"\n  - button "Cancel"');
+    expect(trimmed).toContain('  - textbox "Search" [active]');
+    expect(trimmed).not.toContain('option 0');
+  });
+
+  it('keeps the first lines of a dialog larger than the cap', () => {
+    const big = ['- dialog "Huge":', ...Array.from({ length: 50 }, (_, i) => `  - checkbox "option ${i}"`)];
+    const trimmed = trimSnapshot(page(100, big), 10);
+    const kept = trimmed.split('\n').filter((line) => !line.includes('omitted'));
+    expect(kept).toEqual(big.slice(0, 10));
+  });
+
+  it('recognises a YAML single-quoted dialog line', () => {
+    const quoted = ["- 'dialog \"Notes on file: 1\"':", '  - button "Close"'];
+    const trimmed = trimSnapshot(page(100, quoted), 10);
+    for (const line of quoted) expect(trimmed).toContain(line);
+  });
+
+  it('does not take a role that only starts with "dialog" for one', () => {
+    const trimmed = trimSnapshot(page(100, ['- dialogue "x":', '  - button "y"']), 10);
+    expect(trimmed).not.toContain('dialogue');
+  });
+
+  it('leaves a snapshot under the cap unchanged', () => {
+    const yaml = page(5, palette);
+    expect(trimSnapshot(yaml, 200)).toBe(yaml);
+  });
+
+  it('snapshotCutAt reads the cap from the markers, and nothing from a whole page', () => {
+    expect(snapshotCutAt(trimSnapshot(page(100, palette), 20))).toBe(20);
+    expect(snapshotCutAt(trimSnapshot(page(5, palette), 20))).toBeUndefined();
   });
 });
 

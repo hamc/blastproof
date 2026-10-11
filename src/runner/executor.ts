@@ -13,7 +13,7 @@ import {
   type PageLike,
 } from './actions.js';
 import { referencedEnvVars } from './env.js';
-import { indexRefs, withoutRefs } from './snapshot.js';
+import { indexRefs, snapshotCutAt, withoutRefs } from './snapshot.js';
 import { StepRecovery, describeAction } from './recovery.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
@@ -269,6 +269,8 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     let failedAttempts = 0;
     let lastResult: string | undefined;
     let stepFailedReason: string | undefined;
+    // The last snapshot this step read, so a failure on a cut one can say so.
+    let lastSnapshot: string | undefined;
     // One instance per step: constructing it here IS the "does not cross steps"
     // rule (design contained-recovery, D1) — there is no reset to forget. The
     // step's own text is its first readable source: a value the step names is
@@ -306,6 +308,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           );
         }
         const snap = await takeSnapshot(page);
+        lastSnapshot = snap;
         // Recorded at the one point a snapshot crosses into a prompt, masked
         // exactly as the model receives it (design refuse-an-invented-value,
         // D2/D4): what the model was shown is what it may quote from, and a
@@ -422,6 +425,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
               // is what let the model invent an action instead of looking again.
               await waitForSettled(page);
               const freshSnap = await takeSnapshot(page);
+              lastSnapshot = freshSnap;
               const maskedFresh = withoutRefs(mask(freshSnap));
               // Every snapshot that crosses into a prompt during this step, not
               // only the ones the acting model sees: the judge's reason comes back
@@ -532,6 +536,14 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
       if (error instanceof RunStoppedError) throw error;
       // Mask everything that reaches logs/reports, regardless of throw site.
       stepFailedReason = mask(error instanceof Error ? error.message : String(error));
+      // A hint, not a verdict change (design keep-the-open-dialog-in-the-snapshot,
+      // D3): a false FAIL caused by the cap should read as one in the report.
+      const cutAt = lastSnapshot === undefined ? undefined : snapshotCutAt(lastSnapshot);
+      if (cutAt !== undefined) {
+        stepFailedReason +=
+          ` (The page's snapshot was cut at max_snapshot_lines (${cutAt}); ` +
+          'what the step looks for may be in the part left out.)';
+      }
     }
 
     // Only actions that succeeded are recorded, so "used" means performed.
