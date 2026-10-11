@@ -7,6 +7,14 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ### Fixed
 
+- **A step can press the same control again when each press moves the page.** Within a step, a
+  click or Enter that already succeeded was always refused, so *"click Next until the tour shows
+  its last step"* failed on its second click (#164). The repeat now goes through when it follows
+  itself directly, with nothing else done in between, and the page changed after the last press.
+  Every other repeat is still refused, including the duplicate-record shape, where the form is
+  refilled before the second submit: on the dogfood notes test it was attempted and refused in 5
+  runs of 5. The tour passed 3 runs of 3 with all 7 clicks.
+
 - **A dialog opened at the end of a long page survives the snapshot cap.** Frameworks render
   dialogs, menus and command palettes at the end of the page, and a snapshot over
   `max_snapshot_lines` kept only the top, so the element the last action opened was the first

@@ -107,7 +107,7 @@ If a critical journey needs one of these, that journey stays with your existing 
 
 **Use a seeded database, a staging environment you can reset, or a throwaway account. Do not gate on a run against production data.**
 
-Within a step, an action that commits — a click, or pressing Enter — is never performed twice: the runner refuses the repeat and tells the agent it already did that. This closes the case that used to produce duplicate records, where a submit answered by a redirect came back to a reset form and the agent, seeing no evidence of its own work, submitted again.
+Within a step, an action that commits — a click, or pressing Enter — is not performed twice: the runner refuses the repeat and tells the agent it already did that. This closes the case that used to produce duplicate records, where a submit answered by a redirect came back to a reset form and the agent, seeing no evidence of its own work, refilled it and submitted again. One repeat goes through: the same control pressed again right after itself, with nothing else done in between, when the page changed after the last press — a tour's "Next", a wizard, "load more".
 
 It is **not** a guarantee of zero duplicate writes. An agent that reaches the same effect by a genuinely different route — another control that does the same thing — is not caught.
 

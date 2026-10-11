@@ -140,6 +140,14 @@ function identity(action: AgentAction): string {
 export class StepRecovery {
   private readonly performed = new Set<string>();
   private readonly history: StepHistoryEntry[] = [];
+  /** The last page the model was shown, as given to `observe` (masked, without refs). */
+  private lastObserved: string | undefined;
+  /**
+   * The last action that succeeded, with the page it was decided on (design
+   * repeat-a-click-that-moves-the-page, D1/D2). A commit that follows itself
+   * on a page that moved is a tour's "Next", not a duplicate.
+   */
+  private lastSuccess: { identity: string; page: string | undefined } | undefined;
   /**
    * Everything the model has been allowed to read this step, normalised: the
    * step's own text, plus every snapshot it has been shown, plus every value it
@@ -186,6 +194,7 @@ export class StepRecovery {
    */
   observe(maskedSnapshot: string): void {
     this.readable.push(normalise(maskedSnapshot));
+    this.lastObserved = maskedSnapshot;
   }
 
   /**
@@ -209,6 +218,7 @@ export class StepRecovery {
   /** Records an action that was actually performed and succeeded. */
   record(action: AgentAction, description: string, result: string): void {
     this.performed.add(identity(action));
+    this.lastSuccess = { identity: identity(action), page: this.lastObserved };
     this.history.push({ action: description, result });
     // A value that passed the source check when it was typed stays quotable for
     // the rest of the step: a transitive closure over already-validated values,
@@ -289,6 +299,7 @@ export class StepRecovery {
   private repeatedCommitRefusal(action: AgentAction): string | undefined {
     if (!isCommit(action)) return undefined;
     if (!this.performed.has(identity(action))) return undefined;
+    if (this.followsItselfOnAMovedPage(action)) return undefined;
     // The element named, and the ref disowned (design act-on-the-element-the-model-read,
     // D5): after a reload the same control has a new ref, and a model told only that
     // "this exact action" succeeded read the new ref as a different action and
@@ -300,6 +311,22 @@ export class StepRecovery {
       `shows that it worked, that is normal for a submit answered by a redirect — check the record of what you ` +
       `have already done. Verify the step's outcome another way, or fail the step.`
     );
+  }
+
+  /**
+   * The one repeat performed (design repeat-a-click-that-moves-the-page): the
+   * same commit as the last action that succeeded, with nothing in between, on
+   * a page that differs from the one that success was decided on. A tour's
+   * "Next" or a "load more" needs it (#164). Both measured duplicates did
+   * something else in between to restore the form, a `fill` (#124) or a click
+   * on "New Issue" (#28), and a press that moved nothing is still refused.
+   * Compared exactly on the ref-less text `observe` receives, so a re-render
+   * alone is no change.
+   */
+  private followsItselfOnAMovedPage(action: AgentAction): boolean {
+    const last = this.lastSuccess;
+    if (last === undefined || last.identity !== identity(action)) return false;
+    return last.page !== undefined && this.lastObserved !== undefined && last.page !== this.lastObserved;
   }
 
   /**
