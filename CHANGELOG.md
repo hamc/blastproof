@@ -3,7 +3,7 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
-## [Unreleased]
+## [0.26.0] — 2026-10-12
 
 ### Fixed
 
@@ -40,6 +40,11 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   `Score: none` (#134). **Upgrade note:** a step reading `outputs.score` gets an empty string for
   that run, as it already did when no report was produced. A finished run whose selection was
   empty still scores 100.
+
+- **A call the run's deadline aborts stops as the deadline, even when its timer fires early.** A
+  Node timer can fire about a millisecond before the clock reaches its due time, and the stop was
+  then reported as a model-call timeout instead of the deadline (#159). Which limit armed the
+  timer is now decided when it is armed.
 
 ## [0.25.0] — 2026-10-10
 

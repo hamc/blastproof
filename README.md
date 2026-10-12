@@ -306,17 +306,17 @@ A merge gate is judged by two numbers. A **false PASS** is a test that passes on
 
 | | `claude-haiku-4.5` | `gpt-6-luna` |
 | --- | --- | --- |
-| false FAIL, correct app (40 test runs) | 0 (≤ 8.8%) | 0 (≤ 8.8%) |
+| false FAIL, correct app (40 test runs) | 1 (≤ 12.9%) | 0 (≤ 8.8%) |
 | false PASS, literal bugs (30) | 0 (≤ 11.4%) | 0 (≤ 11.4%) |
 | false PASS, subtle bugs (20) | 0 (≤ 16.1%) | 0 (≤ 16.1%) |
 
-The bounds are 95% upper bounds: zero errors in 40 runs means "below about 9%", not "never". The first run of this table found a false PASS on Haiku, 2 subtle runs in 20. The confirmation showed order `#BP-1002`, another paragraph mentioned `#BP-1001` as a previous order, and a step checking for `#BP-1001` *in the confirmation* passed. That was fixed in the judge ([#147](https://github.com/hamc/blastproof/issues/147)), and this is the run after the fix.
+The bounds are 95% upper bounds: zero errors in 40 runs means "below about 9%", not "never". The first run of this table found a false PASS on Haiku, 2 subtle runs in 20. The confirmation showed order `#BP-1002`, another paragraph mentioned `#BP-1001` as a previous order, and a step checking for `#BP-1001` *in the confirmation* passed. That was fixed in the judge ([#147](https://github.com/hamc/blastproof/issues/147)). The false FAIL on Haiku is in the notes test: the note was listed and counted, but the model had typed it into the empty field again, and the judge read the filled field as a form not yet submitted.
 
 The demo app is small and well labelled, so these numbers flatter. Expect a real application to do worse. The point of this table is that it can be reproduced, and that every change claiming better verdicts has to move it.
 
 The same benchmark over seven more models, and why it chose the OpenAI and Ollama defaults, is in [Choosing a model](./docs/configuration.md#choosing-a-model).
 
-Measured 2026-10-07 on `main` after 0.23.0 with #147's fix, 5 samples, through OpenRouter. To reproduce:
+Measured 2026-10-12 on 0.26.0, 5 samples, through OpenRouter. To reproduce:
 
 ```bash
 npm run build
