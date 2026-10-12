@@ -7,6 +7,15 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ### Fixed
 
+- **A step looks at the page again before giving up on one still rendering.** An app that
+  renders from data already in the browser goes network-idle before its first paint is done, so
+  a step could read a half-built page, and the model answered `fail` with nothing done: "no "Try
+  the demo" button, only a "Set up sync" link", in 5.6 s, on a budgeting app under
+  `concurrency: 4` (#14). Such a `fail` now waits up to 3 s for the page to change, once per
+  step. A changed page goes back to the model, and the record shows it. A still page fails as
+  before with no extra model call. On a page rendering its button 2 s after idle, the step failed 3
+  runs of 3 and now passes 3 of 3.
+
 - **A step can press the same control again when each press moves the page.** Within a step, a
   click or Enter that already succeeded was always refused, so *"click Next until the tour shows
   its last step"* failed on its second click (#164). The repeat now goes through when it follows

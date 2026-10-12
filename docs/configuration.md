@@ -266,6 +266,19 @@ removes.
 Rewriting such a test to assert on its own note rather than the total makes it
 safe to parallelise, and is a better test regardless.
 
+### A slower machine meets the page sooner
+
+Several browsers on one machine make each page render more slowly. The runner
+waits for the network to go idle before it reads a page, but an application
+that renders from data already in the browser (local storage, IndexedDB) goes
+idle **before** its first paint is complete, so a step can read a half-built
+page. When the model then gives up on a step in which nothing was done yet,
+the runner watches the page for up to 3 seconds first. If it changed, the model
+decides again on the new page, and the record shows the second look; if it did
+not, the step fails as before, with no extra model call. That covers a first
+paint, once per step. A page that is slow for other reasons can still fail
+under concurrency where it passes alone.
+
 ### Two practical consequences
 
 Four concurrent journeys are **four times the traffic** against whatever you

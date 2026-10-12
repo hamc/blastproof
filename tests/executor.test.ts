@@ -347,6 +347,9 @@ function baseOptions(brain: AgentBrain, overrides: Partial<ExecutorOptions> = {}
     baseUrl: 'http://x.test',
     timeoutMs: DEFAULT_TEST_TIMEOUT_MS,
     snapshot: async () => 'snap',
+    // A `fail` with nothing done would otherwise watch a page that never
+    // changes for 3 s; the tests of that look set their own window.
+    renderWatchMs: 0,
     ...overrides,
   };
 }
@@ -1334,6 +1337,7 @@ describe('the accessibility snapshot cap is configurable', () => {
         baseUrl: 'http://x.test',
         timeoutMs: DEFAULT_TEST_TIMEOUT_MS,
         maxSnapshotLines: 10,
+        renderWatchMs: 0,
       });
     };
 
@@ -1345,6 +1349,80 @@ describe('the accessibility snapshot cap is configurable', () => {
     const whole = await run(5);
     expect(whole.status).toBe('failed');
     expect(whole.reason).not.toContain('max_snapshot_lines');
+  });
+});
+
+// --- a page still rendering (look-again-before-failing-on-a-page-still-rendering, #14)
+
+describe('a fail with nothing done looks at the page again', () => {
+  const fail = (reasoning: string): AgentAction => ({ action: 'fail', reasoning });
+  /** A page whose start screen is complete only from the `after`th snapshot on. */
+  const rendering = (after: number) => {
+    let taken = 0;
+    return async () => (++taken < after ? '- link "Set up sync"' : '- button "Try the demo"\n- link "Set up sync"');
+  };
+
+  it('asks again on a page that changed, and the step can then pass', async () => {
+    const brain = scriptedBrain([fail('no "Try the demo" button, only a "Set up sync" link'), ...finishes()]);
+    const events: ExecutorEvent[] = [];
+    const result = await executeTest(
+      new FakePage(),
+      makeTest(),
+      baseOptions(brain, { snapshot: rendering(3), renderWatchMs: 2_000, onEvent: (e) => events.push(e) }),
+    );
+    expect(result.status).toBe('passed');
+    expect(brain.calls).toBe(3);
+    const first = events.find((e) => e.type === 'action');
+    expect(first?.type === 'action' && first.result).toContain('not accepted yet: the page changed');
+  });
+
+  it('accepts the fail on a still page, with no further model call', async () => {
+    const brain = scriptedBrain([fail('no such button')]);
+    const startedAt = Date.now();
+    const result = await executeTest(new FakePage(), makeTest(), baseOptions(brain, { renderWatchMs: 300 }));
+    expect(result.status).toBe('failed');
+    expect(result.reason).toBe('no such button');
+    expect(brain.calls).toBe(1);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
+  });
+
+  it('accepts a fail after an action at once', async () => {
+    const brain = scriptedBrain([{ action: 'press', value: 'Escape', reasoning: 'r' }, fail('the dialog did not close')]);
+    const startedAt = Date.now();
+    const result = await executeTest(
+      new FakePage(),
+      makeTest(),
+      baseOptions(brain, { snapshot: rendering(2), renderWatchMs: 2_000 }),
+    );
+    expect(result.status).toBe('failed');
+    expect(brain.calls).toBe(2);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it('looks only once per step', async () => {
+    let taken = 0;
+    const brain = scriptedBrain([fail('first'), fail('second')]);
+    const result = await executeTest(
+      new FakePage(),
+      makeTest(),
+      // Every snapshot differs, so a second look would also find a change.
+      baseOptions(brain, { snapshot: async () => `- text: ${++taken}`, renderWatchMs: 2_000 }),
+    );
+    expect(result.status).toBe('failed');
+    expect(result.reason).toBe('second');
+    expect(brain.calls).toBe(2);
+  });
+
+  it('does not take a re-render under new refs for a change', async () => {
+    let taken = 0;
+    const brain = scriptedBrain([fail('no such button')]);
+    const result = await executeTest(
+      new FakePage(),
+      makeTest(),
+      baseOptions(brain, { snapshot: async () => `- link "Set up sync" [ref=e${++taken}]`, renderWatchMs: 300 }),
+    );
+    expect(result.status).toBe('failed');
+    expect(brain.calls).toBe(1);
   });
 });
 
