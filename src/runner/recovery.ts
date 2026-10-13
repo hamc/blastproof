@@ -1,5 +1,5 @@
 import type { AgentAction } from '../llm/schemas.js';
-import { isVerificationStep } from './authoring.js';
+import { hasVerificationClause, isVerificationStep } from './authoring.js';
 import { REDACTION_PREFIX, referencedEnvVars } from './env.js';
 
 /**
@@ -176,11 +176,18 @@ export class StepRecovery {
    * D1). Read by the executor too, which refuses `done` in such a step.
    */
   readonly verifies: boolean;
+  /**
+   * Whether the step acts first and asks for a check after (design
+   * judge-a-done-that-closes-a-check, D2). The executor judges a `done` in such
+   * a step instead of closing it.
+   */
+  readonly checksAfterActing: boolean;
 
   constructor(step: string) {
     this.step = step;
     this.readable = [normalise(step)];
     this.verifies = isVerificationStep(step);
+    this.checksAfterActing = hasVerificationClause(step);
   }
 
   /**

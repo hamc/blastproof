@@ -76,8 +76,15 @@ function namesNoValue(step: string): boolean {
  * step that only names "verify" later is not one either. An optional leading
  * `then` or `and` is allowed, since steps continue one another that way.
  */
-const LEADING_CHECK_VERB =
-  /^\s*(?:(?:then|and)\s+)?(?:verify|check|confirm|ensure|assert|expect|validate|make\s+sure|see\s+that)\b/i;
+const CHECK_VERB = String.raw`(?:verify|check|confirm|ensure|assert|expect|validate|make\s+sure|see\s+that)\b`;
+const LEADING_CHECK_VERB = new RegExp(String.raw`^\s*(?:(?:then|and)\s+)?` + CHECK_VERB, 'i');
+
+/**
+ * A check after the step's first clause (design judge-a-done-that-closes-a-check,
+ * D2): "save … and verify the first transaction has …". The same verbs as
+ * `LEADING_CHECK_VERB`, introduced by `and`, `then`, a comma or a semicolon.
+ */
+const CHECK_CLAUSE = new RegExp(String.raw`(?:\band\b|\bthen\b|[,;])\s+` + CHECK_VERB, 'i');
 
 /**
  * True when the step asks only for a check (design a-verification-step-only-looks,
@@ -92,6 +99,22 @@ const LEADING_CHECK_VERB =
  */
 export function isVerificationStep(step: string): boolean {
   return LEADING_CHECK_VERB.test(step);
+}
+
+/**
+ * True when the step acts first and asks for a check after (design
+ * judge-a-done-that-closes-a-check, D2). The executor judges a `done` on such a
+ * step instead of closing it: the model's sentence about the page is the claim,
+ * and the judge decides it, as for an `assert` (#172).
+ *
+ * English only. The two ways this can be wrong leave no new false PASS: a step
+ * taken for one ("… and check the box") is judged on the state it asks for, and a
+ * check this misses closes on `done` as it always has.
+ */
+export function hasVerificationClause(step: string): boolean {
+  // A quoted name is the page's words, not the step's: `click "Save and check"`.
+  const unquoted = step.replace(/"[^"]*"|“[^”]*”/g, '""');
+  return !isVerificationStep(step) && CHECK_CLAUSE.test(unquoted);
 }
 
 /**

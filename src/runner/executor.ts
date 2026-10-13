@@ -401,6 +401,9 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           continue;
         }
         iterations++;
+        // Set when a `done` is judged as an `assert`: the record still shows a `done`.
+        let judgingDone = false;
+        const shown = (): AgentAction => (judgingDone ? { ...action, action: 'done' } : action);
 
         if (action.action === 'done') {
           // A step closes on what was done, not on being declared done (design
@@ -426,8 +429,17 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             }
             continue;
           }
-          emitAction(index, action, action.reasoning);
-          break;
+          if (!recovery.checksAfterActing) {
+            emitAction(index, action, action.reasoning);
+            break;
+          }
+          // A step that acts and then asks for a check closes on a judgment
+          // (design judge-a-done-that-closes-a-check, D1): the `done`'s
+          // sentence about the page is the claim, decided below exactly as an
+          // `assert`'s is, re-observation included. Otherwise the check is the
+          // acting model's word alone (#172).
+          judgingDone = true;
+          action = { ...action, action: 'assert', expectation: action.reasoning };
         }
 
         if (action.action === 'fail') {
@@ -505,7 +517,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             if (error instanceof RunStoppedError) throw error;
             failedAttempts++;
             lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
-            emitAction(index, action, lastResult);
+            emitAction(index, shown(), lastResult);
             if (failedAttempts >= maxRetries) {
               throw new StepFailure(lastResult);
             }
@@ -514,7 +526,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           const result = judgment.pass
             ? `ok: assertion passed: ${judgment.reason}`
             : `assertion failed: ${judgment.reason}`;
-          emitAction(index, action, result);
+          emitAction(index, shown(), result);
           if (judgment.pass) {
             // Terminate here, exactly as `done` does. The extra turn this used to
             // spend asking for a further action is what let the model contradict

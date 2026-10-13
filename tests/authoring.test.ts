@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { detectMissingValues, isVerificationStep, suggestValueClause } from '../src/runner/authoring.js';
+import {
+  detectMissingValues,
+  hasVerificationClause,
+  isVerificationStep,
+  suggestValueClause,
+} from '../src/runner/authoring.js';
 import { discoverTestFiles, parseTestFile, type TestFile } from '../src/runner/testfile.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -268,5 +273,32 @@ describe('isVerificationStep (a-verification-step-only-looks, D1)', () => {
     'verifique que o carrinho está vazio',
   ])('takes "%s" for something else', (step) => {
     expect(isVerificationStep(step)).toBe(false);
+  });
+});
+
+describe('hasVerificationClause (judge-a-done-that-closes-a-check, D2)', () => {
+  it.each([
+    'save the transaction by clicking "Add" and verify the first transaction has payee "Home Depot"',
+    'submit the add-note form and verify the note "Check the invoice" appears in the notes list',
+    'open the menu, then confirm the email is shown',
+    'click Add; make sure the row is listed',
+    'navigate to /notes, check the heading',
+    'click Save AND VERIFY the toast',
+    'open the cart and see that it is empty',
+  ])('finds the check in "%s"', (step) => {
+    expect(hasVerificationClause(step)).toBe(true);
+  });
+
+  it.each([
+    'fill the note field with Check the invoice',
+    'click the "Save and check" button',
+    'click “Add and verify” in the toolbar',
+    'click Check out',
+    'verify the heading says "Order placed"',
+    'then verify the count is 1',
+    'checkout the order and checkout again',
+    'open the menu and click Verification code',
+  ])('finds none in "%s"', (step) => {
+    expect(hasVerificationClause(step)).toBe(false);
   });
 });

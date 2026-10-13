@@ -2782,7 +2782,10 @@ describe('a verification step only looks (a-verification-step-only-looks, #139)'
   it('leaves an action step that verifies its outcome as it was', async () => {
     const page = new FakePage();
     page.visible.add('role:button|Add to cart');
-    const brain = scriptedBrain([click('Add to cart'), { action: 'done', reasoning: 'added' }]);
+    const brain = scriptedBrain(
+      [click('Add to cart'), { action: 'done', reasoning: 'added' }],
+      [{ pass: true, reason: 'the status says it' }],
+    );
 
     const result = await executeTest(
       page,
@@ -2792,6 +2795,124 @@ describe('a verification step only looks (a-verification-step-only-looks, #139)'
 
     expect(page.calls.some((c) => c.startsWith('click'))).toBe(true);
     expect(result.status).toBe('passed');
+  });
+});
+
+describe('a done on a step that acts and then checks is judged (judge-a-done-that-closes-a-check, #172)', () => {
+  const STEP =
+    'save the transaction by clicking "Add" and verify the first transaction has payee "Home Depot"';
+  const DONE: AgentAction = { action: 'done', reasoning: 'the first row now shows Home Depot' };
+
+  /** A brain that records what it was given, so a test can read the claim and the result. */
+  function recordingBrain(script: AgentAction[], judgments: AssertJudgment[]) {
+    const lastResults: Array<string | undefined> = [];
+    const claims: string[] = [];
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        lastResults.push(input.lastResult);
+        const next = script.shift();
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(_step, expectation) {
+        claims.push(expectation);
+        const next = judgments.shift();
+        if (!next) throw new Error('judgment script exhausted');
+        return next;
+      },
+    };
+    return { brain, lastResults, claims };
+  }
+
+  function addPage(): FakePage {
+    const page = new FakePage();
+    page.visible.add('role:button|Add');
+    return page;
+  }
+
+  it('closes the step on a passing judgment of the done\'s sentence', async () => {
+    const { brain, claims } = recordingBrain([click('Add'), DONE], [{ pass: true, reason: 'shown' }]);
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      addPage(),
+      makeTest({ steps: [STEP] }),
+      baseOptions(brain, { onEvent: (e) => events.push(e) }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(claims).toEqual(['the first row now shows Home Depot']);
+    const last = events.filter((e) => e.type === 'action').at(-1);
+    expect(last?.type === 'action' && last.action.action).toBe('done');
+    expect(last?.type === 'action' && last.result).toBe('ok: assertion passed: shown');
+  });
+
+  it('re-observes a failed judgment and counts one attempt, returning the judge\'s reason', async () => {
+    const { brain, lastResults } = recordingBrain(
+      [click('Add'), DONE, { action: 'fail', reasoning: 'not there' }],
+      [
+        { pass: false, reason: 'the first row shows Publix' },
+        { pass: false, reason: 'still Publix' },
+      ],
+    );
+
+    const result = await executeTest(addPage(), makeTest({ steps: [STEP] }), baseOptions(brain));
+
+    expect(result.status).toBe('failed');
+    expect(lastResults.at(-1)).toBe('assertion failed: still Publix');
+  });
+
+  it('fails the step on the retry budget when every judgment fails', async () => {
+    const { brain } = recordingBrain(
+      [click('Add'), DONE, DONE],
+      [
+        { pass: false, reason: 'a' },
+        { pass: false, reason: 'b' },
+        { pass: false, reason: 'c' },
+        { pass: false, reason: 'd' },
+      ],
+    );
+
+    const result = await executeTest(addPage(), makeTest({ steps: [STEP] }), baseOptions(brain, { maxRetries: 2 }));
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]?.reason).toBe('d');
+  });
+
+  it('closes a step that names only an action on done, with no judgment', async () => {
+    const page = new FakePage();
+    page.visible.add('role:textbox|Note');
+    const brain = scriptedBrain([
+      { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Check the invoice', reasoning: 'r' },
+      { action: 'done', reasoning: 'filled' },
+    ]);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['fill the note field with Check the invoice'] }),
+      baseOptions(brain),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(brain.judgeCalls).toBe(0);
+  });
+
+  it('holds a setup step to the same rule', async () => {
+    const { brain, claims } = recordingBrain(
+      [click('Add'), DONE, { action: 'done', reasoning: 'main' }],
+      [{ pass: true, reason: 'shown' }],
+    );
+    const page = addPage();
+    page.visible.add('role:button|Main');
+
+    const result = await executeTest(
+      page,
+      makeTest({ setup: [STEP], steps: ['main step'] }),
+      baseOptions(brain),
+    );
+
+    expect(claims).toEqual(['the first row now shows Home Depot']);
+    expect(result.steps[0]?.setup).toBe(true);
   });
 });
 

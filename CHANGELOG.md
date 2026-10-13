@@ -3,6 +3,19 @@
 All notable changes are recorded here. This project follows [semantic versioning](https://semver.org/);
 while it is pre-1.0, a minor bump may change existing behaviour and a patch never does.
 
+## [Unreleased]
+
+### Fixed
+
+- **A step that acts and then checks has its check judged.** In a step like *"save the
+  transaction by clicking "Add" and verify the first transaction has payee "Home Depot""*, the
+  agent could answer `done` after the click, and the step closed on its own sentence about the
+  page: on a budgeting app's suite, 4 of 61 such steps closed this way, and on the demo app 5 of 35
+  on `gpt-6-luna` (#172). A check verb after `and`, `then`, a comma or a semicolon now makes that
+  `done` a claim the judge decides, as for an assertion. After the change, every such step on both
+  was judged. The suite still passed 21 of 21, the reliability benchmark found no false FAIL or
+  false PASS on either reference model, and the run cost about the same number of calls.
+
 ## [0.26.0] — 2026-10-12
 
 ### Fixed
