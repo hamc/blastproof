@@ -87,7 +87,15 @@ The agent acts on the element it read, not on a search for its name. Each elemen
 | `<button aria-label="Delete note">` | an icon-only button with no name |
 | `<select>` with `<option>`s | an ARIA-less custom dropdown |
 
-**An editable data grid is the shape most likely to defeat this, and every row above understates it.** Two adversarial runs against a personal-finance application failed on the journey such an application exists for — entering a transaction. The row's cells carry no accessible name, but the Payee *column header* does, so the tree does not merely lack the target: it offers a control with exactly the right name that is the wrong control. The agent clicks the header, the row editor never opens, and the next `type` lands in whatever input does exist — there, the page's global search box. The step fails describing a textbox nobody mentioned, roughly 70 model calls in. Nobody has yet tried driving such a grid by keyboard (`Tab` into the row, type, `Tab` on), so the honest claim is that **the obvious authoring fails, and fails confusingly** — not that it is impossible. If your core journey is a row editor, spend one test on it before adopting ([#67](https://github.com/hamc/blastproof/issues/67)).
+**An editable data grid needs one cell per step.** On a budgeting app's transaction register, a new row shows only the cell that has focus. The date input appears as `textbox [active]: 10/12/2026`, with no name. The empty payee and notes cells are plain `div`s, and the accessibility tree drops them. Each cell becomes a named input only once it is focused. A step asking for four values at once shows the agent one textbox, and it typed the payee into the date. Written one cell per step in keyboard order, the same journey passed:
+
+```yaml
+  - click "Add New" and verify a new transaction row is open with its date field focused
+  - press Tab to move to the payee field, type Fast Internet, and choose "Fast Internet" from the suggestions
+  - press Tab three times to move to the payment field, type 12.34, and click "Add"
+```
+
+That test failed 3 runs of 3 written as one step, and passed 3 of 3 written this way, on 0.26.0 with `claude-haiku-5.5`. On the app's side, a label on each cell's input makes the one-step version readable too. If your core journey is a row editor, spend one test on it before adopting ([#67](https://github.com/hamc/blastproof/issues/67)).
 
 **Run an accessibility checker on your app before installing anything.** The result predicts how well this will work better than anything else you could measure — and the fixes it suggests are worth making regardless of whether you adopt this tool.
 
