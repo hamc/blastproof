@@ -5,6 +5,11 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-10-13
+
+Minor rather than patch: a step that closed on the agent's word now has its check judged, so a
+step that passed before can now fail.
+
 ### Fixed
 
 - **A step that acts and then checks has its check judged.** In a step like *"save the
@@ -15,6 +20,16 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   `done` a claim the judge decides, as for an assertion. After the change, every such step on both
   was judged. The suite still passed 21 of 21, the reliability benchmark found no false FAIL or
   false PASS on either reference model, and the run cost about the same number of calls.
+
+### Documentation
+
+- **An editable data grid needs one cell per step.** The README's note on row editors now shows a
+  grid written one cell per step in keyboard order, with what was measured: the same test failed 3
+  runs of 3 written as one step, and passed 3 of 3 written this way (#67).
+- **Jev measured as a judge.** `docs/model-evaluations/jev.md` records TypeSafe AI's decision model
+  replayed on the judge corpus: 34 of 41 cases right and 6 false PASSes in 25, against none for the
+  current judges, so it is not usable as the judge or as a second one (#174).
+  `evals/judge/jev.ts` measures a later version for about a cent.
 
 ## [0.26.0] — 2026-10-12
 
