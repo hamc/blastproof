@@ -26,7 +26,7 @@ git log --oneline v0.1.0..main
 
 Read that list before tagging. 0.7.0 shipped without a changelog entry because nobody did, and every other surface agreed with itself — which is exactly why the one that disagreed went unnoticed.
 
-If anything in that list changes how a step is executed or judged, run `npm run eval:reliability` on the reference pair before tagging (see [CONTRIBUTING.md](CONTRIBUTING.md#measuring-how-often-a-verdict-is-wrong)). If the README's reliability table no longer describes the release, update it.
+If anything in that list changes how a step is executed or judged, run `npm run eval:reliability` on the reference pair before tagging (see [CONTRIBUTING.md](CONTRIBUTING.md#measuring-how-often-a-verdict-is-wrong)). If the README's reliability table no longer describes the release, update it. The same numbers are on [blastproof.dev/models](https://blastproof.dev/models) (`site/models.html`), and they move together.
 
 The release workflow refuses to publish if the tag and the manifest version disagree, rebuilds and re-runs the full verification, and publishes with npm provenance. It needs an `NPM_TOKEN` secret on the repository.
 

@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choosing a model · blastproof</title>
+<meta name="description" content="Which LLM to run blastproof's end-to-end tests with: false PASS and false FAIL rates per model, measured on seeded bugs, with the commands to reproduce them.">
+<link rel="canonical" href="https://blastproof.dev/models">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://blastproof.dev/models">
+<meta property="og:title" content="Choosing a model · blastproof">
+<meta property="og:description" content="How often each model's verdict is wrong, measured on seeded bugs.">
+<meta property="og:image" content="https://blastproof.dev/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=AW-18378674471"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'AW-18378674471');
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Martian+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+<style>
+.page-hero{padding-block:clamp(28px,6vw,64px) clamp(36px,5vw,56px);max-width:860px}
+.page-hero h1{font-size:clamp(46px,7vw,92px)}
+.nav ul a[aria-current="page"]{color:var(--ink);font-weight:600}
+
+/* the short answer */
+.defaults{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:2px solid var(--ink)}
+@media (max-width:860px){.defaults{grid-template-columns:minmax(0,1fr)}}
+.defaults>div{padding:22px 26px 22px 0;display:grid;gap:8px;align-content:start}
+.defaults>div+div{padding-left:26px;border-left:1px solid var(--rule)}
+@media (max-width:860px){.defaults>div{padding:18px 0}.defaults>div+div{padding-left:0;border-left:0;border-top:1px solid var(--rule)}}
+.defaults .model{font-family:var(--mono);font-size:15px;font-weight:500;overflow-wrap:anywhere}
+.defaults p{margin:0;color:var(--muted);font-size:15px;max-width:40ch}
+
+/* verdict strips: one square per test run */
+.runs{display:grid;grid-template-columns:repeat(40,minmax(0,1fr));gap:2px;min-width:0}
+.runs i{display:block;aspect-ratio:1;border-radius:1px;background:var(--hold)}
+.runs i.bad{background:var(--breach)}
+.runs i.none{background:transparent;border:1px dashed var(--rule)}
+table.models{width:100%;min-width:820px;border-collapse:collapse;font-size:15px}
+table.models th,table.models td{text-align:left;vertical-align:middle;padding:12px 16px 12px 0;border-bottom:1px solid var(--rule)}
+table.models thead th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:400}
+table.models tbody th{font-family:var(--mono);font-weight:500;font-size:13.5px;white-space:nowrap;padding-left:14px}
+table.models td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+table.models td.strip{width:260px}
+table.models tr.mine th,table.models tr.mine td{background:color-mix(in srgb,var(--fuse) 14%,transparent)}
+table.models tr.mine th{box-shadow:inset 4px 0 0 var(--fuse)}
+table.models th small{display:block;font-family:var(--body);font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13.5px;color:var(--muted);margin-top:12px}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:1px}
+
+.defs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-top:2px solid var(--ink)}
+@media (max-width:760px){.defs{grid-template-columns:minmax(0,1fr)}}
+.defs>div{padding:22px 28px 22px 0}
+.defs>div:nth-child(2n){padding-left:28px;border-left:1px solid var(--rule)}
+.defs>div:nth-child(n+3){border-top:1px solid var(--rule)}
+@media (max-width:760px){.defs>div:nth-child(2n){padding-left:0;border-left:0}.defs>div+div{border-top:1px solid var(--rule)}}
+.defs p{margin:0;color:var(--muted);font-size:15.5px;max-width:48ch}
+
+.ref{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+@media (max-width:860px){.ref{grid-template-columns:minmax(0,1fr)}}
+.ref>div{background:var(--slab);border:1px solid var(--rule);border-radius:6px;padding:22px}
+.ref .model{font-family:var(--mono);font-size:14px;font-weight:500}
+.ref dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;margin:16px 0 0}
+.ref dt{color:var(--muted);font-size:15px}
+.ref dd{margin:0;font-family:var(--display);font-weight:900;font-size:30px;line-height:1;text-align:right;font-variant-numeric:tabular-nums}
+.ref dd small{font-family:var(--mono);font-weight:400;font-size:11px;color:var(--muted);margin-left:6px}
+
+.picks{list-style:none;margin:0;padding:0;display:grid;border-top:2px solid var(--ink)}
+.picks li{display:grid;grid-template-columns:260px minmax(0,1fr);gap:24px;padding:20px 0;border-bottom:1px solid var(--rule)}
+@media (max-width:760px){.picks li{grid-template-columns:minmax(0,1fr);gap:6px}}
+.picks b{font-weight:600}
+.picks p{margin:0;color:var(--muted);font-size:15.5px;max-width:62ch}
+.picks code{font-size:.85em}
+
+.cost{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+@media (max-width:860px){.cost{grid-template-columns:minmax(0,1fr)}}
+.cost>div{border-top:2px solid var(--ink);padding-top:16px}
+.cost .big{font-family:var(--display);font-weight:900;font-size:56px;line-height:.85;font-variant-numeric:tabular-nums}
+.cost .big small{font-size:.36em;color:var(--muted);font-weight:700;margin-left:6px}
+.cost p{margin:10px 0 0;color:var(--muted);font-size:15.5px;max-width:48ch}
+.note{font-size:13.5px;color:var(--muted);margin:14px 0 0;max-width:72ch}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 64 64">
+    <g fill="none" stroke="currentColor">
+      <path d="M14 50 L50 14" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="14" cy="14" r="6" stroke-width="2.5"/><circle cx="32" cy="14" r="6" stroke-width="2.5"/>
+      <circle cx="14" cy="32" r="6" stroke-width="2.5"/><circle cx="50" cy="32" r="6" stroke-width="2.5"/>
+      <circle cx="32" cy="50" r="6" stroke-width="2.5"/><circle cx="50" cy="50" r="6" stroke-width="2.5"/>
+    </g>
+    <g fill="currentColor"><circle cx="14" cy="50" r="7.25"/><circle cx="32" cy="32" r="7.25"/><circle cx="50" cy="14" r="7.25"/></g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <header class="nav">
+    <a class="brand" href="/"><svg aria-hidden="true"><use href="#logo"/></svg>blastproof</a>
+    <ul>
+      <li class="hide-s"><a href="/#impact">Only what changed</a></li>
+      <li class="hide-s"><a href="/#agents">AI agents</a></li>
+      <li><a href="/models" aria-current="page">Benchmarks</a></li>
+      <li><a href="https://github.com/hamc/blastproof">GitHub</a></li>
+      <li><a class="ver" id="ver" href="https://github.com/hamc/blastproof/releases/latest" style="text-decoration:none">v0.27.0</a></li>
+    </ul>
+  </header>
+
+  <main class="page-hero">
+    <span class="label">Benchmarks · choosing a model</span>
+    <h1>Which model should <mark>run your tests?</mark></h1>
+    <p class="lede">blastproof brings no model of its own: you pick one, and its verdicts decide whether a pull request can merge. So we measure how often each model's verdict is wrong, on an app with bugs planted on purpose, and publish what we find.</p>
+  </main>
+
+  <section class="block" id="answer" style="padding-top:0">
+    <div class="head">
+      <span class="label">The short answer</span>
+      <div>
+        <h2>Leave the default.</h2>
+        <p>Each provider's default model was chosen on the benchmark below. A config that sets no <code>llm.model</code> gets it.</p>
+      </div>
+    </div>
+    <div class="defaults">
+      <div>
+        <span class="label">provider: anthropic</span>
+        <span class="model">claude-haiku-4.5</span>
+        <p>No wrong verdict in 90 runs, and remeasured on every release.</p>
+      </div>
+      <div>
+        <span class="label">provider: openai</span>
+        <span class="model">gpt-6-luna</span>
+        <p>No wrong verdict in 90 runs, and every bug caught at the step that checks it.</p>
+      </div>
+      <div>
+        <span class="label">provider: ollama</span>
+        <span class="model">gpt-oss:20b</span>
+        <p>The fewest false FAILs of the open-weight models measured, for runs that never leave your machine. Expect a few more red builds.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="method">
+    <div class="head">
+      <span class="label">How it is measured</span>
+      <div>
+        <h2>Two ways a verdict is wrong.</h2>
+        <p>The benchmark runs the demo app's test suite five times on the app as it is, and once per sample on each of ten <strong>mutants</strong>: copies of the app with one bug seeded where a test checks.</p>
+      </div>
+    </div>
+    <div class="defs">
+      <div>
+        <h3>False FAIL</h3>
+        <p>A test fails on the correct app. A merge gate that is red for no reason gets switched off, and then it catches nothing. This is the number we decide on first.</p>
+      </div>
+      <div>
+        <h3>False PASS</h3>
+        <p>A test passes on an app with the very bug it exists to catch. The bug reaches production with a green check next to it.</p>
+      </div>
+      <div>
+        <h3>Literal and subtle bugs</h3>
+        <p>A literal mutant changes the value a step quotes. A subtle one reproduces a wrong verdict this project has already had: the right number in the wrong place, a success message with nothing saved behind it.</p>
+      </div>
+      <div>
+        <h3>Bounds, not promises</h3>
+        <p>Zero errors in 40 runs means "below about 9%" at 95% confidence, not "never". The demo app is small and well labelled, so a real application will do worse.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="reference">
+    <div class="head">
+      <span class="label">Reference models · 0.27.0</span>
+      <div>
+        <h2>Measured again on every release.</h2>
+        <p>Every change that touches how a step is executed or judged reruns the benchmark on these two models before it ships. Measured 2026-10-13, 5 samples, through OpenRouter.</p>
+      </div>
+    </div>
+    <div class="ref">
+      <div>
+        <span class="model">claude-haiku-4.5</span>
+        <dl>
+          <dt>False FAIL, correct app</dt><dd>0<small>of 40 · ≤ 8.8%</small></dd>
+          <dt>False PASS, literal bugs</dt><dd>0<small>of 30 · ≤ 11.4%</small></dd>
+          <dt>False PASS, subtle bugs</dt><dd>0<small>of 19 · ≤ 16.8%</small></dd>
+        </dl>
+      </div>
+      <div>
+        <span class="model">gpt-6-luna</span>
+        <dl>
+          <dt>False FAIL, correct app</dt><dd>0<small>of 40 · ≤ 8.8%</small></dd>
+          <dt>False PASS, literal bugs</dt><dd>0<small>of 30 · ≤ 11.4%</small></dd>
+          <dt>False PASS, subtle bugs</dt><dd>0<small>of 20 · ≤ 16.1%</small></dd>
+        </dl>
+      </div>
+    </div>
+    <p class="note">One subtle run on Haiku ended incomplete and is left out of its count. The bounds are 95% upper bounds.</p>
+  </section>
+
+  <section class="block" id="all">
+    <div class="head">
+      <span class="label">Nine models</span>
+      <div>
+        <h2>The benchmark behind the defaults.</h2>
+        <p>Run 2026-10-07 to 2026-10-09 to choose the defaults. "Right step" counts bugs caught at the step that checks them, not at an earlier step that broke on its own. Each square is one run of a test on the correct app.</p>
+      </div>
+    </div>
+    <div class="cmp-wrap">
+      <table class="models">
+        <thead>
+          <tr><th scope="col">model</th><th scope="col">correct app, 40 runs</th><th scope="col">false FAIL</th><th scope="col">false PASS (of 50)</th><th scope="col">right step (of 50)</th><th scope="col">sign-in failed (of 55)</th></tr>
+        </thead>
+        <tbody>
+          <tr class="mine"><th scope="row">claude-haiku-4.5<small>anthropic default</small></th><td class="strip"><div class="runs" data-bad="0"></div></td><td class="n">0</td><td class="n">0</td><td class="n">47</td><td class="n">0</td></tr>
+          <tr class="mine"><th scope="row">gpt-6-luna<small>openai default</small></th><td class="strip"><div class="runs" data-bad="0"></div></td><td class="n">0</td><td class="n">0</td><td class="n">50</td><td class="n">0</td></tr>
+          <tr class="mine"><th scope="row">gpt-oss-20b<small>ollama default</small></th><td class="strip"><div class="runs" data-bad="2"></div></td><td class="n">2</td><td class="n">1</td><td class="n">32</td><td class="n">10</td></tr>
+          <tr><th scope="row">qwen3.6-35b-a3b</th><td class="strip"><div class="runs" data-bad="11"></div></td><td class="n">11</td><td class="n">0</td><td class="n">43</td><td class="n">0</td></tr>
+          <tr><th scope="row">gpt-oss-120b</th><td class="strip"><div class="runs" data-bad="26"></div></td><td class="n">26</td><td class="n">0</td><td class="n">35</td><td class="n">13</td></tr>
+          <tr><th scope="row">gpt-4o-mini<small>former openai default</small></th><td class="strip"><div class="runs" data-bad="35"></div></td><td class="n">35</td><td class="n">0</td><td class="n">12</td><td class="n">35</td></tr>
+          <tr><th scope="row">qwen3.5-9b</th><td class="strip"><div class="runs" data-bad="32" data-of="33"></div></td><td class="n">32 of 33</td><td class="n">0 of 43</td><td class="n">4 of 43</td><td class="n">38 of 48</td></tr>
+          <tr><th scope="row">gemma-4-26b-a4b-it</th><td class="strip"><div class="runs" data-bad="40"></div></td><td class="n">40</td><td class="n">0</td><td class="n">3</td><td class="n">47</td></tr>
+          <tr><th scope="row">qwen-2.5-7b-instruct<small>former ollama default</small></th><td class="strip"><div class="runs" data-bad="40"></div></td><td class="n">40</td><td class="n">0</td><td class="n">1</td><td class="n">47</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--hold)"></i>test passed on the correct app</span>
+      <span><i style="background:var(--breach)"></i>false FAIL</span>
+      <span><i style="border:1px dashed var(--rule)"></i>not run</span>
+      <span class="swipe">Swipe the table sideways.</span>
+    </div>
+    <p class="note">On false PASS, no model can be told apart from another at this sample size: every 95% upper bound falls between 11% and 17%. False FAIL is where they differ, and it is what decided the defaults. <code>gpt-oss-20b</code> was measured through OpenRouter, not Ollama: the same weights, a different runtime.</p>
+  </section>
+
+  <section class="block" id="pick">
+    <div class="head">
+      <span class="label">When the default is not for you</span>
+      <div>
+        <h2>Pick by what you can't afford.</h2>
+      </div>
+    </div>
+    <ul class="picks">
+      <li><b>Nothing may leave the machine</b><p><code>gpt-oss:20b</code> on Ollama. Its one false PASS accepted order <code>#BP-1002</code> for the <code>#BP-1001</code> the step asked about. It needs about 14 GB: <code>ollama pull gpt-oss:20b</code>.</p></li>
+      <li><b>A missed bug costs more than a red build</b><p><code>qwen3.6-35b-a3b</code> caught the most bugs at the right step among open-weight models and never failed to sign in. It also failed 11 of 40 tests on the correct app, and needs more memory.</p></li>
+      <li><b>You are on an old default</b><p><code>gpt-4o-mini</code> and <code>qwen2.5</code> failed almost every test on the correct app. If your config pins one of them, remove <code>llm.model</code> to get the measured default.</p></li>
+      <li><b>Open-weight models through a gateway</b><p>Some gateway providers ignore the JSON schema every call sends. Route around them with <code>llm.extra_body</code>; the <a class="text-link" href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md#open-weight-models-through-a-gateway-route-around-providers-that-ignore-the-schema">configuration guide</a> shows how.</p></li>
+    </ul>
+  </section>
+
+  <section class="block" id="cost">
+    <div class="head">
+      <span class="label">What a run spends</span>
+      <div>
+        <h2>Calls and tokens, read off the run.</h2>
+        <p>Every run ends with a <code>Spent:</code> line. Cost grows with the number of steps, how dense your pages are and how often the agent retries, so run your suite once and read it. Two measured examples:</p>
+      </div>
+    </div>
+    <div class="cost">
+      <div>
+        <span class="label">This repository's suite · claude-haiku-4.5</span>
+        <div class="big">115k<small>tokens</small></div>
+        <p>7 tests and 31 steps on the demo shop, signed in: about 82 model calls, 156 s serially or 68 s at <code>--concurrency 4</code>.</p>
+      </div>
+      <div>
+        <span class="label">A real budgeting app · claude-haiku-5.5</span>
+        <div class="big">1.8M<small>tokens</small></div>
+        <p>21 tests on pages of up to a thousand snapshot lines: about 320 model calls, 2026-10-14. Three times the tests of the demo suite, sixteen times the tokens: dense pages cost more than test count.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="yours">
+    <div class="head">
+      <span class="label">Measure your own</span>
+      <div>
+        <h2>Any model, one command.</h2>
+        <p>The benchmark is part of the repository, not a claim about it. Through any OpenAI-compatible gateway:</p>
+      </div>
+    </div>
+    <div class="code">
+      <div class="bar"><span>reliability benchmark</span><span>about 1 hour per model</span></div>
+      <pre><span class="c"># from a clone of hamc/blastproof</span>
+<span class="k">npm</span> install &amp;&amp; <span class="k">npm</span> run build
+<span class="k">export</span> BLASTPROOF_LLM_PROVIDER=openai
+<span class="k">export</span> BLASTPROOF_LLM_BASE_URL=https://openrouter.ai/api/v1
+<span class="k">export</span> BLASTPROOF_LLM_API_KEY_ENV=OPENROUTER_API_KEY
+<span class="k">EVAL_MODELS</span>=<span class="y">openai/gpt-oss-20b</span> <span class="k">npm</span> run eval:reliability</pre>
+    </div>
+    <p class="note">Models that cannot take every role are measured on the one they could take. <a class="text-link" href="https://github.com/hamc/blastproof/blob/main/docs/model-evaluations/jev.md">Jev</a>, a decision model that writes no text, was measured as the judge. The method and every past result live in <a class="text-link" href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md#choosing-a-model">the configuration guide</a>.</p>
+  </section>
+
+  <footer>
+    <div class="row">
+      <a class="brand" href="/" style="font-size:16px"><svg aria-hidden="true" style="width:20px;height:20px"><use href="#logo"/></svg>blastproof</a>
+      <nav>
+        <a href="/models">Benchmarks</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md">Configuration</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/auth.md">Testing behind a login</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/ci.md">CI</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/hamc/blastproof">GitHub</a>
+      </nav>
+      <span>MIT · blastproof.dev</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+// One square per run of a test on the correct app; the numbers beside them are the source.
+document.querySelectorAll(".runs").forEach(function(strip){
+  var bad=Number(strip.getAttribute("data-bad")),of=Number(strip.getAttribute("data-of")||40);
+  for(var i=0;i<40;i++){
+    var sq=document.createElement("i");
+    if(i>=of)sq.className="none";else if(i<bad)sq.className="bad";
+    strip.appendChild(sq);
+  }
+  strip.setAttribute("role","img");
+  strip.setAttribute("aria-label",bad+" false FAIL of "+of+" runs");
+});
+</script>
+<script src="/site.js"></script>
+</body>
+</html>
