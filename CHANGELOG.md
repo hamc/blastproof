@@ -27,9 +27,12 @@ step that passed before can now fail.
   grid written one cell per step in keyboard order, with what was measured: the same test failed 3
   runs of 3 written as one step, and passed 3 of 3 written this way (#67).
 - **Jev measured as a judge.** `docs/model-evaluations/jev.md` records TypeSafe AI's decision model
-  replayed on the judge corpus: 34 of 41 cases right and 6 false PASSes in 25, against none for the
-  current judges, so it is not usable as the judge or as a second one (#174).
-  `evals/judge/jev.ts` measures a later version for about a cent.
+  replayed on the judge corpus (#174). `evals/judge/jev.ts` measures a later version for about a
+  cent. *Corrected after release:* this entry first said 34 of 41 cases right and 6 false PASSes,
+  so not usable as a judge. That run gave Jev the step without the `[redacted NAME]` rewrite and
+  without the label check every LLM verdict gets; measured with both, Jev got 40 of 41 and no
+  false PASS. It writes no reason for a failed step, which the agent's retry reads, so it is not a
+  drop-in judge.
 
 ## [0.26.0] — 2026-10-12
 

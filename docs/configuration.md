@@ -100,7 +100,7 @@ npm run build
 EVAL_MODELS=openai/gpt-oss-20b npm run eval:reliability
 ```
 
-Models that cannot take every role are measured on the role they could take. [Jev](./model-evaluations/jev.md), a decision model that generates no text, was measured as a judge and is not usable as one.
+Models that cannot take every role are measured on the role they could take. [Jev](./model-evaluations/jev.md), a decision model that generates no text, was measured as a judge: as accurate as the current judges on the judge corpus, but it writes no reason for the agent's retry to read.
 
 ### OpenAI-compatible gateways
 

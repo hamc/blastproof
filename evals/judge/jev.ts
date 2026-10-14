@@ -7,10 +7,19 @@
  * the instructions and the judge's own user prompt as the state. A probability of
  * 0.5 or more counts as PASS.
  *
+ * It gets what `judge()` gives the LLM and keeps what `judge()` does after it: the
+ * step, the claim and the record with every `{{env.NAME}}` rewritten as
+ * `[redacted NAME]`, and `secretMismatch` over the verdict. The first version of
+ * this script did neither, and measured Jev on a step and a page in two
+ * vocabularies, without the check every LLM verdict gets: 6 false PASSes that the
+ * judge would not have given (#174).
+ *
  * `OPENROUTER_API_KEY` is required. `JEV_MODEL` defaults to `typesafe/jev-1.13`,
  * `EVAL_SAMPLES` to 3. Not part of CI.
  */
 import { assertSystemPrompt, assertUserPrompt } from '../../src/llm/prompts.js';
+import { secretMismatch } from '../../src/llm/brain.js';
+import { placeholdersAsLabels } from '../../src/runner/env.js';
 import { loadCorpus } from './corpus.js';
 
 const ENDPOINT = 'https://openrouter.ai/api/alpha/decisions';
@@ -53,25 +62,36 @@ let right = 0;
 const falsePass = { cases: 0, of: 0 };
 console.log(`judge corpus on ${model}: ${cases.length} case(s) x ${samples} sample(s)\n`);
 for (const c of cases) {
-  let state = assertUserPrompt(c.step, c.expectation, c.snapshot, c.history);
+  const step = placeholdersAsLabels(c.step);
+  const history = c.history?.map((e) => ({
+    action: placeholdersAsLabels(e.action),
+    result: placeholdersAsLabels(e.result),
+  }));
+  let state = assertUserPrompt(step, placeholdersAsLabels(c.expectation), c.snapshot, history);
   if (c.usedEarlier?.length) {
     state += `\n\nVariables typed in earlier steps of this test: ${c.usedEarlier.join(', ')}`;
   }
   const yes: number[] = [];
+  const passes: boolean[] = [];
+  let checked = false;
   for (let i = 0; i < samples; i++) {
     const answer = await ask(state);
     cost += answer.usage?.cost ?? 0;
     snapshot = answer.model;
-    yes.push(answer.answers.pass.noul);
+    const p = answer.answers.pass.noul;
+    yes.push(p);
+    const verdict = secretMismatch(step, c.snapshot, history, c.usedEarlier ?? [], { pass: p >= 0.5, reason: '' });
+    if (verdict.pass !== p >= 0.5) checked = true;
+    passes.push(verdict.pass);
   }
-  const ok = yes.filter((p) => p >= 0.5 === (c.verdict === 'PASS')).length;
+  const ok = passes.filter((pass) => pass === (c.verdict === 'PASS')).length;
   if (ok === samples) right++;
   if (c.verdict === 'FAIL') {
     falsePass.of++;
     if (ok < samples) falsePass.cases++;
   }
   const mark = ok === samples ? 'ok  ' : 'FAIL';
-  console.log(`${mark} ${c.incident.padEnd(5)} ${c.id.padEnd(42)} ${c.verdict} ${ok}/${samples}  p(yes) ${yes.map((p) => p.toFixed(2)).join(' ')}`);
+  console.log(`${mark} ${c.incident.padEnd(5)} ${c.id.padEnd(42)} ${c.verdict} ${ok}/${samples}  p(yes) ${yes.map((p) => p.toFixed(2)).join(' ')}${checked ? '  (failed by the label check)' : ''}`);
 }
 console.log(
   `\n${snapshot}: ${right}/${cases.length} cases right in every sample; ` +

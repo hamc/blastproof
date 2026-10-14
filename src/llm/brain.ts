@@ -309,8 +309,11 @@ export function createBrain(
  * password this step never typed, and this check failed it (#141). The earlier
  * step that typed it is where it went. A label the test never used at all, the
  * case this check was built for, is still caught.
+ *
+ * Exported for `evals/judge/jev.ts`, which applies it to a decision model's
+ * verdict as `judge()` applies it to the LLM's.
  */
-function secretMismatch(
+export function secretMismatch(
   judgedStep: string,
   snapshot: string,
   judgedRecord: StepHistoryEntry[] | undefined,
