@@ -102,7 +102,7 @@ src/
 - **GitHub Issues** are the inbox: a problem someone observed, not yet a decision. `gh issue list` is the backlog, and every known gap lives there rather than in someone's head.
 - **OpenSpec changes** are committed work: an issue graduates into a proposal with a design, and the design records the alternatives that were rejected and why.
 
-The public [roadmap](https://github.com/users/hamc/projects/2) is a view over issues, never a third place for work: every card is an issue, placed by `Horizon` (Now / Next / Later, never dates) and `Theme` (Trust, PR-first, Cost & speed, Reach). An idea worth showing there is filed as an issue first.
+There is no roadmap board. One was kept as a GitHub project until 2026-10-14 and retired: every card was an issue, and with one maintainer it fell out of date within a week, so it showed nothing in progress while work was. The issues are the plan.
 
 An issue may sit open indefinitely; a change should not. If you are looking for what to do next, read the issues. If you are looking for why something is the way it is, read `openspec/changes/archive/` — that is where the reasoning lives, not in the commit that shipped it.
 
