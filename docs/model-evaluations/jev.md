@@ -1,6 +1,6 @@
 # Jev as a judge
 
-**Result:** not used as the judge. On the judge corpus it is as accurate as the current judges: 40 of 41 cases right, no false PASS. In whole runs on a real budgeting app, as the only judge it failed a correct test in 3 runs of 3, and as a first pass in front of the LLM judge it was as accurate, 13% cheaper and 7% faster, with every pass it gave final and without a reason. Measured on `jev-1.13` on 2026-10-14 ([#174](https://github.com/hamc/blastproof/issues/174)).
+**Result:** not used as the judge. On the judge corpus it is as accurate as the current judges: 40 of 41 cases right, no false PASS. In whole runs on a real budgeting app, as the only judge it failed a correct test in 3 runs of 3, and as a first pass in front of the LLM judge it was as accurate, 13% cheaper and 7% faster, but every pass it gave came without a reason. Measured on `jev-1.13` on 2026-10-14 ([#174](https://github.com/hamc/blastproof/issues/174)).
 
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe AI's decision model. It takes a state and typed questions (choice, score, or a yes/no `noul`) and returns probabilities with a confidence. It generates no text.
 
@@ -89,7 +89,11 @@ The earlier version of this section said `jev-first` saved nothing, from a 3% to
 Jev is not the judge, and not the default first pass. The code was not merged.
 
 - **Alone**, it fails a correct test in every run. What would reopen it: a version that reads an open form's content as the outcome when the step asks for it.
-- **As a first pass**, it works, but every pass it gives is final: the LLM judge sees only what Jev fails, so Jev's false PASS rate becomes the run's. It had none here, on 75 cases that should fail (25 in the corpus, 50 mutants), which is too few to hand it that decision by default for 13%. A pass also comes with no reason, and a reason is how wrong passes were diagnosed before (#87, #120, #147). An opt-in experimental option, off by default, is planned.
+- **As a first pass**, it works, and it would decide about three passes in four. A pass is final under any judge, so that is not the difference. Two things are:
+  - **A pass comes with no reason.** A reason is how wrong passes were diagnosed before (#87, #120, #147). With Jev, a wrong pass leaves a probability.
+  - **Less is known about how it fails.** Its documented limitations (numeric precision, dates read as text) would show up as false PASSes, and no case here was built to probe them. Jev and the LLM judges both had no false PASS on the 75 cases that should fail (25 in the corpus, 50 mutants): a tie on a small sample.
+
+  An opt-in experimental option, off by default, is planned.
 
 ### Correction
 
