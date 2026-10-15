@@ -1,6 +1,6 @@
 # Jev as a judge
 
-**Result:** on the judge corpus, as accurate as the current judges: 40 of 41 cases right, no false PASS. It writes no reason for a failed step, and the agent's retry reads that reason, so it is not a drop-in judge. How much that costs has not been measured. Measured on `jev-1.13` on 2026-10-14 ([#174](https://github.com/hamc/blastproof/issues/174)).
+**Result:** not used as the judge. On the judge corpus it is as accurate as the current judges: 40 of 41 cases right, no false PASS. In whole runs on a real budgeting app, as the only judge it failed a correct test in 3 runs of 3, and as a first pass in front of the LLM judge it was as accurate but saved nothing. Measured on `jev-1.13` on 2026-10-14 ([#174](https://github.com/hamc/blastproof/issues/174)).
 
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe AI's decision model. It takes a state and typed questions (choice, score, or a yes/no `noul`) and returns probabilities with a confidence. It generates no text.
 
@@ -46,7 +46,36 @@ An LLM judgment carries a sentence saying why. It goes to three places:
 - **the step's record**, which the acting model and the judge read again on the next attempt.
 - **the report.** A failed step's reason is what the terminal, the JUnit and the HTML report show.
 
-The corpus measures one judgment at a time, so it cannot see the first two. Their cost would show up as false FAILs in whole runs, which needs Jev wired into `judge()` and `npm run eval:reliability`.
+The corpus measures one judgment at a time, so it cannot see the first two. Their cost would show up as false FAILs in whole runs, measured below.
+
+## Measured in whole runs
+
+Jev was wired into `judge()` behind an environment variable, on a branch that was not merged, in two ways:
+
+- **`jev`:** Jev decides every judgment. A failed one carries a fixed reason saying the judge gives none.
+- **`jev-first`:** a judgment Jev passes is passed. One it fails goes to the LLM judge, which decides it.
+
+Both went through the same budget, timeout and label check as the LLM judge. The acting model was `claude-haiku-5.5` throughout.
+
+**The reliability benchmark** (the demo app: 40 runs of the correct app, 50 mutants): 0 false FAIL and 0 false PASS for the LLM judge, `jev` and `jev-first` alike. It does not tell them apart.
+
+**A real budgeting app**, 21 tests, 3 runs each:
+
+| judge | score in 3 runs | model calls per run | tokens per run |
+| --- | --- | --- | --- |
+| LLM judge | 100, 100, 95 | 322 | 1.85 M |
+| `jev` | 95, 95, 90 | 305 | 1.60 M |
+| `jev-first` | 100, 100, 95 | 347 | 1.79 M |
+
+The 95s in the LLM judge's and `jev-first`'s rows are one test about a due schedule, which failed once under every judge.
+
+**Under `jev`**, a test creating a rule failed in every run, on the same step: choose a payee in the rule's condition, and verify the condition reads that payee. The page showed it, in a field of the rule form, which stays open until the rule is saved. The judge's prompt tells it that a value in an unsubmitted form is not an outcome, and Jev applied that to a step whose outcome is the form's own content. Its documented limitation is this one: it "can be quite literal". The LLM judge passed that step in all 6 of its runs. The retries that followed the failure read the fixed reason, and nothing they did could change the verdict, so the missing reason was not what failed the test.
+
+**Under `jev-first`**, Jev failed about 25 judgments per run, and the LLM judge overturned 6 of the 51 it was sent in the two runs logged. Five of the six were a value in an open dialog's field, Jev's reading above. The 45 it upheld were mostly the demo budget still loading. Every judgment Jev fails costs two calls instead of one, so the run made more calls than with the LLM judge alone, and saved 3% of its tokens. With a judge as cheap as `claude-haiku-5.5`, that is no saving worth the second provider and key.
+
+### Decision
+
+Jev is not the judge, and not a first pass. The code was not merged. What would reopen it: a version that reads an open form's content as the outcome when the step asks for it, or an acting model expensive enough that a 13% token saving matters, with the false FAIL above gone.
 
 ### Correction
 

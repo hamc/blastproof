@@ -5,6 +5,10 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Documentation
+
+- Jev measured as the judge in whole runs, and not adopted: alone, it failed a correct test in every run on a real app; as a first pass, it saved nothing ([#174](https://github.com/hamc/blastproof/issues/174)).
+
 ## [0.27.0] — 2026-10-13
 
 Minor rather than patch: a step that closed on the agent's word now has its check judged, so a
