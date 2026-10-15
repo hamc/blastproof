@@ -3,8 +3,10 @@
 The landing page and its benchmark page. Static files, no build step:
 
 - `index.html` — the landing page; its section-specific JS is inline
-- `models.html` — *Choosing a model*, served at `/models`. Its numbers are copied from
-  `docs/configuration.md` and the README's reliability table, and are updated with them
+- `models.html` — *Model benchmarks*, served at `/models`: accuracy, cost and time per model.
+  Accuracy comes from the reliability benchmark runs behind `docs/configuration.md`'s table,
+  cost from OpenRouter's billed price for the tokens a test used, time from the same runs'
+  logs. The data is the `MODELS` array at the bottom of the page
 - `style.css` — the styles every page shares
 - `site.js` — the version badge, the Ads conversions and the copy buttons, on every page
 - `favicon.svg` — the project mark, theme-aware

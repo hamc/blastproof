@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Choosing a model · blastproof</title>
-<meta name="description" content="Which LLM to run blastproof's end-to-end tests with: false PASS and false FAIL rates per model, measured on seeded bugs, with the commands to reproduce them.">
+<title>Model benchmarks · blastproof</title>
+<meta name="description" content="Accuracy, cost and time per test for the LLMs blastproof runs end-to-end tests with, measured on an app with bugs planted on purpose.">
 <link rel="canonical" href="https://blastproof.dev/models">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://blastproof.dev/models">
-<meta property="og:title" content="Choosing a model · blastproof">
-<meta property="og:description" content="How often each model's verdict is wrong, measured on seeded bugs.">
+<meta property="og:title" content="Model benchmarks · blastproof">
+<meta property="og:description" content="Accuracy, cost and time per test, per model.">
 <meta property="og:image" content="https://blastproof.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
@@ -28,68 +28,66 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Martian+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/style.css">
 <style>
-.page-hero{padding-block:clamp(28px,6vw,64px) clamp(36px,5vw,56px);max-width:860px}
+.page-hero{padding-block:clamp(28px,6vw,60px) clamp(28px,4vw,44px);max-width:900px}
 .page-hero h1{font-size:clamp(46px,7vw,92px)}
 .nav ul a[aria-current="page"]{color:var(--ink);font-weight:600}
+.meta{display:flex;flex-wrap:wrap;gap:6px 20px;padding-top:16px;border-top:1px solid var(--rule)}
+.meta span{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:500}
 
-/* the short answer */
-.defaults{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:2px solid var(--ink)}
-@media (max-width:860px){.defaults{grid-template-columns:minmax(0,1fr)}}
-.defaults>div{padding:22px 26px 22px 0;display:grid;gap:8px;align-content:start}
-.defaults>div+div{padding-left:26px;border-left:1px solid var(--rule)}
-@media (max-width:860px){.defaults>div{padding:18px 0}.defaults>div+div{padding-left:0;border-left:0;border-top:1px solid var(--rule)}}
-.defaults .model{font-family:var(--mono);font-size:15px;font-weight:500;overflow-wrap:anywhere}
-.defaults p{margin:0;color:var(--muted);font-size:15px;max-width:40ch}
+/* plot: accuracy against cost or time */
+.plot{background:var(--slab);border:1px solid var(--rule);border-radius:6px}
+.plot-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--rule)}
+.plot-head strong{font-weight:600;font-size:14.5px}
+.plot-title{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
+.key{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.key i{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.seg button{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:transparent;color:var(--muted);border:0;padding:7px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--ground)}
+.plot-body{padding:8px 10px 4px;overflow-x:auto}
+.plot svg{display:block;width:100%;min-width:560px;height:auto}
+.plot-foot{padding:10px 18px 14px;font-size:13px;color:var(--muted)}
 
-/* verdict strips: one square per test run */
-.runs{display:grid;grid-template-columns:repeat(40,minmax(0,1fr));gap:2px;min-width:0}
-.runs i{display:block;aspect-ratio:1;border-radius:1px;background:var(--hold)}
-.runs i.bad{background:var(--breach)}
-.runs i.none{background:transparent;border:1px dashed var(--rule)}
-table.models{width:100%;min-width:820px;border-collapse:collapse;font-size:15px}
-table.models th,table.models td{text-align:left;vertical-align:middle;padding:12px 16px 12px 0;border-bottom:1px solid var(--rule)}
-table.models thead th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:400}
-table.models tbody th{font-family:var(--mono);font-weight:500;font-size:13.5px;white-space:nowrap;padding-left:14px}
-table.models td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
-table.models td.strip{width:260px}
-table.models tr.mine th,table.models tr.mine td{background:color-mix(in srgb,var(--fuse) 14%,transparent)}
-table.models tr.mine th{box-shadow:inset 4px 0 0 var(--fuse)}
-table.models th small{display:block;font-family:var(--body);font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
-.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13.5px;color:var(--muted);margin-top:12px}
-.legend span{display:inline-flex;align-items:center;gap:7px}
-.legend i{display:inline-block;width:11px;height:11px;border-radius:1px}
+/* table */
+table.bench{width:100%;min-width:860px;border-collapse:collapse;font-size:15px}
+table.bench th,table.bench td{text-align:left;vertical-align:middle;padding:12px 14px 12px 0;border-bottom:1px solid var(--rule)}
+table.bench thead th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:400;white-space:nowrap}
+table.bench thead button{all:unset;cursor:pointer}
+table.bench thead button:focus-visible{outline:2px solid var(--fuse);outline-offset:3px}
+table.bench thead th[aria-sort="ascending"] button::after{content:" ↑";color:var(--ink)}
+table.bench thead th[aria-sort="descending"] button::after{content:" ↓";color:var(--ink)}
+table.bench tbody th{font-family:var(--mono);font-weight:500;font-size:13.5px;white-space:nowrap;padding-left:14px}
+table.bench td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.acc{display:grid;grid-template-columns:52px 120px;gap:10px;align-items:center}
+.acc .bar{height:8px;background:color-mix(in srgb,var(--rule) 70%,transparent);border-radius:1px;overflow:hidden}
+.acc .bar i{display:block;height:100%;background:var(--ink)}
+.acc b{font-weight:600;text-align:right}
+.tag{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--rule);color:var(--muted);padding:2px 6px;border-radius:2px;white-space:nowrap}
+.tag.open{border-color:var(--hold);color:var(--hold)}
+.sub{display:block;font-family:var(--body);font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
 
-.defs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-top:2px solid var(--ink)}
-@media (max-width:760px){.defs{grid-template-columns:minmax(0,1fr)}}
-.defs>div{padding:22px 28px 22px 0}
-.defs>div:nth-child(2n){padding-left:28px;border-left:1px solid var(--rule)}
-.defs>div:nth-child(n+3){border-top:1px solid var(--rule)}
-@media (max-width:760px){.defs>div:nth-child(2n){padding-left:0;border-left:0}.defs>div+div{border-top:1px solid var(--rule)}}
-.defs p{margin:0;color:var(--muted);font-size:15.5px;max-width:48ch}
+/* reading it */
+.notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:2px solid var(--ink)}
+@media (max-width:900px){.notes{grid-template-columns:minmax(0,1fr)}}
+.notes>div{padding:22px 26px 6px 0}
+.notes>div+div{padding-left:26px;border-left:1px solid var(--rule)}
+@media (max-width:900px){.notes>div{padding:18px 0}.notes>div+div{padding-left:0;border-left:0;border-top:1px solid var(--rule)}}
+.notes p{margin:0 0 12px;font-size:15.5px;color:var(--muted);max-width:46ch}
+.notes p strong{color:var(--ink);font-weight:600}
 
-.ref{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
-@media (max-width:860px){.ref{grid-template-columns:minmax(0,1fr)}}
-.ref>div{background:var(--slab);border:1px solid var(--rule);border-radius:6px;padding:22px}
-.ref .model{font-family:var(--mono);font-size:14px;font-weight:500}
-.ref dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;margin:16px 0 0}
-.ref dt{color:var(--muted);font-size:15px}
-.ref dd{margin:0;font-family:var(--display);font-weight:900;font-size:30px;line-height:1;text-align:right;font-variant-numeric:tabular-nums}
-.ref dd small{font-family:var(--mono);font-weight:400;font-size:11px;color:var(--muted);margin-left:6px}
-
-.picks{list-style:none;margin:0;padding:0;display:grid;border-top:2px solid var(--ink)}
-.picks li{display:grid;grid-template-columns:260px minmax(0,1fr);gap:24px;padding:20px 0;border-bottom:1px solid var(--rule)}
-@media (max-width:760px){.picks li{grid-template-columns:minmax(0,1fr);gap:6px}}
-.picks b{font-weight:600}
-.picks p{margin:0;color:var(--muted);font-size:15.5px;max-width:62ch}
-.picks code{font-size:.85em}
-
-.cost{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
-@media (max-width:860px){.cost{grid-template-columns:minmax(0,1fr)}}
-.cost>div{border-top:2px solid var(--ink);padding-top:16px}
-.cost .big{font-family:var(--display);font-weight:900;font-size:56px;line-height:.85;font-variant-numeric:tabular-nums}
-.cost .big small{font-size:.36em;color:var(--muted);font-weight:700;margin-left:6px}
-.cost p{margin:10px 0 0;color:var(--muted);font-size:15.5px;max-width:48ch}
-.note{font-size:13.5px;color:var(--muted);margin:14px 0 0;max-width:72ch}
+/* wording */
+.wording{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:900px){.wording{grid-template-columns:minmax(0,1fr)}}
+.wording .lead p{margin:0 0 14px;color:var(--muted);max-width:52ch}
+.wording .lead p strong{color:var(--ink);font-weight:600}
+.moves{list-style:none;margin:0;padding:0;display:grid;border-top:2px solid var(--ink)}
+.moves li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:baseline;padding:16px 0;border-bottom:1px solid var(--rule)}
+.moves .jump{font-family:var(--display);font-weight:900;font-size:40px;line-height:.85;font-variant-numeric:tabular-nums;white-space:nowrap}
+.moves .jump small{font-size:.45em;color:var(--muted);font-weight:700}
+.moves p{margin:0;font-size:15px;color:var(--muted)}
+.note{font-size:13.5px;color:var(--muted);margin:14px 0 0;max-width:76ch}
 </style>
 </head>
 <body>
@@ -119,164 +117,91 @@ table.models th small{display:block;font-family:var(--body);font-size:12px;color
   </header>
 
   <main class="page-hero">
-    <span class="label">Benchmarks · choosing a model</span>
-    <h1>Which model should <mark>run your tests?</mark></h1>
-    <p class="lede">blastproof brings no model of its own: you pick one, and its verdicts decide whether a pull request can merge. So we measure how often each model's verdict is wrong, on an app with bugs planted on purpose, and publish what we find.</p>
+    <span class="label">Model benchmarks</span>
+    <h1>Accuracy, cost and time, <mark>per model.</mark></h1>
+    <p class="lede">You bring the model, and its verdicts decide whether a pull request merges. Here is how often each one got the verdict right on an app with bugs planted on purpose, what a test cost, and how long it took.</p>
+    <div class="meta">
+      <span><b>10</b> models</span>
+      <span>up to <b>90</b> test runs each</span>
+      <span>demo app · through OpenRouter</span>
+      <span>updated <b>2026-10-14</b></span>
+    </div>
   </main>
 
-  <section class="block" id="answer" style="padding-top:0">
-    <div class="head">
-      <span class="label">The short answer</span>
-      <div>
-        <h2>Leave the default.</h2>
-        <p>Each provider's default model was chosen on the benchmark below. A config that sets no <code>llm.model</code> gets it.</p>
+  <section class="block" id="results" style="padding-top:0">
+    <figure class="plot fig" style="margin:0">
+      <div class="plot-head">
+        <div class="plot-title"><strong>Accuracy against <span id="axis-name">cost per test</span></strong>
+          <span class="key"><i style="background:var(--fuse)"></i>hosted</span><span class="key"><i style="background:var(--hold)"></i>open weights</span></div>
+        <div class="seg" role="group" aria-label="Horizontal axis">
+          <button type="button" id="x-cost" aria-pressed="true">Cost</button>
+          <button type="button" id="x-time" aria-pressed="false">Time</button>
+        </div>
       </div>
-    </div>
-    <div class="defaults">
-      <div>
-        <span class="label">provider: anthropic</span>
-        <span class="model">claude-haiku-4.5</span>
-        <p>No wrong verdict in 90 runs, and remeasured on every release.</p>
-      </div>
-      <div>
-        <span class="label">provider: openai</span>
-        <span class="model">gpt-6-luna</span>
-        <p>No wrong verdict in 90 runs, and every bug caught at the step that checks it.</p>
-      </div>
-      <div>
-        <span class="label">provider: ollama</span>
-        <span class="model">gpt-oss:20b</span>
-        <p>The fewest false FAILs of the open-weight models measured, for runs that never leave your machine. Expect a few more red builds.</p>
-      </div>
-    </div>
-  </section>
+      <div class="plot-body" id="plot"></div>
+      <figcaption class="plot-foot">Up is more accurate, left is <span id="axis-better">cheaper</span>. The horizontal axis is logarithmic. Models with too few completed tests to time are left out of the time view.</figcaption>
+    </figure>
 
-  <section class="block" id="method">
-    <div class="head">
-      <span class="label">How it is measured</span>
-      <div>
-        <h2>Two ways a verdict is wrong.</h2>
-        <p>The benchmark runs the demo app's test suite five times on the app as it is, and once per sample on each of ten <strong>mutants</strong>: copies of the app with one bug seeded where a test checks.</p>
-      </div>
-    </div>
-    <div class="defs">
-      <div>
-        <h3>False FAIL</h3>
-        <p>A test fails on the correct app. A merge gate that is red for no reason gets switched off, and then it catches nothing. This is the number we decide on first.</p>
-      </div>
-      <div>
-        <h3>False PASS</h3>
-        <p>A test passes on an app with the very bug it exists to catch. The bug reaches production with a green check next to it.</p>
-      </div>
-      <div>
-        <h3>Literal and subtle bugs</h3>
-        <p>A literal mutant changes the value a step quotes. A subtle one reproduces a wrong verdict this project has already had: the right number in the wrong place, a success message with nothing saved behind it.</p>
-      </div>
-      <div>
-        <h3>Bounds, not promises</h3>
-        <p>Zero errors in 40 runs means "below about 9%" at 95% confidence, not "never". The demo app is small and well labelled, so a real application will do worse.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="block" id="reference">
-    <div class="head">
-      <span class="label">Reference models · 0.27.0</span>
-      <div>
-        <h2>Measured again on every release.</h2>
-        <p>Every change that touches how a step is executed or judged reruns the benchmark on these two models before it ships. Measured 2026-10-13, 5 samples, through OpenRouter.</p>
-      </div>
-    </div>
-    <div class="ref">
-      <div>
-        <span class="model">claude-haiku-4.5</span>
-        <dl>
-          <dt>False FAIL, correct app</dt><dd>0<small>of 40 · ≤ 8.8%</small></dd>
-          <dt>False PASS, literal bugs</dt><dd>0<small>of 30 · ≤ 11.4%</small></dd>
-          <dt>False PASS, subtle bugs</dt><dd>0<small>of 19 · ≤ 16.8%</small></dd>
-        </dl>
-      </div>
-      <div>
-        <span class="model">gpt-6-luna</span>
-        <dl>
-          <dt>False FAIL, correct app</dt><dd>0<small>of 40 · ≤ 8.8%</small></dd>
-          <dt>False PASS, literal bugs</dt><dd>0<small>of 30 · ≤ 11.4%</small></dd>
-          <dt>False PASS, subtle bugs</dt><dd>0<small>of 20 · ≤ 16.1%</small></dd>
-        </dl>
-      </div>
-    </div>
-    <p class="note">One subtle run on Haiku ended incomplete and is left out of its count. The bounds are 95% upper bounds.</p>
-  </section>
-
-  <section class="block" id="all">
-    <div class="head">
-      <span class="label">Nine models</span>
-      <div>
-        <h2>The benchmark behind the defaults.</h2>
-        <p>Run 2026-10-07 to 2026-10-09 to choose the defaults. "Right step" counts bugs caught at the step that checks them, not at an earlier step that broke on its own. Each square is one run of a test on the correct app.</p>
-      </div>
-    </div>
-    <div class="cmp-wrap">
-      <table class="models">
+    <div class="cmp-wrap" style="margin-top:28px">
+      <table class="bench" id="bench">
         <thead>
-          <tr><th scope="col">model</th><th scope="col">correct app, 40 runs</th><th scope="col">false FAIL</th><th scope="col">false PASS (of 50)</th><th scope="col">right step (of 50)</th><th scope="col">sign-in failed (of 55)</th></tr>
+          <tr>
+            <th scope="col" data-key="name"><button type="button">Model</button></th>
+            <th scope="col" data-key="acc" aria-sort="descending"><button type="button">Accuracy</button></th>
+            <th scope="col" data-key="ok"><button type="button">Correct app passed</button></th>
+            <th scope="col" data-key="caught"><button type="button">Bugs caught</button></th>
+            <th scope="col" data-key="cost"><button type="button">Cost / 100 tests</button></th>
+            <th scope="col" data-key="time"><button type="button">Time / test</button></th>
+            <th scope="col" data-key="open"><button type="button">Weights</button></th>
+          </tr>
         </thead>
-        <tbody>
-          <tr class="mine"><th scope="row">claude-haiku-4.5<small>anthropic default</small></th><td class="strip"><div class="runs" data-bad="0"></div></td><td class="n">0</td><td class="n">0</td><td class="n">47</td><td class="n">0</td></tr>
-          <tr class="mine"><th scope="row">gpt-6-luna<small>openai default</small></th><td class="strip"><div class="runs" data-bad="0"></div></td><td class="n">0</td><td class="n">0</td><td class="n">50</td><td class="n">0</td></tr>
-          <tr class="mine"><th scope="row">gpt-oss-20b<small>ollama default</small></th><td class="strip"><div class="runs" data-bad="2"></div></td><td class="n">2</td><td class="n">1</td><td class="n">32</td><td class="n">10</td></tr>
-          <tr><th scope="row">qwen3.6-35b-a3b</th><td class="strip"><div class="runs" data-bad="11"></div></td><td class="n">11</td><td class="n">0</td><td class="n">43</td><td class="n">0</td></tr>
-          <tr><th scope="row">gpt-oss-120b</th><td class="strip"><div class="runs" data-bad="26"></div></td><td class="n">26</td><td class="n">0</td><td class="n">35</td><td class="n">13</td></tr>
-          <tr><th scope="row">gpt-4o-mini<small>former openai default</small></th><td class="strip"><div class="runs" data-bad="35"></div></td><td class="n">35</td><td class="n">0</td><td class="n">12</td><td class="n">35</td></tr>
-          <tr><th scope="row">qwen3.5-9b</th><td class="strip"><div class="runs" data-bad="32" data-of="33"></div></td><td class="n">32 of 33</td><td class="n">0 of 43</td><td class="n">4 of 43</td><td class="n">38 of 48</td></tr>
-          <tr><th scope="row">gemma-4-26b-a4b-it</th><td class="strip"><div class="runs" data-bad="40"></div></td><td class="n">40</td><td class="n">0</td><td class="n">3</td><td class="n">47</td></tr>
-          <tr><th scope="row">qwen-2.5-7b-instruct<small>former ollama default</small></th><td class="strip"><div class="runs" data-bad="40"></div></td><td class="n">40</td><td class="n">0</td><td class="n">1</td><td class="n">47</td></tr>
-        </tbody>
+        <tbody></tbody>
       </table>
     </div>
-    <div class="legend">
-      <span><i style="background:var(--hold)"></i>test passed on the correct app</span>
-      <span><i style="background:var(--breach)"></i>false FAIL</span>
-      <span><i style="border:1px dashed var(--rule)"></i>not run</span>
-      <span class="swipe">Swipe the table sideways.</span>
-    </div>
-    <p class="note">On false PASS, no model can be told apart from another at this sample size: every 95% upper bound falls between 11% and 17%. False FAIL is where they differ, and it is what decided the defaults. <code>gpt-oss-20b</code> was measured through OpenRouter, not Ollama: the same weights, a different runtime.</p>
+    <p class="note"><span class="swipe">Swipe the table sideways. </span>Accuracy counts a run as right when the test passes on the correct app, or fails at the very step that checks the planted bug. A model that fails everything catches every bug too, and scores near zero here, not 55%. Cost is OpenRouter's billed price, cache discounts included, for the tokens a test used. Time is the median of tests that passed, with the agent and the browser on one machine. Accuracy and time come from benchmark runs between 2026-10-07 and 2026-10-14; prices were measured on 2026-10-14.</p>
   </section>
 
-  <section class="block" id="pick">
+  <section class="block" id="reading">
     <div class="head">
-      <span class="label">When the default is not for you</span>
+      <span class="label">Reading it</span>
       <div>
-        <h2>Pick by what you can't afford.</h2>
+        <h2>The right model depends on what you can't give up.</h2>
+        <p>None of these is the best one for everybody. Three questions usually decide it.</p>
       </div>
     </div>
-    <ul class="picks">
-      <li><b>Nothing may leave the machine</b><p><code>gpt-oss:20b</code> on Ollama. Its one false PASS accepted order <code>#BP-1002</code> for the <code>#BP-1001</code> the step asked about. It needs about 14 GB: <code>ollama pull gpt-oss:20b</code>.</p></li>
-      <li><b>A missed bug costs more than a red build</b><p><code>qwen3.6-35b-a3b</code> caught the most bugs at the right step among open-weight models and never failed to sign in. It also failed 11 of 40 tests on the correct app, and needs more memory.</p></li>
-      <li><b>You are on an old default</b><p><code>gpt-4o-mini</code> and <code>qwen2.5</code> failed almost every test on the correct app. If your config pins one of them, remove <code>llm.model</code> to get the measured default.</p></li>
-      <li><b>Open-weight models through a gateway</b><p>Some gateway providers ignore the JSON schema every call sends. Route around them with <code>llm.extra_body</code>; the <a class="text-link" href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md#open-weight-models-through-a-gateway-route-around-providers-that-ignore-the-schema">configuration guide</a> shows how.</p></li>
-    </ul>
+    <div class="notes">
+      <div>
+        <h3>Can the page leave your network?</h3>
+        <p>Every step sends a snapshot of the page to the model. If staging shows data that may not leave your machines, use an <strong>open-weight</strong> model on your own hardware with Ollama. Of those measured, <code>qwen3.6-35b-a3b</code> caught the most bugs and <code>gpt-oss-20b</code> failed the fewest correct tests.</p>
+      </div>
+      <div>
+        <h3>What does a red build cost you?</h3>
+        <p>A model that fails correct tests teaches a team to ignore the gate. One that passes broken pages ships bugs. Read <strong>Correct app passed</strong> and <strong>Bugs caught</strong> separately: they fail in different directions.</p>
+      </div>
+      <div>
+        <h3>How often does it run?</h3>
+        <p>blastproof runs only the tests a pull request can break, so cost and time scale with your pull requests, not your suite. Multiply the cost column by the tests your pull requests touch in a week. In CI, <strong>time per test</strong> is what your reviewers wait for.</p>
+      </div>
+    </div>
   </section>
 
-  <section class="block" id="cost">
+  <section class="block" id="wording">
     <div class="head">
-      <span class="label">What a run spends</span>
+      <span class="label">Before you rule a model out</span>
       <div>
-        <h2>Calls and tokens, read off the run.</h2>
-        <p>Every run ends with a <code>Spent:</code> line. Cost grows with the number of steps, how dense your pages are and how often the agent retries, so run your suite once and read it. Two measured examples:</p>
+        <h2>How a test is written moves these numbers.</h2>
       </div>
     </div>
-    <div class="cost">
-      <div>
-        <span class="label">This repository's suite · claude-haiku-4.5</span>
-        <div class="big">115k<small>tokens</small></div>
-        <p>7 tests and 31 steps on the demo shop, signed in: about 82 model calls, 156 s serially or 68 s at <code>--concurrency 4</code>.</p>
+    <div class="wording">
+      <div class="lead">
+        <p>The same model scores very differently on steps written in different English. A step that says what should be true afterwards gives the model something to check. A bare action leaves it guessing whether anything happened. <strong>A model that scored low here may do much better on a suite written to the authoring guide.</strong></p>
+        <p>These are measurements, not promises, and only ten models were measured. A model missing from this page was not tested, which says nothing about how it would do. You can measure yours with one command, below.</p>
+        <p><a class="btn" href="https://github.com/hamc/blastproof#writing-tests">How to write a good test</a></p>
       </div>
-      <div>
-        <span class="label">A real budgeting app · claude-haiku-5.5</span>
-        <div class="big">1.8M<small>tokens</small></div>
-        <p>21 tests on pages of up to a thousand snapshot lines: about 320 model calls, 2026-10-14. Three times the tests of the demo suite, sixteen times the tokens: dense pages cost more than test count.</p>
-      </div>
+      <ul class="moves">
+        <li><span class="jump">64<small>→</small>100</span><p>An outside evaluation, same app, same suite, same version: the score went from 64 to 100 by rewriting two steps to name their outcome.</p></li>
+        <li><span class="jump">0<small>/3 →</small>3<small>/3</small></span><p>A real budgeting app's register: a test that entered a whole row in one step failed every run. Written one cell per step, it passed every run, on the same model.</p></li>
+      </ul>
     </div>
   </section>
 
@@ -285,11 +210,11 @@ table.models th small{display:block;font-family:var(--body);font-size:12px;color
       <span class="label">Measure your own</span>
       <div>
         <h2>Any model, one command.</h2>
-        <p>The benchmark is part of the repository, not a claim about it. Through any OpenAI-compatible gateway:</p>
+        <p>The benchmark ships with the repository. It runs the demo app's suite on the app as it is, and on ten copies with one bug planted each, five times over. Through any OpenAI-compatible gateway:</p>
       </div>
     </div>
     <div class="code">
-      <div class="bar"><span>reliability benchmark</span><span>about 1 hour per model</span></div>
+      <div class="bar"><span>reliability benchmark</span><span>about an hour per model</span></div>
       <pre><span class="c"># from a clone of hamc/blastproof</span>
 <span class="k">npm</span> install &amp;&amp; <span class="k">npm</span> run build
 <span class="k">export</span> BLASTPROOF_LLM_PROVIDER=openai
@@ -297,7 +222,7 @@ table.models th small{display:block;font-family:var(--body);font-size:12px;color
 <span class="k">export</span> BLASTPROOF_LLM_API_KEY_ENV=OPENROUTER_API_KEY
 <span class="k">EVAL_MODELS</span>=<span class="y">openai/gpt-oss-20b</span> <span class="k">npm</span> run eval:reliability</pre>
     </div>
-    <p class="note">Models that cannot take every role are measured on the one they could take. <a class="text-link" href="https://github.com/hamc/blastproof/blob/main/docs/model-evaluations/jev.md">Jev</a>, a decision model that writes no text, was measured as the judge. The method and every past result live in <a class="text-link" href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md#choosing-a-model">the configuration guide</a>.</p>
+    <p class="note">The demo app is small and well labelled, so a real application will score lower. The method, the raw counts and every past result are in <a class="text-link" href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md#choosing-a-model">the configuration guide</a>.</p>
   </section>
 
   <footer>
@@ -317,17 +242,132 @@ table.models th small{display:block;font-family:var(--body);font-size:12px;color
 </div>
 
 <script>
-// One square per run of a test on the correct app; the numbers beside them are the source.
-document.querySelectorAll(".runs").forEach(function(strip){
-  var bad=Number(strip.getAttribute("data-bad")),of=Number(strip.getAttribute("data-of")||40);
-  for(var i=0;i<40;i++){
-    var sq=document.createElement("i");
-    if(i>=of)sq.className="none";else if(i<bad)sq.className="bad";
-    strip.appendChild(sq);
+(function(){
+  // Measured on the demo app through OpenRouter. ok: tests passed on the correct app
+  // (of okOf); caught: planted bugs caught at the step that checks them (of caughtOf);
+  // cost: dollars per 100 tests; time: median seconds per passing test (null: too few).
+  var MODELS=[
+    {name:"gpt-6-luna",note:"openai default",ok:40,okOf:40,caught:50,caughtOf:50,cost:0.13,time:23,open:false,date:"2026-10-07"},
+    {name:"claude-haiku-5.5",note:"",ok:40,okOf:40,caught:50,caughtOf:50,cost:0.50,time:23,open:false,date:"2026-10-14"},
+    {name:"claude-haiku-4.5",note:"anthropic default",ok:40,okOf:40,caught:47,caughtOf:50,cost:4.07,time:25,open:false,date:"2026-10-07"},
+    {name:"qwen3.6-35b-a3b",note:"",ok:29,okOf:40,caught:43,caughtOf:50,cost:1.15,time:131,open:true,date:"2026-10-09"},
+    {name:"gpt-oss-20b",note:"ollama default",ok:38,okOf:40,caught:32,caughtOf:50,cost:0.07,time:68,open:true,date:"2026-10-08"},
+    {name:"gpt-oss-120b",note:"",ok:14,okOf:40,caught:35,caughtOf:50,cost:0.30,time:165,open:true,date:"2026-10-08"},
+    {name:"gpt-4o-mini",note:"",ok:5,okOf:40,caught:12,caughtOf:50,cost:0.30,time:null,open:false,date:"2026-10-08"},
+    {name:"qwen3.5-9b",note:"",ok:1,okOf:33,caught:4,caughtOf:43,cost:0.27,time:null,open:true,date:"2026-10-08"},
+    {name:"gemma-4-26b-a4b-it",note:"",ok:0,okOf:40,caught:3,caughtOf:50,cost:0.65,time:null,open:true,date:"2026-10-08"},
+    {name:"qwen-2.5-7b-instruct",note:"",ok:0,okOf:40,caught:1,caughtOf:50,cost:0.15,time:null,open:true,date:"2026-10-08"}
+  ];
+  MODELS.forEach(function(m){m.acc=(m.ok+m.caught)/(m.okOf+m.caughtOf)});
+
+  function pct(x){return Math.round(x*100)+"%"}
+  function money(x){return "$"+(x<1?x.toFixed(2):x.toFixed(2))}
+
+  // table
+  var tbody=document.querySelector("#bench tbody"),sortKey="acc",dir=-1;
+  function render(){
+    var rows=MODELS.slice().sort(function(a,b){
+      var x=a[sortKey],y=b[sortKey];
+      if(x===null)return 1;if(y===null)return -1;
+      if(typeof x==="string")return dir*x.localeCompare(y);
+      return dir*((x>y)-(x<y));
+    });
+    tbody.innerHTML=rows.map(function(m){
+      return '<tr><th scope="row">'+m.name+(m.note?'<span class="sub">'+m.note+'</span>':'')+'</th>'+
+        '<td><div class="acc"><b>'+pct(m.acc)+'</b><span class="bar"><i style="width:'+(m.acc*100).toFixed(1)+'%"></i></span></div></td>'+
+        '<td class="n">'+m.ok+' of '+m.okOf+'</td>'+
+        '<td class="n">'+m.caught+' of '+m.caughtOf+'</td>'+
+        '<td class="n">'+money(m.cost)+'</td>'+
+        '<td class="n">'+(m.time===null?'<span title="Too few tests completed to time">—</span>':m.time+' s')+'</td>'+
+        '<td>'+(m.open?'<span class="tag open">open</span>':'<span class="tag">hosted</span>')+'</td></tr>';
+    }).join("");
+    document.querySelectorAll("#bench thead th").forEach(function(th){
+      if(th.getAttribute("data-key")===sortKey)th.setAttribute("aria-sort",dir<0?"descending":"ascending");else th.removeAttribute("aria-sort");
+    });
   }
-  strip.setAttribute("role","img");
-  strip.setAttribute("aria-label",bad+" false FAIL of "+of+" runs");
-});
+  document.querySelectorAll("#bench thead th").forEach(function(th){
+    th.querySelector("button").addEventListener("click",function(){
+      var k=th.getAttribute("data-key");
+      if(k===sortKey)dir=-dir;else{sortKey=k;dir=(k==="acc"||k==="ok"||k==="caught")?-1:1}
+      render();
+    });
+  });
+  render();
+
+  // plot
+  var NS="http://www.w3.org/2000/svg";
+  function el(n,a,t){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;return e}
+  function draw(axis){
+    var W=760,H=380,L=56,R=30,T=20,B=48;
+    var pts=MODELS.filter(function(m){return m[axis]!==null});
+    var lo=axis==="cost"?0.05:15,hi=axis==="cost"?6:300;
+    var ticks=axis==="cost"?[0.05,0.1,0.5,1,5]:[15,30,60,120,240];
+    var x=function(v){return L+(Math.log(v)-Math.log(lo))/(Math.log(hi)-Math.log(lo))*(W-L-R)};
+    var y=function(a){return T+(1-a)*(H-T-B)};
+    var svg=el("svg",{viewBox:"0 0 "+W+" "+H,role:"img","aria-label":"Accuracy against "+(axis==="cost"?"cost per 100 tests":"time per test")+" for "+pts.length+" models"});
+    [0,0.25,0.5,0.75,1].forEach(function(a){
+      svg.appendChild(el("line",{x1:L,x2:W-R,y1:y(a),y2:y(a),stroke:"var(--rule)","stroke-width":1}));
+      svg.appendChild(el("text",{x:L-10,y:y(a)+4,"text-anchor":"end",fill:"var(--muted)","font-size":12,"font-family":"var(--mono)"},Math.round(a*100)+"%"));
+    });
+    ticks.forEach(function(v){
+      svg.appendChild(el("line",{x1:x(v),x2:x(v),y1:H-B,y2:H-B+5,stroke:"var(--muted)","stroke-width":1}));
+      svg.appendChild(el("text",{x:x(v),y:H-B+20,"text-anchor":"middle",fill:"var(--muted)","font-size":12,"font-family":"var(--mono)"},axis==="cost"?"$"+v:v+" s"));
+    });
+    svg.appendChild(el("line",{x1:L,x2:W-R,y1:H-B,y2:H-B,stroke:"var(--ink)","stroke-width":1.5}));
+    svg.appendChild(el("text",{x:W-R,y:H-8,"text-anchor":"end",fill:"var(--muted)","font-size":12,"font-family":"var(--mono)"},axis==="cost"?"cost per 100 tests →":"median time per test →"));
+    // Dots first: two models on the same spot are drawn side by side, and the
+    // value they share is in each dot's tooltip.
+    var dots=[];
+    pts.forEach(function(m){
+      var cx=x(m[axis]),cy=y(m.acc);
+      while(dots.some(function(d){return Math.abs(d.cx-cx)<15&&Math.abs(d.cy-cy)<15}))cx+=15;
+      dots.push({m:m,cx:cx,cy:cy});
+    });
+    dots.forEach(function(d){
+      var c=el("circle",{cx:d.cx,cy:d.cy,r:7,fill:d.m.open?"var(--hold)":"var(--fuse)",stroke:"var(--ink)","stroke-width":1.5});
+      c.appendChild(el("title",{},d.m.name+": "+Math.round(d.m.acc*100)+"%, "+(axis==="cost"?"$"+d.m.cost.toFixed(2)+" per 100 tests":d.m[axis]+" s per test")));
+      svg.appendChild(c);
+    });
+    // Labels: the first candidate spot that overlaps no dot, no other label and
+    // stays inside the plot; a label moved off its dot gets a leader line.
+    var boxes=[],CAND=[[12,4,"start"],[-12,4,"end"],[12,-6,"start"],[-12,-6,"end"],[10,-12,"start"],[-10,-12,"end"],[10,22,"start"],[-10,22,"end"],[12,36,"start"],[-12,36,"end"],[12,-26,"start"],[-12,-26,"end"]];
+    function hits(r){
+      return boxes.some(function(o){return r.x1<o.x2&&r.x2>o.x1&&r.y1<o.y2&&r.y2>o.y1})||
+        dots.some(function(d){return d.cx+8>r.x1&&d.cx-8<r.x2&&d.cy+8>r.y1&&d.cy-8<r.y2})||
+        r.x1<L||r.x2>W-4||r.y1<2||r.y2>H-B-6;
+    }
+    dots.slice().sort(function(a,b){return a.cy-b.cy}).forEach(function(d){
+      var w=d.m.name.length*7.6+4,pick=null;
+      for(var i=0;i<CAND.length&&!pick;i++){
+        var c=CAND[i],lx=d.cx+c[0],ly=d.cy+c[1];
+        var r=c[2]==="start"?{x1:lx,x2:lx+w,y1:ly-11,y2:ly+3}:{x1:lx-w,x2:lx,y1:ly-11,y2:ly+3};
+        if(!hits(r))pick={lx:lx,ly:ly,anchor:c[2],r:r,far:Math.abs(c[1])>4};
+      }
+      // Nothing near fits: climb until a spot is free.
+      for(var up=26;!pick&&up<200;up+=14){
+        [["start",10],["end",-10]].forEach(function(o){
+          if(pick)return;
+          var lx=d.cx+o[1],ly=d.cy-up,r=o[0]==="start"?{x1:lx,x2:lx+w,y1:ly-11,y2:ly+3}:{x1:lx-w,x2:lx,y1:ly-11,y2:ly+3};
+          if(!hits(r))pick={lx:lx,ly:ly,anchor:o[0],r:r,far:true};
+        });
+      }
+      if(!pick)pick={lx:d.cx+12,ly:d.cy+4,anchor:"start",r:{x1:d.cx+12,x2:d.cx+12+w,y1:d.cy-7,y2:d.cy+7},far:false};
+      boxes.push(pick.r);
+      if(pick.far)svg.appendChild(el("line",{x1:d.cx,y1:d.cy,x2:pick.anchor==="start"?pick.r.x1-2:pick.r.x2+2,y2:pick.ly-4,stroke:"var(--muted)","stroke-width":1}));
+      svg.appendChild(el("text",{x:pick.lx,y:pick.ly,"text-anchor":pick.anchor,fill:"var(--ink)","font-size":12.5,"font-family":"var(--mono)"},d.m.name));
+    });
+    // Leader lines sit under the dots.
+    svg.querySelectorAll("circle").forEach(function(c){svg.appendChild(c)});
+    var box=document.getElementById("plot");box.replaceChildren(svg);
+    document.getElementById("axis-name").textContent=axis==="cost"?"cost per test":"time per test";
+    document.getElementById("axis-better").textContent=axis==="cost"?"cheaper":"faster";
+    document.getElementById("x-cost").setAttribute("aria-pressed",String(axis==="cost"));
+    document.getElementById("x-time").setAttribute("aria-pressed",String(axis==="time"));
+  }
+  document.getElementById("x-cost").addEventListener("click",function(){draw("cost")});
+  document.getElementById("x-time").addEventListener("click",function(){draw("time")});
+  draw("cost");
+})();
 </script>
 <script src="/site.js"></script>
 </body>
