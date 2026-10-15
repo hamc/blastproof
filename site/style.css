@@ -49,6 +49,7 @@ mark{background:linear-gradient(transparent 58%,var(--fuse) 58%,var(--fuse) 92%,
 .nav ul{display:flex;gap:26px;list-style:none;margin:0;padding:0;align-items:center;font-size:15px}
 .nav ul a{text-decoration:none;color:var(--muted)}
 .nav ul a:hover{color:var(--ink)}
+.nav ul a[aria-current="page"]{color:var(--ink);text-decoration:underline;text-decoration-color:var(--fuse);text-decoration-thickness:2px;text-underline-offset:6px}
 .ver{font-family:var(--mono);font-size:11px;border:1px solid var(--rule);padding:2px 7px;border-radius:3px;color:var(--muted)}
 @media (max-width:760px){.nav ul .hide-s{display:none}.nav ul{gap:18px}}
 @media (max-width:440px){.nav ul .ver{display:none}}
