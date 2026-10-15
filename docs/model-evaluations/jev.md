@@ -1,6 +1,6 @@
 # Jev as a judge
 
-**Result:** not used as the judge. On the judge corpus it is as accurate as the current judges: 40 of 41 cases right, no false PASS. In whole runs on a real budgeting app, as the only judge it failed a correct test in 3 runs of 3, and as a first pass in front of the LLM judge it was as accurate but saved nothing. Measured on `jev-1.13` on 2026-10-14 ([#174](https://github.com/hamc/blastproof/issues/174)).
+**Result:** not used as the judge. On the judge corpus it is as accurate as the current judges: 40 of 41 cases right, no false PASS. In whole runs on a real budgeting app, as the only judge it failed a correct test in 3 runs of 3, and as a first pass in front of the LLM judge it was as accurate, 13% cheaper and 7% faster, with every pass it gave final and without a reason. Measured on `jev-1.13` on 2026-10-14 ([#174](https://github.com/hamc/blastproof/issues/174)).
 
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe AI's decision model. It takes a state and typed questions (choice, score, or a yes/no `noul`) and returns probabilities with a confidence. It generates no text.
 
@@ -71,11 +71,25 @@ The 95s in the LLM judge's and `jev-first`'s rows are one test about a due sched
 
 **Under `jev`**, a test creating a rule failed in every run, on the same step: choose a payee in the rule's condition, and verify the condition reads that payee. The page showed it, in a field of the rule form, which stays open until the rule is saved. The judge's prompt tells it that a value in an unsubmitted form is not an outcome, and Jev applied that to a step whose outcome is the form's own content. Its documented limitation is this one: it "can be quite literal". The LLM judge passed that step in all 6 of its runs. The retries that followed the failure read the fixed reason, and nothing they did could change the verdict, so the missing reason was not what failed the test.
 
-**Under `jev-first`**, Jev failed about 25 judgments per run, and the LLM judge overturned 6 of the 51 it was sent in the two runs logged. Five of the six were a value in an open dialog's field, Jev's reading above. The 45 it upheld were mostly the demo budget still loading. Every judgment Jev fails costs two calls instead of one, so the run made more calls than with the LLM judge alone, and saved 3% of its tokens. With a judge as cheap as `claude-haiku-5.5`, that is no saving worth the second provider and key.
+**Under `jev-first`**, Jev failed about 25 judgments per run, and the LLM judge overturned 6 of the 51 it was sent in the two runs logged. Five of the six were a value in an open dialog's field, Jev's reading above. The 45 it upheld were mostly the demo budget still loading. Every judgment Jev fails costs two calls instead of one, so the run made more calls than with the LLM judge alone.
+
+Calls and tokens do not give the cost, because Jev's tokens are cheaper than the LLM's. One more run of each, on 2026-10-15, with every LLM call's billed cost recorded through a proxy, and Jev's tokens priced at its list price ($0.042 per million input tokens, output free):
+
+| judge | tests passed | LLM calls | Jev calls | cost of the run | time (sum of tests) |
+| --- | --- | --- | --- | --- | --- |
+| LLM judge | 21 of 21 | 315 | 0 | $0.202 | 1,273 s |
+| `jev-first` | 21 of 21 | 242 | 100 | $0.176 ($0.162 LLM + $0.014 Jev) | 1,180 s |
+
+13% cheaper and 7% faster. The saving is bounded by the judge's share of the run: about a third of the calls, the rest being the acting model's, which Jev does not replace. Jev also reads the same page, at about 2.6 times less per token than `claude-haiku-5.5` cost here ($0.11 per million), not the 16 times measured against the corpus's two models. Against a more expensive acting model the share saved would be larger.
+
+The earlier version of this section said `jev-first` saved nothing, from a 3% token saving. That counted Jev's tokens as if they cost what the LLM's do.
 
 ### Decision
 
-Jev is not the judge, and not a first pass. The code was not merged. What would reopen it: a version that reads an open form's content as the outcome when the step asks for it, or an acting model expensive enough that a 13% token saving matters, with the false FAIL above gone.
+Jev is not the judge, and not the default first pass. The code was not merged.
+
+- **Alone**, it fails a correct test in every run. What would reopen it: a version that reads an open form's content as the outcome when the step asks for it.
+- **As a first pass**, it works, but every pass it gives is final: the LLM judge sees only what Jev fails, so Jev's false PASS rate becomes the run's. It had none here, on 75 cases that should fail (25 in the corpus, 50 mutants), which is too few to hand it that decision by default for 13%. A pass also comes with no reason, and a reason is how wrong passes were diagnosed before (#87, #120, #147). An opt-in experimental option, off by default, is planned.
 
 ### Correction
 

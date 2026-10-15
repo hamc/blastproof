@@ -7,7 +7,7 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ### Documentation
 
-- Jev measured as the judge in whole runs, and not adopted: alone, it failed a correct test in every run on a real app; as a first pass, it saved nothing ([#174](https://github.com/hamc/blastproof/issues/174)).
+- Jev measured as the judge in whole runs, and not adopted: alone, it failed a correct test in every run on a real app; as a first pass in front of the LLM judge, it was as accurate, 13% cheaper and 7% faster, but every pass it gives is final and has no reason ([#174](https://github.com/hamc/blastproof/issues/174)).
 
 ## [0.27.0] — 2026-10-13
 
