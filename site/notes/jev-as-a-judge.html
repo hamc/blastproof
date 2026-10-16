@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Can a cheaper model decide if your test passed? · blastproof</title>
+<meta name="description" content="I tried a much cheaper model as blastproof's judge. Alone, it failed good tests. As a first filter, it worked, just not well enough to trust yet.">
+<link rel="canonical" href="https://blastproof.dev/notes/jev-as-a-judge">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://blastproof.dev/notes/jev-as-a-judge">
+<meta property="og:title" content="Can a cheaper model decide if your test passed? · blastproof">
+<meta property="og:description" content="I tried a much cheaper model as blastproof's judge. Alone, it failed good tests. As a first filter, it worked, just not well enough to trust yet.">
+<meta property="og:image" content="https://blastproof.dev/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=AW-18378674471"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'AW-18378674471');
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Martian+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 64 64">
+    <g fill="none" stroke="currentColor">
+      <path d="M14 50 L50 14" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="14" cy="14" r="6" stroke-width="2.5"/><circle cx="32" cy="14" r="6" stroke-width="2.5"/>
+      <circle cx="14" cy="32" r="6" stroke-width="2.5"/><circle cx="50" cy="32" r="6" stroke-width="2.5"/>
+      <circle cx="32" cy="50" r="6" stroke-width="2.5"/><circle cx="50" cy="50" r="6" stroke-width="2.5"/>
+    </g>
+    <g fill="currentColor"><circle cx="14" cy="50" r="7.25"/><circle cx="32" cy="32" r="7.25"/><circle cx="50" cy="14" r="7.25"/></g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <header class="nav">
+    <a class="brand" href="/"><svg aria-hidden="true"><use href="#logo"/></svg>blastproof</a>
+    <ul>
+      <li class="hide-s"><a href="/#impact">Only what changed</a></li>
+      <li class="hide-s"><a href="/#agents">AI agents</a></li>
+      <li class="hide-s"><a href="/#compare">Compared</a></li>
+      <li class="hide-s"><a href="/#fit">Does it fit?</a></li>
+      <li><a href="/models">Benchmarks</a></li>
+      <li><a href="/notes/" aria-current="page">Notes</a></li>
+      <li><a href="https://github.com/hamc/blastproof">GitHub</a></li>
+      <li><a class="ver" id="ver" href="https://github.com/hamc/blastproof/releases/latest" style="text-decoration:none">v0.27.0</a></li>
+    </ul>
+  </header>
+
+  <main class="article">
+    <span class="label">Notes · model evaluation</span>
+    <h1>Can a cheaper model decide if <mark>your test passed?</mark></h1>
+    <p class="lede">I tried a much cheaper model as blastproof's judge. Alone, it failed good tests. As a first filter, it worked, just not well enough to trust yet.</p>
+    <div class="byline"><span>published <b>2026-10-15</b></span><span>4 min read</span><span>issue <a href="https://github.com/hamc/blastproof/issues/174">#174</a></span></div>
+
+    <p>Every step in a blastproof test ends with a question to an LLM: does the page show what the step describes? I call this model the judge.</p>
+    <p>Its answer decides whether a pull request can merge, so it has to be right. And it runs on every step, so it adds up on the bill.</p>
+    <p>When TypeSafe AI released <a href="https://typesafe.ai/blog/introducing-system-one-models-and-jev">Jev</a>, it looked like a good fit. It's a decision model: instead of writing text, it answers a yes-or-no question with a probability, for a fraction of what an LLM charges. A judge only needs a yes or a no.</p>
+
+    <h2>The quiz</h2>
+    <p>The repository keeps 41 judge inputs, taken from every time a verdict went wrong in the past, each with its correct answer. Any change to the judge has to pass them before it merges.</p>
+    <p>My first run said Jev got 34 right and passed 6 steps it should have failed. I wrote that it was not usable.</p>
+    <p>I was wrong. My script sent Jev the steps with secrets as <code>{{env.NAME}}</code> placeholders, while the page shows them as <code>[redacted NAME]</code>. blastproof rewrites one into the other before asking the judge, and checks the labels after it answers. My script did neither, and those six errors were exactly the cases the check exists for.</p>
+    <p>Measured the right way, Jev got 40 of 41, with no wrong passes. On the same inputs, <code>claude-haiku-4.5</code> got 39 and <code>gpt-6-luna</code> got 41.</p>
+    <p>The lesson for me: measure a model with the same input and the same checks the product uses. Otherwise you are measuring your script.</p>
+
+    <h2>The real exam</h2>
+    <p>Isolated questions don't show how verdicts add up during a run. So I plugged Jev in as the judge, on a branch that was never merged, and ran the suite of a real budgeting app: 21 tests, three times each. The comparison is <code>claude-haiku-5.5</code>, which did the acting in every run and, without Jev, the judging too.</p>
+    <p>Alone, Jev failed the same correct test in all three runs. The step picked a payee in a rule form and checked that the form showed it. It did.</p>
+    <p>The catch is in the judge's instructions. They say a value sitting in a form that wasn't submitted is not a saved result, a rule that came from an old bug. Jev applied it to a step that was only about the form's content. Its own documentation warns that it "can be quite literal".</p>
+
+    <h2>Jev as a first filter</h2>
+    <p>Most steps pass, and a pass is the easy case: the page shows what the step describes. A failure is where the judge earns its price. It has to explain what is missing, because the agent reads that reason to try again, and the report shows it to whoever fixes the bug.</p>
+    <p>So I split the work, like a triage:</p>
+    <ol class="flow">
+      <li><span><b>Jev looks first.</b> If it says yes, the step passes. No LLM call.</span></li>
+      <li><span><b>If Jev says no, the usual judge looks again.</b> Here that's <code>claude-haiku-5.5</code>. It decides, and writes the reason.</span></li>
+    </ol>
+    <p>Jev said yes to about three of every four judgments, so most of the time Haiku 5.5 was never called to judge. With the bill itemized on one run of each:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>judge</th><th>tests passed</th><th>cost of the run</th><th>time</th></tr></thead>
+      <tbody>
+        <tr><td><code>claude-haiku-5.5</code> judges every step</td><td class="n">21 of 21</td><td class="n">$0.20</td><td class="n">21 min</td></tr>
+        <tr><td>Jev first, <code>claude-haiku-5.5</code> on what it rejects</td><td class="n">21 of 21</td><td class="n">$0.18</td><td class="n">20 min</td></tr>
+      </tbody>
+    </table></div>
+    <p class="caption">One run each on the real app. <code>claude-haiku-5.5</code> did the acting in both. Over three runs, both scored 100, 100 and 95.</p>
+    <p>Same accuracy, 13% cheaper and 7% faster. Less than I expected, and the reason is in where the money goes. The judge is only a third of the calls in a run. The rest is the model deciding what to click and type, and Jev doesn't replace those. Jev also reads the whole page, so it still pays for those tokens, just at a lower price: per token, it costs a bit more than a third of what Haiku 5.5 cost here. How much you save depends on the model you compare it with: the more expensive your LLM, the bigger the gap.</p>
+
+    <h2>Conclusion</h2>
+    <p>Jev alone isn't blastproof's judge. A judge that reads its instructions to the letter fails good tests, and a team that sees red builds for no reason soon learns to ignore them.</p>
+    <p>As a first filter it works, but I'm not making it the default yet, for two reasons.</p>
+    <p>First, a pass from Jev comes with no reason. Nobody reads the reasons of passing steps on a normal day. But when a test passes and shouldn't have, that reason is the only clue to what the judge saw. It's how I found the cause of past wrong passes, and then fixed them. With Jev, all I'd have is a probability.</p>
+    <p>Second, Jev would decide most passes, and I know less about how it fails than about Haiku. Its own documentation lists weaknesses that would show up as wrong passes, like imprecision with numbers and dates read as text, and none of my tests were built to probe them. Neither Jev nor Haiku made a wrong pass on the 75 cases that should fail. That's a tie on a small sample, not proof that it's safe to switch.</p>
+    <p>So it will come as an <a href="https://github.com/hamc/blastproof/issues/184">experimental option</a>, off by default, for anyone who wants to try it, especially with an expensive model doing the acting. I'll keep measuring it there.</p>
+    <p><a class="btn" href="https://github.com/hamc/blastproof/blob/main/docs/model-evaluations/jev.md">The full measurement</a></p>
+  </main>
+  <footer>
+    <div class="row">
+      <a class="brand" href="/" style="font-size:16px"><svg aria-hidden="true" style="width:20px;height:20px"><use href="#logo"/></svg>blastproof</a>
+      <nav>
+        <a href="/models">Benchmarks</a>
+        <a href="/notes/">Notes</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md">Configuration</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/auth.md">Testing behind a login</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/ci.md">CI</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/hamc/blastproof">GitHub</a>
+      </nav>
+      <span>MIT · blastproof.dev</span>
+    </div>
+  </footer>
+</div>
+<script src="/site.js"></script>
+</body>
+</html>

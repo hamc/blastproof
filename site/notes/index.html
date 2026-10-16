@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notes · blastproof</title>
+<meta name="description" content="What we measured while building blastproof, what we got wrong, and what changed because of it.">
+<link rel="canonical" href="https://blastproof.dev/notes/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://blastproof.dev/notes/">
+<meta property="og:title" content="Notes · blastproof">
+<meta property="og:description" content="What we measured while building blastproof, what we got wrong, and what changed because of it.">
+<meta property="og:image" content="https://blastproof.dev/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=AW-18378674471"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'AW-18378674471');
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Martian+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 64 64">
+    <g fill="none" stroke="currentColor">
+      <path d="M14 50 L50 14" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="14" cy="14" r="6" stroke-width="2.5"/><circle cx="32" cy="14" r="6" stroke-width="2.5"/>
+      <circle cx="14" cy="32" r="6" stroke-width="2.5"/><circle cx="50" cy="32" r="6" stroke-width="2.5"/>
+      <circle cx="32" cy="50" r="6" stroke-width="2.5"/><circle cx="50" cy="50" r="6" stroke-width="2.5"/>
+    </g>
+    <g fill="currentColor"><circle cx="14" cy="50" r="7.25"/><circle cx="32" cy="32" r="7.25"/><circle cx="50" cy="14" r="7.25"/></g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <header class="nav">
+    <a class="brand" href="/"><svg aria-hidden="true"><use href="#logo"/></svg>blastproof</a>
+    <ul>
+      <li class="hide-s"><a href="/#impact">Only what changed</a></li>
+      <li class="hide-s"><a href="/#agents">AI agents</a></li>
+      <li class="hide-s"><a href="/#compare">Compared</a></li>
+      <li class="hide-s"><a href="/#fit">Does it fit?</a></li>
+      <li><a href="/models">Benchmarks</a></li>
+      <li><a href="/notes/" aria-current="page">Notes</a></li>
+      <li><a href="https://github.com/hamc/blastproof">GitHub</a></li>
+      <li><a class="ver" id="ver" href="https://github.com/hamc/blastproof/releases/latest" style="text-decoration:none">v0.27.0</a></li>
+    </ul>
+  </header>
+
+  <main class="article" style="max-width:none">
+    <span class="label">Notes</span>
+    <h1>Notes from <mark>building it.</mark></h1>
+    <p class="lede">What we measured, what we got wrong, and what changed because of it.</p>
+    <ul class="notes-list">
+      <li><a href="/notes/jev-as-a-judge"><time datetime="2026-10-15">2026-10-15</time><span><strong>Can a cheaper model decide if your test passed?</strong><span class="sum">I tried a much cheaper model as blastproof's judge. Alone, it failed good tests. As a first filter, it worked, just not well enough to trust yet.</span></span></a></li>
+    </ul>
+  </main>
+  <footer>
+    <div class="row">
+      <a class="brand" href="/" style="font-size:16px"><svg aria-hidden="true" style="width:20px;height:20px"><use href="#logo"/></svg>blastproof</a>
+      <nav>
+        <a href="/models">Benchmarks</a>
+        <a href="/notes/">Notes</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md">Configuration</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/auth.md">Testing behind a login</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/docs/ci.md">CI</a>
+        <a href="https://github.com/hamc/blastproof/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/hamc/blastproof">GitHub</a>
+      </nav>
+      <span>MIT · blastproof.dev</span>
+    </div>
+  </footer>
+</div>
+<script src="/site.js"></script>
+</body>
+</html>
