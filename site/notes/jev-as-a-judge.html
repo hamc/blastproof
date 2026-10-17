@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Can a cheaper model decide if your test passed? · blastproof</title>
-<meta name="description" content="I tried a much cheaper model as blastproof's judge. Alone, it failed good tests. As a first filter, it worked, just not well enough to trust yet.">
+<title>Should a decision model judge your tests first? · blastproof</title>
+<meta name="description" content="I put two new decision models in front of the LLM that judges every step in blastproof, and measured accuracy, cost and time. One of them is now my pick.">
 <link rel="canonical" href="https://blastproof.dev/notes/jev-as-a-judge">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://blastproof.dev/notes/jev-as-a-judge">
-<meta property="og:title" content="Can a cheaper model decide if your test passed? · blastproof">
-<meta property="og:description" content="I tried a much cheaper model as blastproof's judge. Alone, it failed good tests. As a first filter, it worked, just not well enough to trust yet.">
+<meta property="og:title" content="Should a decision model judge your tests first? · blastproof">
+<meta property="og:description" content="I put two new decision models in front of the LLM that judges every step in blastproof, and measured accuracy, cost and time. One of them is now my pick.">
 <meta property="og:image" content="https://blastproof.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -59,51 +59,70 @@
 
   <main class="article">
     <span class="label">Notes · model evaluation</span>
-    <h1>Can a cheaper model decide if <mark>your test passed?</mark></h1>
-    <p class="lede">I tried a much cheaper model as blastproof's judge. Alone, it failed good tests. As a first filter, it worked, just not well enough to trust yet.</p>
-    <div class="byline"><span>published <b>2026-10-15</b></span><span>4 min read</span><span>issue <a href="https://github.com/hamc/blastproof/issues/174">#174</a></span></div>
+    <h1>Should a decision model <mark>judge your tests first?</mark></h1>
+    <p class="lede">I put two new decision models in front of the LLM that judges every step in blastproof, and measured accuracy, cost and time. One of them is now my pick.</p>
+    <div class="byline"><span>published <b>2026-10-17</b></span><span>6 min read</span><span>issue <a href="https://github.com/hamc/blastproof/issues/174">#174</a></span></div>
 
     <p>Every step in a blastproof test ends with a question to an LLM: does the page show what the step describes? I call this model the judge.</p>
-    <p>Its answer decides whether a pull request can merge, so it has to be right. And it runs on every step, so it adds up on the bill.</p>
-    <p>When TypeSafe AI released <a href="https://typesafe.ai/blog/introducing-system-one-models-and-jev">Jev</a>, it looked like a good fit. It's a decision model: instead of writing text, it answers a yes-or-no question with a probability, for a fraction of what an LLM charges. A judge only needs a yes or a no.</p>
+    <p>A wrong answer can let a bug through. And since the judge runs on every step, the cost adds up quickly.</p>
+    <p>A new kind of model looks made for this job. A decision model doesn't write text: it answers a yes-or-no question with a probability, for a fraction of what an LLM charges. A judge only needs a yes or a no.</p>
+    <p>I tested the two available on OpenRouter: TypeSafe AI's <a href="https://typesafe.ai/blog/introducing-system-one-models-and-jev">Jev</a> and Liquid AI's <code>d1-ultra</code>, released this week. The question: is it worth putting one in front of the usual judge, and with which settings?</p>
 
-    <h2>The quiz</h2>
-    <p>The repository keeps 41 judge inputs, taken from every time a verdict went wrong in the past, each with its correct answer. Any change to the judge has to pass them before it merges.</p>
-    <p>My first run said Jev got 34 right and passed 6 steps it should have failed. I wrote that it was not usable.</p>
-    <p>I was wrong. My script sent Jev the steps with secrets as <code>{{env.NAME}}</code> placeholders, while the page shows them as <code>[redacted NAME]</code>. blastproof rewrites one into the other before asking the judge, and checks the labels after it answers. My script did neither, and those six errors were exactly the cases the check exists for.</p>
-    <p>Measured the right way, Jev got 40 of 41, with no wrong passes. On the same inputs, <code>claude-haiku-4.5</code> got 39 and <code>gpt-6-luna</code> got 41.</p>
-    <p>The lesson for me: measure a model with the same input and the same checks the product uses. Otherwise you are measuring your script.</p>
-
-    <h2>The real exam</h2>
-    <p>Isolated questions don't show how verdicts add up during a run. So I plugged Jev in as the judge, on a branch that was never merged, and ran the suite of a real budgeting app: 21 tests, three times each. The comparison is <code>claude-haiku-5.5</code>, which did the acting in every run and, without Jev, the judging too.</p>
-    <p>Alone, Jev failed the same correct test in all three runs. The step picked a payee in a rule form and checked that the form showed it. It did.</p>
-    <p>The catch is in the judge's instructions. They say a value sitting in a form that wasn't submitted is not a saved result, a rule that came from an old bug. Jev applied it to a step that was only about the form's content. Its own documentation warns that it "can be quite literal".</p>
-
-    <h2>Jev as a first filter</h2>
-    <p>Most steps pass, and a pass is the easy case: the page shows what the step describes. A failure is where the judge earns its price. It has to explain what is missing, because the agent reads that reason to try again, and the report shows it to whoever fixes the bug.</p>
-    <p>So I split the work, like a triage:</p>
+    <h2>Why first, and not alone</h2>
+    <p>Most steps pass, and a pass is the easy case: the page shows what the step describes. A failure is where the judge earns its price. It has to explain what is missing, because the agent reads that reason to try again, and the report shows it to whoever fixes the bug. A decision model gives no reason.</p>
+    <p>So I split the work:</p>
     <ol class="flow">
-      <li><span><b>Jev looks first.</b> If it says yes, the step passes. No LLM call.</span></li>
-      <li><span><b>If Jev says no, the usual judge looks again.</b> Here that's <code>claude-haiku-5.5</code>. It decides, and writes the reason.</span></li>
+      <li><span><b>The decision model looks first.</b> If it's sure enough the page is right, the step passes. No LLM call.</span></li>
+      <li><span><b>Otherwise, the usual judge looks again.</b> Here that's <code>claude-haiku-5.5</code>. It decides, and writes the reason.</span></li>
     </ol>
-    <p>Jev said yes to about three of every four judgments, so most of the time Haiku 5.5 was never called to judge. With the bill itemized on one run of each:</p>
+    <p>A wrong no from the decision model costs one extra call. A wrong yes is a bug that merges. That asymmetry drives everything below.</p>
+
+    <h2>How I measured</h2>
+    <p><code>claude-haiku-5.5</code> judging every step is the baseline. It also did the acting, deciding what to click and type, in every run.</p>
+    <ul>
+      <li><b>Whole runs on a real budgeting app.</b> 21 tests, five runs per setup, with every call's price recorded.</li>
+      <li><b>Same page, three judges.</b> In separate runs, every judgment was asked of Jev, <code>d1-ultra</code> and <code>claude-haiku-5.5</code> on the very same page. That takes the acting model's randomness out of the comparison: 501 judgments on the real app. Where the judges disagreed, I checked the saved page myself rather than treating the LLM's verdict as the right answer.</li>
+      <li><b>Planted bugs.</b> blastproof's demo shop with 16 kinds of seeded bug, at least 10 runs each, judged the same way. Six of them aim at numbers and dates, which Jev's documentation says it can misread: a total of $114.00 for $141.00, $14.10 for $141.00, 60 cents too much, a date one day off, two orders' dates or totals swapped.</li>
+    </ul>
+
+    <h2>Accuracy: no false passes on the bugs I tested</h2>
+    <p>Across the 162 runs with a bug, no judge passed a step that showed one. Not <code>claude-haiku-5.5</code>, not Jev, not <code>d1-ultra</code>, at any line I tried between 0.5 and 0.8.</p>
+    <p>The probabilities say more than the verdicts. On a page with a bug, <code>d1-ultra</code> never went above 0.07. Jev reached 0.17 on a discount of 10% where the step asked for 20%. Still a no, but closer, on the numbers its own documentation says it can miss.</p>
+    <p>Zero in 162 doesn't mean never. The honest claim is that, on bugs like these, each setup lets through fewer than about 2%.</p>
+    <p>The two models part ways on correct pages. On the 501 shared judgments from the real app:</p>
     <div class="tablewrap"><table>
-      <thead><tr><th>judge</th><th>tests passed</th><th>cost of the run</th><th>time</th></tr></thead>
+      <thead><tr><th></th><th>agrees with <code>claude-haiku-5.5</code></th><th>says no where it says yes</th><th>says yes where it says no</th></tr></thead>
       <tbody>
-        <tr><td><code>claude-haiku-5.5</code> judges every step</td><td class="n">21 of 21</td><td class="n">$0.20</td><td class="n">21 min</td></tr>
-        <tr><td>Jev first, <code>claude-haiku-5.5</code> on what it rejects</td><td class="n">21 of 21</td><td class="n">$0.18</td><td class="n">20 min</td></tr>
+        <tr><td>Jev</td><td class="n">461</td><td class="n">40</td><td class="n">0</td></tr>
+        <tr><td><code>d1-ultra</code></td><td class="n">494</td><td class="n">0</td><td class="n">7</td></tr>
       </tbody>
     </table></div>
-    <p class="caption">One run each on the real app. <code>claude-haiku-5.5</code> did the acting in both. Over three runs, both scored 100, 100 and 95.</p>
-    <p>Same accuracy, 13% cheaper and 7% faster. Less than I expected, and the reason is in where the money goes. The judge is only a third of the calls in a run. The rest is the model deciding what to click and type, and Jev doesn't replace those. Jev also reads the whole page, so it still pays for those tokens, just at a lower price: per token, it costs a bit more than a third of what Haiku 5.5 cost here. How much you save depends on the model you compare it with: the more expensive your LLM, the bigger the gap.</p>
+    <p class="caption">At a line of 0.7, with blastproof's label check on. Same pages for all three.</p>
+    <p>I read the disagreements against the saved pages. Jev's 40 were Jev being literal: steps like "choose Home Depot as the payee", passed with the form showing Home Depot, failed because the form wasn't saved yet. As a first filter that costs an LLM call, not a wrong verdict.</p>
+    <p>I checked <code>d1-ultra</code>'s 7 the same way, and <code>claude-haiku-5.5</code> was wrong in every one. The step asked what a rule form showed, the form showed it, and <code>claude-haiku-5.5</code> failed it for not being saved. The decision model read the step better than the judge it was backing up.</p>
+
+    <h2>Cost and time: lower in every run</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>per run of the real app</th><th>cost</th><th>time</th></tr></thead>
+      <tbody>
+        <tr><td><code>claude-haiku-5.5</code> judges every step</td><td class="n">$0.205 ± 0.005</td><td class="n">6.2 min</td></tr>
+        <tr><td>Jev first</td><td class="n">$0.175 ± 0.005</td><td class="n">5.4 min</td></tr>
+        <tr><td><code>d1-ultra</code> first</td><td class="n">$0.170 ± 0.002</td><td class="n">5.5 min</td></tr>
+      </tbody>
+    </table></div>
+    <p class="caption">Mean of five runs each, ± standard deviation. Prices are what OpenRouter billed per call.</p>
+    <p>15 to 17% cheaper and 11 to 13% faster. Every run with a decision model first was cheaper and faster than every run without one. <code>d1-ultra</code> passes more steps on its own, so it sends fewer to the LLM and comes out a little cheaper than Jev. On time, the two are within noise of each other.</p>
+    <p>The saving is limited because judging is only a third of the calls in a run. The rest is the model deciding what to click and type, which a decision model doesn't replace. And it reads the whole page, so it still pays for those tokens, at a lower price. The more expensive your LLM, the bigger the saving.</p>
+
+    <h2>The settings that matter</h2>
+    <p><b>Keep blastproof's label check on.</b> Secrets reach the judge as labels like <code>[redacted PASSWORD]</code>, and after a pass, blastproof checks that the label the step names is the one on the page. On 13 past cases where only that check stood between a wrong pass and a right fail, both decision models passed wrongly in about a quarter of tries without it, at 0.7. With it, never. These results make the check a requirement when using a decision model.</p>
+    <p><b>Set the line at 0.7.</b> Every bug stayed below 0.3, so there's room. Going higher mostly sends correct steps to the LLM: Jev passed 71% of the real app's judgments at 0.7 and 61% at 0.8. <code>d1-ultra</code> passed 81% at either.</p>
 
     <h2>Conclusion</h2>
-    <p>Jev alone isn't blastproof's judge. A judge that reads its instructions to the letter fails good tests, and a team that sees red builds for no reason soon learns to ignore them.</p>
-    <p>As a first filter it works, but I'm not making it the default yet, for two reasons.</p>
-    <p>First, a pass from Jev comes with no reason. Nobody reads the reasons of passing steps on a normal day. But when a test passes and shouldn't have, that reason is the only clue to what the judge saw. It's how I found the cause of past wrong passes, and then fixed them. With Jev, all I'd have is a probability.</p>
-    <p>Second, Jev would decide most passes, and I know less about how it fails than about Haiku. Its own documentation lists weaknesses that would show up as wrong passes, like imprecision with numbers and dates read as text, and none of my tests were built to probe them. Neither Jev nor Haiku made a wrong pass on the 75 cases that should fail. That's a tie on a small sample, not proof that it's safe to switch.</p>
-    <p>So it will come as an <a href="https://github.com/hamc/blastproof/issues/184">experimental option</a>, off by default, for anyone who wants to try it, especially with an expensive model doing the acting. I'll keep measuring it there.</p>
-    <p><a class="btn" href="https://github.com/hamc/blastproof/blob/main/docs/model-evaluations/jev.md">The full measurement</a></p>
+    <p>Yes, a decision model is worth it as a first filter, at 0.7 and with the label check on. It let no bug through, and made every run cheaper and faster. Of the two, <code>d1-ultra</code> is my pick: wider margin on bugs, fewer correct steps sent back, and the cheaper of the two.</p>
+    <p>One thing doesn't change: a step it passes comes with no reason, only a probability. Nobody reads the reasons of passing steps on a normal day, but when a test passes and shouldn't have, that reason is the first clue to what the judge saw.</p>
+    <p>So it will ship as an <a href="https://github.com/hamc/blastproof/issues/184">experimental option</a>, off by default, with the model as a setting and the probability and the page kept for every pass. The results are limited to one application and one acting model. I'll repeat the evaluation as more decision models become available.</p>
+    <p><a class="btn" href="https://github.com/hamc/blastproof/blob/main/docs/model-evaluations/decision-models.md">The full measurement</a></p>
   </main>
   <footer>
     <div class="row">

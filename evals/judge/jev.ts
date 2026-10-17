@@ -1,6 +1,7 @@
 /**
- * Replays the judge corpus through Jev, TypeSafe AI's decision model, to measure
- * whether it could judge a step (docs/model-evaluations/jev.md).
+ * Replays the judge corpus through a decision model (Jev, TypeSafe AI's, by
+ * default), to measure whether it could judge a step
+ * (docs/model-evaluations/decision-models.md).
  *
  * Jev returns no text, so it cannot be a `judge()`: its answer is one `noul`
  * question (the probability of "yes") asked with the judge's own system prompt as
@@ -14,7 +15,8 @@
  * vocabularies, without the check every LLM verdict gets: 6 false PASSes that the
  * judge would not have given (#174).
  *
- * `OPENROUTER_API_KEY` is required. `JEV_MODEL` defaults to `typesafe/jev-1.13`,
+ * `OPENROUTER_API_KEY` is required. `JEV_MODEL` defaults to `typesafe/jev-1.13`
+ * and takes any model on OpenRouter's Decisions API, such as `liquid/d1-ultra`;
  * `EVAL_SAMPLES` to 3. Not part of CI.
  */
 import { assertSystemPrompt, assertUserPrompt } from '../../src/llm/prompts.js';

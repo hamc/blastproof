@@ -7,6 +7,7 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ### Documentation
 
+- Two decision models measured as a first judge: `typesafe/jev-1.13` and `liquid/d1-ultra`, in front of the LLM judge at a threshold of 0.7 with the label check on, let no planted bug through in 162 runs, and made every run on a real app cheaper and faster: 15 to 17% and 11 to 13% on average. Judged on the same pages, `d1-ultra` agreed with `claude-haiku-5.5` on 494 of 501 judgments, and the LLM was wrong on the other 7. The record moves to `docs/model-evaluations/decision-models.md`; an opt-in option is planned ([#184](https://github.com/hamc/blastproof/issues/184)).
 - Jev measured as the judge in whole runs, and not adopted: alone, it failed a correct test in every run on a real app; as a first pass in front of the LLM judge, it was as accurate, 13% cheaper and 7% faster, but a pass it gives has no reason, and its documented weaknesses (numbers, dates) are untested here ([#174](https://github.com/hamc/blastproof/issues/174)).
 
 ## [0.27.0] — 2026-10-13
