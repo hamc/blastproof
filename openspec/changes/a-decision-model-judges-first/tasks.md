@@ -33,8 +33,8 @@
 
 ## 5. Documentation and wrap-up
 
-- [ ] 5.1 `docs/configuration.md`: the section, marked experimental, with what it was measured on, the budget note and the jsonl; `docs/model-evaluations/decision-models.md` says it exists and how to turn it on; CHANGELOG entry
+- [x] 5.1 `docs/configuration.md`: the section, marked experimental, with what it was measured on, the budget note and the jsonl; `docs/model-evaluations/decision-models.md` says it exists and how to turn it on; CHANGELOG entry
 - [ ] 5.2 Site article `/notes/jev-as-a-judge`: the byline keeps `published 2026-10-17` and adds `updated <merge date>`; the closing paragraph says the option exists and how to turn it on, and the cost-and-time section explains why the time saved is smaller than the calls saved; the notes index shows the update too. Deployed as a branch preview and approved before the pull request merges; production deploy after the merge
-- [ ] 5.3 AGENTS.md: config conventions list `first_judge`; one convention paragraph on the first judge
+- [x] 5.3 AGENTS.md: config conventions list `first_judge`; one convention paragraph on the first judge
 - [ ] 5.4 `npm run build`, `npm run typecheck`, `npm test` pass
 - [ ] 5.5 Archive in the same pull request, as its own commit

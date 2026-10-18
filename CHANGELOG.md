@@ -5,6 +5,24 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Added
+
+- **An opt-in decision model in front of the judge** (experimental, [#184](https://github.com/hamc/blastproof/issues/184)).
+  `first_judge: { model: liquid/d1-ultra }`, or `BLASTPROOF_FIRST_JUDGE_MODEL`, asks a model on
+  OpenRouter's Decisions API first. At a probability of 0.7 or more the step passes without an LLM
+  call, after the same label check every pass gets; everything else goes to the LLM judge, which
+  writes the reason as before. Its calls count against the budget and are bounded like every model
+  call. The summary counts what it passed and what it sent on, and `first-judge.jsonl` keeps the
+  page and the probability behind every decision, since a pass from it has no reason. Off by
+  default.
+
+### Tests
+
+- Six mutants on numbers and dates join the reliability benchmark: a total with transposed digits
+  or a moved decimal point, a cart total 60 cents high, an order dated a day late, and two orders
+  showing each other's dates or totals. The dogfood suite gains `orders-detail.yaml`, which checks
+  each order's date and total.
+
 ### Documentation
 
 - Two decision models measured as a first judge: `typesafe/jev-1.13` and `liquid/d1-ultra`, in front of the LLM judge at a threshold of 0.7 with the label check on, let no planted bug through in 162 runs, and made every run on a real app cheaper and faster: 15 to 17% and 11 to 13% on average. Judged on the same pages, `d1-ultra` agreed with `claude-haiku-5.5` on 494 of 501 judgments, and the LLM was wrong on the other 7. The record moves to `docs/model-evaluations/decision-models.md`; an opt-in option is planned ([#184](https://github.com/hamc/blastproof/issues/184)).

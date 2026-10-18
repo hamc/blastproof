@@ -12,6 +12,7 @@ except `base_url` — each section below says what happens when you leave it out
 - [`browser` — waiting and snapshots](#browser--waiting-and-snapshots)
 - [`concurrency` — running tests at once](#concurrency--running-tests-at-once)
 - [`budget` — bounding what a run spends](#budget--bounding-what-a-run-spends)
+- [`first_judge` — a decision model before the judge (experimental)](#first_judge--a-decision-model-before-the-judge-experimental)
 - [`max_retries_per_step`](#max_retries_per_step)
 - [`routes` and `ignore`](#routes-and-ignore)
 - [`allowed_origins`](#allowed_origins)
@@ -35,6 +36,8 @@ file edit, and a single invocation can override the CI job.
 | `BLASTPROOF_MAX_LLM_CALLS` | `budget.max_llm_calls` |
 | `BLASTPROOF_MAX_TOKENS` | `budget.max_tokens` |
 | `BLASTPROOF_MAX_DURATION_S` | `budget.max_duration_s` |
+| `BLASTPROOF_FIRST_JUDGE_MODEL` | `first_judge.model`, and turns the first judge on |
+| `BLASTPROOF_FIRST_JUDGE_THRESHOLD` | `first_judge.threshold` |
 
 ## `base_url`
 
@@ -100,7 +103,7 @@ npm run build
 EVAL_MODELS=openai/gpt-oss-20b npm run eval:reliability
 ```
 
-Models that cannot take every role are measured on the role they could take. [Two decision models](./model-evaluations/decision-models.md), which generate no text, were measured as a judge: as a first pass in front of the LLM judge they were as accurate and made every run cheaper and faster, but a pass they give has no reason.
+Models that cannot take every role are measured on the role they could take. [Two decision models](./model-evaluations/decision-models.md), which generate no text, were measured as a judge: as a first pass in front of the LLM judge they were as accurate and made every run cheaper and faster, but a pass they give has no reason. You can turn one on with [`first_judge`](#first_judge--a-decision-model-before-the-judge-experimental).
 
 ### OpenAI-compatible gateways
 
@@ -367,6 +370,66 @@ blastproof run
 Your figures will differ. Cost scales with the number of steps, how dense your
 pages are, and how often the agent has to retry. Run yours once and read the
 `Spent:` line.
+
+## `first_judge` — a decision model before the judge (experimental)
+
+Off unless you configure it. Every step ends with a question to the LLM judge:
+does the page show what the step describes? With `first_judge:`, a decision
+model is asked first. A decision model answers a yes/no question with a
+probability and writes no text, for a fraction of an LLM's price.
+
+```yaml
+first_judge:
+  model: liquid/d1-ultra             # required: a model on OpenRouter's Decisions API
+  api_key_env: OPENROUTER_API_KEY    # default
+  threshold: 0.7                     # default
+```
+
+Or for one run, without touching the file:
+
+```bash
+export OPENROUTER_API_KEY=...
+BLASTPROOF_FIRST_JUDGE_MODEL=liquid/d1-ultra blastproof run
+```
+
+- **At or above the threshold**, the step passes without an LLM call, after the
+  same label check every pass gets: a step naming `[redacted A]` cannot pass on
+  a page that shows only `[redacted B]`.
+- **Everything else goes to the LLM judge**, which decides it and writes the
+  reason, exactly as without a first judge. That covers an answer below the
+  threshold, a page too large for the model, and an answer that carries no
+  probability.
+
+A failure therefore always has a reason. A pass from the first judge does not:
+its result says the model and the probability instead. Every decision it makes
+is written to `first-judge.jsonl` in the run's report directory, with the step,
+the claim, the masked page it read, the probability and what was done with it,
+so a pass can be checked after the fact. The run's summary counts them:
+
+```
+First judge (experimental, liquid/d1-ultra at 0.7): 81 passed, 19 to the LLM judge
+```
+
+**What it was measured on.** `liquid/d1-ultra` and `typesafe/jev-1.13`, at 0.7,
+in front of `claude-haiku-5.5`: no planted bug passed in 162 runs, and every run
+of a real budgeting app's 21 tests was 15 to 17% cheaper and 11 to 13% faster
+([the full measurement](./model-evaluations/decision-models.md)). That is one
+real application and one acting model. `liquid/d1-ultra` separated correct pages
+from broken ones more widely, and is the one to start with.
+
+**Why it is not the default.** A pass with no reason is harder to diagnose when
+it is wrong, and reasons are how wrong passes were found before ([#87](https://github.com/hamc/blastproof/issues/87),
+[#120](https://github.com/hamc/blastproof/issues/120), [#147](https://github.com/hamc/blastproof/issues/147)). It is experimental because the Decisions API is an `alpha` endpoint, and
+its shape may change.
+
+**What it costs in the budget.** Each question to the first judge is a model
+call, counted by `budget.max_llm_calls` and `budget.max_tokens` like any other,
+and bounded by `llm.timeout_s` and the run's deadline. A judgment it sends to
+the LLM makes two calls, so a budget sized without it can bind sooner, and the
+`--dry-run` ceiling counts two calls for every judgment. A refusal from its
+endpoint (a rejected key, no credit) stops the run, as one from the LLM's does.
+
+`plan` does not use it: its only judgments are a login's.
 
 ## `max_retries_per_step`
 

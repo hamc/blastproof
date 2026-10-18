@@ -1,6 +1,6 @@
 # Decision models as a first judge
 
-**Result:** worth it as a first pass in front of the LLM judge, at a threshold of 0.7 with the label check on, and not as the only judge. Measured on TypeSafe AI's `typesafe/jev-1.13` and Liquid AI's `liquid/d1-ultra` (2026-10-15 snapshot) on 2026-10-14 to 2026-10-17 ([#174](https://github.com/hamc/blastproof/issues/174)). Neither let a planted bug through in 162 runs; both made every run on a real app cheaper and faster. `d1-ultra` separated correct pages from broken ones more widely than Jev. Not shipped: an opt-in experimental option is planned in [#184](https://github.com/hamc/blastproof/issues/184).
+**Result:** worth it as a first pass in front of the LLM judge, at a threshold of 0.7 with the label check on, and not as the only judge. Measured on TypeSafe AI's `typesafe/jev-1.13` and Liquid AI's `liquid/d1-ultra` (2026-10-15 snapshot) on 2026-10-14 to 2026-10-17 ([#174](https://github.com/hamc/blastproof/issues/174)). Neither let a planted bug through in 162 runs; both made every run on a real app cheaper and faster. `d1-ultra` separated correct pages from broken ones more widely than Jev. Not the default. It ships as an opt-in experimental option, [`first_judge`](../configuration.md#first_judge--a-decision-model-before-the-judge-experimental) ([#184](https://github.com/hamc/blastproof/issues/184)).
 
 A decision model takes a state and typed questions and returns probabilities. It generates no text. Both are served on OpenRouter's Decisions API (`/api/alpha/decisions`), asked here as one yes/no `noul` question.
 
@@ -104,7 +104,7 @@ Not shipped as the default.
 - **Alone**, a decision model's failure has no reason, and the agent's retry and the report read that reason. Jev alone also failed a correct test in every run.
 - **As a first pass** it is as accurate as the LLM judge on everything measured, and cheaper and faster. What it lacks is the reason for a pass. Nobody reads those on a normal day, but a reason is how wrong passes were diagnosed before (#87, #120, #147).
 
-[#184](https://github.com/hamc/blastproof/issues/184) plans it as an opt-in experimental option: the model as a setting, the label check always on, and the probability and the page kept for every pass.
+It ships as an opt-in experimental option ([#184](https://github.com/hamc/blastproof/issues/184)), [`first_judge`](../configuration.md#first_judge--a-decision-model-before-the-judge-experimental): the model as a setting, the threshold at 0.7 by default, the label check always on, and the probability and the page kept for every decision in `first-judge.jsonl`. It asks the question measured here, from the same code `evals/judge/jev.ts` replays.
 
 The limits: one real app, one acting model, mutants on one demo app.
 
@@ -119,7 +119,12 @@ The limits: one real app, one acting model, mutants on one demo app.
 OPENROUTER_API_KEY=… JEV_MODEL=liquid/d1-ultra npx tsx evals/judge/jev.ts
 ```
 
-`JEV_MODEL` takes any model on OpenRouter's Decisions API. It prints each case with its probabilities, marks the cases the label check failed, and ends with the cases right in every sample, the false PASSes and the cost. For the LLM judges on the same corpus:
+`JEV_MODEL` takes any model on OpenRouter's Decisions API, and `JEV_THRESHOLD` the line a PASS needs (0.5 by default; the option ships at 0.7). It prints each case with its probabilities, marks the cases the label check failed, and ends with the cases right in every sample, the false PASSes and the cost. The reliability benchmark measures the option itself, mutants included:
+
+```bash
+npm run build
+OPENROUTER_API_KEY=… BLASTPROOF_FIRST_JUDGE_MODEL=liquid/d1-ultra npm run eval:reliability
+``` For the LLM judges on the same corpus:
 
 ```bash
 EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna EVAL_SAMPLES=3 npm run eval:judge
