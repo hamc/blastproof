@@ -305,7 +305,9 @@ footer a:hover{color:var(--ink)}
 .notes-list li{border-bottom:1px solid var(--rule)}
 .notes-list a{display:grid;grid-template-columns:130px minmax(0,1fr);gap:8px 24px;padding:22px 0;text-decoration:none;color:inherit}
 @media (max-width:600px){.notes-list a{grid-template-columns:minmax(0,1fr)}}
-.notes-list time{font-family:var(--mono);font-size:12px;color:var(--muted);padding-top:4px}
+.notes-list time,.notes-list .date{font-family:var(--mono);font-size:12px;color:var(--muted);padding-top:4px}
+.notes-list .date time{padding:0}
+.notes-list .date>span{display:block;margin-top:2px}
 .notes-list strong{display:block;font-size:21px;font-weight:600;letter-spacing:-.01em;margin-bottom:6px}
 .notes-list a:hover strong{text-decoration:underline;text-decoration-color:var(--fuse);text-underline-offset:5px}
 .notes-list .sum{display:block;margin:0;color:var(--muted);font-size:15.5px;max-width:62ch}

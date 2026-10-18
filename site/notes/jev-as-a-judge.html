@@ -10,6 +10,8 @@
 <meta property="og:url" content="https://blastproof.dev/notes/jev-as-a-judge">
 <meta property="og:title" content="Should a decision model judge your tests first? · blastproof">
 <meta property="og:description" content="I put two new decision models in front of the LLM that judges every step in blastproof, and measured accuracy, cost and time. One of them is now my pick.">
+<meta property="article:published_time" content="2026-10-17">
+<meta property="article:modified_time" content="2026-10-18">
 <meta property="og:image" content="https://blastproof.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -61,7 +63,7 @@
     <span class="label">Notes · model evaluation</span>
     <h1>Should a decision model <mark>judge your tests first?</mark></h1>
     <p class="lede">I put two new decision models in front of the LLM that judges every step in blastproof, and measured accuracy, cost and time. One of them is now my pick.</p>
-    <div class="byline"><span>published <b>2026-10-17</b></span><span>6 min read</span><span>issue <a href="https://github.com/hamc/blastproof/issues/174">#174</a></span></div>
+    <div class="byline"><span>published <b>2026-10-17</b></span><span>updated <b>2026-10-18</b></span><span>6 min read</span><span>issue <a href="https://github.com/hamc/blastproof/issues/174">#174</a></span></div>
 
     <p>Every step in a blastproof test ends with a question to an LLM: does the page show what the step describes? I call this model the judge.</p>
     <p>A wrong answer can let a bug through. And since the judge runs on every step, the cost adds up quickly.</p>
@@ -112,6 +114,7 @@
     </table></div>
     <p class="caption">Mean of five runs each, ± standard deviation. Prices are what OpenRouter billed per call.</p>
     <p>15 to 17% cheaper and 11 to 13% faster. Every run with a decision model first was cheaper and faster than every run without one. <code>d1-ultra</code> passes more steps on its own, so it sends fewer to the LLM and comes out a little cheaper than Jev. On time, the two are within noise of each other.</p>
+    <p>The time saved is smaller than the calls saved. With <code>d1-ultra</code> first, a run made 26% fewer LLM calls (237 instead of 320) but took only 11% less time. A decision call is quicker than an LLM call, not free: it still reads the whole page. A step it sends back makes two calls in a row instead of one. And part of every run is the browser, loading pages and waiting for them to settle, which no judge shortens.</p>
     <p>The saving is limited because judging is only a third of the calls in a run. The rest is the model deciding what to click and type, which a decision model doesn't replace. And it reads the whole page, so it still pays for those tokens, at a lower price. The more expensive your LLM, the bigger the saving.</p>
 
     <h2>The settings that matter</h2>
@@ -121,8 +124,9 @@
     <h2>Conclusion</h2>
     <p>Yes, a decision model is worth it as a first filter, at 0.7 and with the label check on. It let no bug through, and made every run cheaper and faster. Of the two, <code>d1-ultra</code> is my pick: wider margin on bugs, fewer correct steps sent back, and the cheaper of the two.</p>
     <p>One thing doesn't change: a step it passes comes with no reason, only a probability. Nobody reads the reasons of passing steps on a normal day, but when a test passes and shouldn't have, that reason is the first clue to what the judge saw.</p>
-    <p>So it will ship as an <a href="https://github.com/hamc/blastproof/issues/184">experimental option</a>, off by default, with the model as a setting and the probability and the page kept for every pass. The results are limited to one application and one acting model. I'll repeat the evaluation as more decision models become available.</p>
-    <p><a class="btn" href="https://github.com/hamc/blastproof/blob/main/docs/model-evaluations/decision-models.md">The full measurement</a></p>
+    <p>So it ships as an <a href="https://github.com/hamc/blastproof/issues/184">experimental option</a>, off by default, in the release after 0.27.0. To turn it on, export <code>OPENROUTER_API_KEY</code> and add a <code>first_judge</code> section with <code>model: liquid/d1-ultra</code> to <code>.blastproof/config.yaml</code>, or set <code>BLASTPROOF_FIRST_JUDGE_MODEL=liquid/d1-ultra</code> for one run. The line defaults to 0.7 and the label check always runs. Every decision, with its probability and the page it read, goes to <code>first-judge.jsonl</code> beside the run's reports, and the summary says how many steps it passed.</p>
+    <p>The results are limited to one application and one acting model. I'll repeat the evaluation as more decision models become available.</p>
+    <p><a class="btn" href="https://github.com/hamc/blastproof/blob/main/docs/model-evaluations/decision-models.md">The full measurement</a> <a class="btn" href="https://github.com/hamc/blastproof/blob/main/docs/configuration.md#first_judge--a-decision-model-before-the-judge-experimental">How to turn it on</a></p>
   </main>
   <footer>
     <div class="row">
