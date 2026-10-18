@@ -28,10 +28,12 @@
 
 - [x] 4.1 Six number and date mutants on the demo app's orders and cart pages in `evals/reliability/mutants.json`; `tests/reliability.test.ts` passes (design D9)
   - *Done.* As the lab defined them, with its `orders-detail.yaml` in the dogfood suite; every edit applies exactly once
-- [ ] 4.2 `npm run eval:judge` on the reference pair unchanged (the LLM path is untouched) and `jev.ts` on `liquid/d1-ultra` at 0.7: no false PASS
-  - `jev.ts`, `liquid/d1-ultra` at 0.7, 3 samples: 39 of 41 cases right in every sample, no false PASS on 25 FAIL cases, $0.0085. The two misses are #121 PASS cases at p 0.52–0.77, which go to the LLM judge
+- [x] 4.2 `npm run eval:judge` on the reference pair unchanged (the LLM path is untouched) and `jev.ts` on `liquid/d1-ultra` at 0.7: no false PASS
+  - `jev.ts`, `liquid/d1-ultra` at 0.7, 3 samples: 39 of 41 cases right in every sample, no false PASS on 25 FAIL cases, $0.0085. The two misses are #121 PASS cases at p 0.52–0.77, which go to the LLM judge. They are the two #129 cases Haiku 4.5 also misses
+  - `eval:judge`, `claude-haiku-4.5` and `gpt-6-luna` through OpenRouter, 3 samples: no regression; the only misses are the two known #129 cases on Haiku
 - [ ] 4.3 `npm run eval:reliability` with `BLASTPROOF_FIRST_JUDGE_MODEL=liquid/d1-ultra` on Haiku, new mutants included: no false PASS; compare calls with the run without it
-- [ ] 4.4 Live: the budgeting app's suite with the first judge; the summary line and the jsonl match the run
+- [x] 4.4 Live: the budgeting app's suite with the first judge; the summary line and the jsonl match the run
+  - Actual 26.10.0, `claude-haiku-5.5` acting, `liquid/d1-ultra` at 0.7, one run: score 95, 331 model calls. Summary `76 passed, 20 to the LLM judge`; the jsonl has 96 lines, 76 `passed` and 20 `to-llm`. 79% passed by the first judge, against 81% in #174. The one failure is the acting model's (a schedule saved with no account, as #174 saw), and its reason is the LLM judge's
 
 ## 5. Documentation and wrap-up
 
