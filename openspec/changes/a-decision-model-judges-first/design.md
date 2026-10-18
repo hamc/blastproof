@@ -111,4 +111,7 @@ The dates and the per-order totals had no step checking them, so the lab's `orde
 
 ## Open Questions
 
-- `d1-ultra`'s context limit, and the usage field names in a live response: both confirmed during implementation, changing only a constant and a field name. Until then the client reads `usage.total_tokens`, or `prompt_tokens` plus `completion_tokens`, and records a call without tokens when neither is there.
+Resolved during implementation, against the live endpoint on 2026-10-18:
+
+- **Usage** arrives as `usage: { input_tokens, output_tokens, cost }`. Output is usually 0, and Jev reported 20 once. The client counts their sum.
+- **`liquid/d1-ultra`'s limit** is 32,768 tokens or 250,000 bytes per question. Over it, the endpoint answers 422 ("over the model's input limit"). Jev accepted 30,297 tokens. The 60,000-character bound stays under both at 2 characters per token, and a snapshot runs nearer 4.

@@ -8,7 +8,8 @@
 
 ## 2. The client and the choke point
 
-- [ ] 2.1 Confirm against a live response the `noul` answer's shape, the usage field names, and `d1-ultra`'s documented context limit; record them in the design's Open Questions (design D3, D6)
+- [x] 2.1 Confirm against a live response the `noul` answer's shape, the usage field names, and `d1-ultra`'s documented context limit; record them in the design's Open Questions (design D3, D6)
+  - *Done.* `usage` is `input_tokens`/`output_tokens`, not the names the client first read; fixed, with the tests' fixtures moved to the real shape. The limit is 32,768 tokens, refused with a 422. The shipped client on the live API: p = 0.985 on the orders page, 0.035 with its total transposed
 - [x] 2.2 `brain.ts`: `countedGenerate` over a general `counted(budget, call)`; existing budget, timeout, deadline and refusal tests pass unchanged (design D3)
 - [x] 2.3 `llm/decision.ts`: the `fetch` client, `APICallError` on an error status or a network failure, two retries with the SDK's backoff, abort across retries; unit tests with a stubbed `fetch` for success, 401, 503-then-success, network error, abort (design D2)
 - [x] 2.4 `prompts.ts`: `firstJudgeQuestion()` (instructions + criteria from `evals/judge/jev.ts`); `jev.ts` imports it (design D4)
@@ -28,6 +29,7 @@
 - [x] 4.1 Six number and date mutants on the demo app's orders and cart pages in `evals/reliability/mutants.json`; `tests/reliability.test.ts` passes (design D9)
   - *Done.* As the lab defined them, with its `orders-detail.yaml` in the dogfood suite; every edit applies exactly once
 - [ ] 4.2 `npm run eval:judge` on the reference pair unchanged (the LLM path is untouched) and `jev.ts` on `liquid/d1-ultra` at 0.7: no false PASS
+  - `jev.ts`, `liquid/d1-ultra` at 0.7, 3 samples: 39 of 41 cases right in every sample, no false PASS on 25 FAIL cases, $0.0085. The two misses are #121 PASS cases at p 0.52–0.77, which go to the LLM judge
 - [ ] 4.3 `npm run eval:reliability` with `BLASTPROOF_FIRST_JUDGE_MODEL=liquid/d1-ultra` on Haiku, new mutants included: no false PASS; compare calls with the run without it
 - [ ] 4.4 Live: the budgeting app's suite with the first judge; the summary line and the jsonl match the run
 

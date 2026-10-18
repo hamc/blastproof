@@ -135,7 +135,7 @@ describe('a run with a first judge reports and keeps its decisions (design a-dec
       ].join('\n'),
     );
     const decisions = vi.fn(async () =>
-      new Response(JSON.stringify({ answers: { pass: { noul: 0.91 } }, usage: { total_tokens: 900 } })),
+      new Response(JSON.stringify({ answers: { pass: { noul: 0.91 } }, usage: { input_tokens: 900, output_tokens: 0 } })),
     );
     vi.stubGlobal('fetch', decisions);
     // The real brain, as `runOne` built it, judging one step the way the executor does.

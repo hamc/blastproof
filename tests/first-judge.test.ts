@@ -36,7 +36,11 @@ describe('the decision client (design a-decision-model-judges-first, D2)', () =>
       fetch: async (url, init) => {
         sent.url = String(url);
         sent.init = init;
-        return answer({ answers: { pass: { noul: 0.93 } }, usage: { prompt_tokens: 1200, completion_tokens: 0 } });
+        return answer({
+          model: 'liquid/d1-ultra-20261015',
+          answers: { pass: { type: 'noul', noul: 0.93 } },
+          usage: { input_tokens: 1200, output_tokens: 0, cost: 0.00005 },
+        });
       },
     });
 

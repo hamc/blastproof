@@ -17,9 +17,11 @@ export const DECISIONS_ENDPOINT = 'https://openrouter.ai/api/alpha/decisions';
 
 /**
  * The most text sent to a decision model in one request, state and
- * instructions together (design D6). Jev takes 32k tokens for the state and
- * the longest question; at a conservative 2 characters per token that is about
- * 64k characters, and this keeps a margin under it. Checked before sending: a
+ * instructions together (design D6). `liquid/d1-ultra` refuses a question over
+ * 32,768 tokens with a 422, and Jev takes 32k for the state and the longest
+ * question; at a conservative 2 characters per token that is about 64k
+ * characters, and this keeps a margin under it. An accessibility snapshot runs
+ * nearer 4 characters per token. Checked before sending: a
  * 400 does not say why it was refused, and an unknown model answers 400 too.
  */
 export const MAX_DECISION_CHARS = 60_000;
@@ -71,16 +73,16 @@ function readAnswer(text: string): DecisionAnswer {
   }
   const root = (body ?? {}) as {
     answers?: { pass?: { noul?: unknown } };
-    usage?: { total_tokens?: unknown; prompt_tokens?: unknown; completion_tokens?: unknown };
+    usage?: { input_tokens?: unknown; output_tokens?: unknown };
   };
   const raw = root.answers?.pass?.noul;
   const p = typeof raw === 'number' && raw >= 0 && raw <= 1 ? raw : undefined;
-  const usage = root.usage;
-  let totalTokens: number | undefined;
-  if (typeof usage?.total_tokens === 'number') totalTokens = usage.total_tokens;
-  else if (typeof usage?.prompt_tokens === 'number') {
-    totalTokens = usage.prompt_tokens + (typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0);
-  }
+  // `{ input_tokens, output_tokens, cost }`, as the Decisions API answered on
+  // 2026-10-18. Output is usually 0 and sometimes not: Jev reported 20.
+  const input = root.usage?.input_tokens;
+  const output = root.usage?.output_tokens;
+  const totalTokens =
+    typeof input === 'number' ? input + (typeof output === 'number' ? output : 0) : undefined;
   return { p, usage: { totalTokens } };
 }
 
