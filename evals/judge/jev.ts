@@ -6,7 +6,8 @@
  * Jev returns no text, so it cannot be a `judge()`: its answer is one `noul`
  * question (the probability of "yes") asked with the judge's own system prompt as
  * the instructions and the judge's own user prompt as the state. A probability of
- * 0.5 or more counts as PASS.
+ * `JEV_THRESHOLD` (default 0.5) or more counts as PASS; the product's first judge
+ * defaults to 0.7.
  *
  * It gets what `judge()` gives the LLM and keeps what `judge()` does after it: the
  * step, the claim and the record with every `{{env.NAME}}` rewritten as
@@ -19,7 +20,7 @@
  * and takes any model on OpenRouter's Decisions API, such as `liquid/d1-ultra`;
  * `EVAL_SAMPLES` to 3. Not part of CI.
  */
-import { assertSystemPrompt, assertUserPrompt } from '../../src/llm/prompts.js';
+import { assertUserPrompt, firstJudgeQuestion } from '../../src/llm/prompts.js';
 import { secretMismatch } from '../../src/llm/brain.js';
 import { placeholdersAsLabels } from '../../src/runner/env.js';
 import { loadCorpus } from './corpus.js';
@@ -27,18 +28,15 @@ import { loadCorpus } from './corpus.js';
 const ENDPOINT = 'https://openrouter.ai/api/alpha/decisions';
 const model = process.env.JEV_MODEL ?? 'typesafe/jev-1.13';
 const samples = Number(process.env.EVAL_SAMPLES ?? 3);
+const threshold = Number(process.env.JEV_THRESHOLD ?? 0.5);
 const key = process.env.OPENROUTER_API_KEY;
 if (!key) {
   console.error('OPENROUTER_API_KEY is not set. Export your OpenRouter key and run again.');
   process.exit(1);
 }
 
-const system = assertSystemPrompt();
-const instructions = system.slice(0, system.indexOf('Answer with pass=true/false')).trim();
-const criteria = {
-  true: 'The snapshot shows the state the step asks for. Every value the step names appears where the step places it, committed (not only typed into an open, unsubmitted field). An outcome that is an absence is shown by the thing being absent.',
-  false: 'Some part of the outcome the step asks for is not shown, or cannot be assessed from this snapshot: a value is missing or different, appears only somewhere else on the page, or only inside an unsubmitted control, or the claim is true of something other than what the step asks.',
-};
+// The question the product's first judge asks, so the replay measures what ships.
+const { instructions, criteria } = firstJudgeQuestion();
 
 interface DecisionResponse {
   model: string;
@@ -82,8 +80,8 @@ for (const c of cases) {
     snapshot = answer.model;
     const p = answer.answers.pass.noul;
     yes.push(p);
-    const verdict = secretMismatch(step, c.snapshot, history, c.usedEarlier ?? [], { pass: p >= 0.5, reason: '' });
-    if (verdict.pass !== p >= 0.5) checked = true;
+    const verdict = secretMismatch(step, c.snapshot, history, c.usedEarlier ?? [], { pass: p >= threshold, reason: '' });
+    if (verdict.pass !== p >= threshold) checked = true;
     passes.push(verdict.pass);
   }
   const ok = passes.filter((pass) => pass === (c.verdict === 'PASS')).length;

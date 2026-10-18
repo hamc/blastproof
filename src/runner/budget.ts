@@ -312,16 +312,25 @@ export interface StepCounts {
  * Its replacement, `N + R`, was correct until a failing assert began costing
  * three calls rather than two. An estimate that undershoots is worse than none,
  * because a budget gets sized from it.
+ *
+ * With a first judge (design a-decision-model-judges-first, D8), a judgment it
+ * does not pass makes two calls, its own and the LLM judge's, so `judgeCalls`
+ * is 2 and a failing `assert` costs `1 + 2·2 = 5` calls rather than 3. The
+ * bundling argument above is unchanged, and the extra calls per bundled assert
+ * go from 1 to 3: `N + R + (2·judgeCalls − 1)·min(N, R)`.
  */
 export function estimateMaxModelCalls(
   tests: StepCounts[],
   maxIterationsPerStep: number,
   maxRetriesPerStep: number,
+  /** Calls one judgment can make: 1 for the LLM judge alone, 2 with a first judge in front of it. */
+  judgeCalls: 1 | 2 = 1,
 ): number {
   const totalSteps = tests.reduce(
     (sum, test) => sum + (test.setup?.length ?? 0) + test.steps.length,
     0,
   );
   // Derivation and the two times this formula has been wrong: see above.
-  return totalSteps * (maxIterationsPerStep + maxRetriesPerStep + Math.min(maxIterationsPerStep, maxRetriesPerStep));
+  const bundled = (2 * judgeCalls - 1) * Math.min(maxIterationsPerStep, maxRetriesPerStep);
+  return totalSteps * (maxIterationsPerStep + maxRetriesPerStep + bundled);
 }

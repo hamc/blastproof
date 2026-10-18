@@ -5,6 +5,13 @@ import { DiffError, getChangedFiles, getUncommittedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
 import { createBrain } from '../llm/brain.js';
 import { createModel, MissingApiKeyError, timeoutSeconds } from '../llm/provider.js';
+import {
+  createFirstJudgeClient,
+  FirstJudgeLog,
+  firstJudgeLogPath,
+  type DecideFn,
+  type FirstJudge,
+} from '../llm/decision.js';
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
@@ -285,8 +292,9 @@ async function runOne(
   runMask: SecretsMask,
   budget: RunBudget,
   write: LineSink,
+  firstJudge?: FirstJudge,
 ): Promise<TestResult> {
-  const brain = createBrain(createModel(config.llm).model, undefined, budget);
+  const brain = createBrain(createModel(config.llm).model, undefined, budget, firstJudge);
 
   let resolved: TestFile;
   const mask = runMask;
@@ -399,6 +407,7 @@ async function finalize(
   impact?: ImpactResult,
   incomplete?: RunStoppedError,
   spend?: BudgetSpend,
+  firstJudgeLog?: FirstJudgeLog,
 ): Promise<number> {
   if (results.length > 0) printSummary(results);
 
@@ -410,6 +419,7 @@ async function finalize(
   // picture — a run stopped on tokens still spent calls, and someone deciding
   // whether the limit was too tight needs both.
   if (spend) console.log(formatSpendLine(spend));
+  if (firstJudgeLog) console.log(firstJudgeLog.summaryLine());
 
   const score = scoreOf(results, incomplete !== undefined);
   console.log(
@@ -584,6 +594,9 @@ function printDryRun(
     withAuth,
     DEFAULT_MAX_ITERATIONS_PER_STEP,
     config.max_retries_per_step,
+    // A judgment the first judge does not pass makes two calls (design
+    // a-decision-model-judges-first, D8).
+    config.first_judge ? 2 : 1,
   );
   const authNote = authSteps.length > 0 ? ', including the login journey' : '';
   console.log(
@@ -745,9 +758,12 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return finalize(results, selection.unroutedSkipped, options, sessionDir, false, [], Date.now() - startedAt, impact);
   }
 
-  // Fail fast on a missing API key before launching any browser (spec: llm-providers).
+  // Fail fast on a missing API key before launching any browser (spec: llm-providers),
+  // the first judge's included (spec first-judge).
+  let decide: DecideFn | undefined;
   try {
     createModel(config.llm);
+    if (config.first_judge) decide = createFirstJudgeClient(config.first_judge);
   } catch (error) {
     if (error instanceof MissingApiKeyError) {
       console.error(`error: ${error.message}`);
@@ -760,6 +776,27 @@ export async function runCommand(options: RunOptions): Promise<number> {
   console.log(
     `blastproof run: ${selected.length} test(s), provider=${provider} model=${modelId}, base_url=${config.base_url}`,
   );
+  // One log for the whole run, so tests running at once add to one total
+  // (design a-decision-model-judges-first, D7).
+  const firstJudgeLog =
+    config.first_judge && decide
+      ? new FirstJudgeLog(config.first_judge.model, config.first_judge.threshold, firstJudgeLogPath(sessionDir))
+      : undefined;
+  const firstJudgeFor = (test: string): FirstJudge | undefined =>
+    firstJudgeLog && decide
+      ? {
+          model: firstJudgeLog.model,
+          threshold: firstJudgeLog.threshold,
+          decide,
+          record: (entry) => firstJudgeLog.record(test, entry),
+        }
+      : undefined;
+  if (firstJudgeLog) {
+    console.log(
+      `First judge (experimental): ${firstJudgeLog.model}, passing at p(yes) >= ${firstJudgeLog.threshold}; ` +
+        `its decisions are kept in ${path.relative(options.cwd, firstJudgeLogPath(sessionDir))}`,
+    );
+  }
 
   const runMask = buildRunMask(config, parsed);
 
@@ -810,7 +847,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
           baseUrl: config.base_url,
           allowedOrigins: config.allowed_origins,
           browser: browser as unknown as BrowserLike,
-          brain: createBrain(createModel(config.llm).model, undefined, budget),
+          brain: createBrain(createModel(config.llm).model, undefined, budget, firstJudgeFor('(login)')),
           maxRetries: config.max_retries_per_step,
           timeoutMs: config.browser.timeout_ms,
           maxSnapshotLines: config.browser.max_snapshot_lines,
@@ -867,7 +904,17 @@ export async function runCommand(options: RunOptions): Promise<number> {
           // stopped the run (design tests-in-parallel, D5) — every test queued
           // behind the stop short-circuits here without opening a context.
           budget.check();
-          const result = await runOne(browser, test, config, sessionDir, session, runMask, budget, write);
+          const result = await runOne(
+            browser,
+            test,
+            config,
+            sessionDir,
+            session,
+            runMask,
+            budget,
+            write,
+            firstJudgeFor(path.relative(options.cwd, test.path)),
+          );
           if (!streaming) for (const line of lines) console.log(line);
           return { index, result };
         } catch (error) {
@@ -911,5 +958,6 @@ export async function runCommand(options: RunOptions): Promise<number> {
     // point of ownership would print the running total twice for a single
     // allowance, the second line silently including the first.
     options.budget === undefined ? budget.spend() : undefined,
+    firstJudgeLog,
   );
 }

@@ -73,6 +73,7 @@ labelled input ──► too large? ──yes───────────�
 - **A pass the label check fails is final.** The LLM judge cannot change it: the check would fail its pass too, on the same input. Asking it would spend a call on a verdict already decided.
 - **An unreadable answer goes to the LLM** (a 2xx without a probability in [0, 1]). The first judge is a shortcut, and a missing shortcut costs a call, not a wrong verdict. This differs from a malformed LLM judgment, which is a failed attempt, because that one *is* the verdict.
 - **Inside `judge()`, not the executor.** Every caller, including the re-observation and the login check, gets it without knowing it exists, as they got the labels (`ask-the-judge-about-the-step`, D1).
+- **`run` and `test` only.** `plan` keeps the LLM judge alone. Its only judgments are a login's, it reports no verdicts, and it has no summary to report the first judge's counts in.
 
 ### D6. "Too large" is a character bound, measured before sending
 
@@ -93,7 +94,12 @@ A failing judgment makes one decision call and one LLM call, and the re-observat
 
 ### D9. Measuring before merge
 
-The six #174 mutants on numbers and dates are rebuilt on the demo app's orders and cart pages and added to `evals/reliability/mutants.json`. They are added as `literal` mutants, since each changes a value a step quotes, and they also benefit the LLM judge's benchmark. `BLASTPROOF_FIRST_JUDGE_MODEL` lets `npm run eval:reliability` measure the first judge with no code of its own.
+The six #174 mutants on numbers and dates are rebuilt as the lab defined them and added to `evals/reliability/mutants.json`:
+
+- four `literal` mutants, each changing a value a step quotes: $114.00 or $14.10 for the $141.00 total spent, a cart total 60 cents high, and an order dated a day late;
+- two `subtle` mutants naming #87, the right value in the wrong place: two orders with each other's dates, and with each other's totals.
+
+The dates and the per-order totals had no step checking them, so the lab's `orders-detail.yaml` joins the dogfood suite too. It costs one more test in every suite run, and it measures the LLM judge on these bugs as well. `BLASTPROOF_FIRST_JUDGE_MODEL` lets `npm run eval:reliability` measure the first judge with no code of its own.
 
 ## Risks / Trade-offs
 
@@ -105,4 +111,4 @@ The six #174 mutants on numbers and dates are rebuilt on the demo app's orders a
 
 ## Open Questions
 
-- `d1-ultra`'s context limit, and the usage field names in a live response: both confirmed during implementation, changing only a constant and a field name.
+- `d1-ultra`'s context limit, and the usage field names in a live response: both confirmed during implementation, changing only a constant and a field name. Until then the client reads `usage.total_tokens`, or `prompt_tokens` plus `completion_tokens`, and records a call without tokens when neither is there.

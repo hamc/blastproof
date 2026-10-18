@@ -69,6 +69,25 @@ const budgetSchema = z.object({
   max_duration_s: z.coerce.number().positive().optional(),
 });
 
+/**
+ * An opt-in decision model asked before the LLM judge (design
+ * a-decision-model-judges-first, D1). Its own section rather than a field of
+ * `llm:`, whose every field describes the one LLM provider: a decision model has
+ * its own endpoint, key and API, and inherits neither `llm.base_url` nor
+ * `extra_body`. `model` has no default: the measured models sit on an `alpha`
+ * endpoint, and a name that may be retired is better written by the user. Coerced,
+ * since `BLASTPROOF_FIRST_JUDGE_THRESHOLD` is text.
+ */
+const firstJudgeSchema = z.object({
+  model: z.string().min(1),
+  api_key_env: z.string().min(1).default('OPENROUTER_API_KEY'),
+  threshold: z.coerce
+    .number()
+    .gt(0, 'must be a probability above 0')
+    .lt(1, 'must be a probability below 1')
+    .default(0.7),
+});
+
 const cookieSchema = z.object({
   name: z.string().min(1),
   value: z.string(),
@@ -207,6 +226,7 @@ const configSchema = z.object({
    */
   concurrency: z.number().int().min(1, 'concurrency must be at least 1').default(1),
   budget: budgetSchema.optional(),
+  first_judge: firstJudgeSchema.optional(),
 });
 
 export type BlastproofConfig = z.infer<typeof configSchema>;
@@ -214,6 +234,7 @@ export type LlmConfig = BlastproofConfig['llm'];
 export type BrowserConfig = BlastproofConfig['browser'];
 export type AuthConfig = NonNullable<BlastproofConfig['auth']>;
 export type BudgetConfig = NonNullable<BlastproofConfig['budget']>;
+export type FirstJudgeConfig = NonNullable<BlastproofConfig['first_judge']>;
 
 /**
  * Environment overrides, one entry per settable field (design D2). `base_url` (the
@@ -231,6 +252,8 @@ export const ENV_OVERRIDES: Record<string, readonly [string] | readonly [string,
   BLASTPROOF_MAX_LLM_CALLS: ['budget', 'max_llm_calls'],
   BLASTPROOF_MAX_TOKENS: ['budget', 'max_tokens'],
   BLASTPROOF_MAX_DURATION_S: ['budget', 'max_duration_s'],
+  BLASTPROOF_FIRST_JUDGE_MODEL: ['first_judge', 'model'],
+  BLASTPROOF_FIRST_JUDGE_THRESHOLD: ['first_judge', 'threshold'],
 };
 
 export interface OverrideResult {
@@ -309,7 +332,7 @@ function unwrapToObjectSchema(schema: z.ZodTypeAny): z.ZodObject<z.ZodRawShape> 
 
 /**
  * Finds keys present in `data` that `schema` does not recognise, recursing into
- * nested sections (`llm`, `browser`, `budget`, `auth` — design task 3.2) so a key
+ * nested sections (`llm`, `browser`, `budget`, `auth`, `first_judge` — design task 3.2) so a key
  * misplaced inside one of them is caught too. `routes:` is a `z.record` (behind a
  * refinement), not a `z.object`, so its keys (route globs, not schema fields) are
  * deliberately never flagged: `unwrapToObjectSchema` unwraps the refinement and

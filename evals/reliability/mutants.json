@@ -152,5 +152,91 @@
         "replace": "void response;\n          document.querySelector('h1').textContent = 'Support ticket could not be sent';"
       }
     ]
+  },
+  {
+    "id": "total-transposed",
+    "class": "literal",
+    "test": ".blastproof/tests/orders.yaml",
+    "step": "verify the total spent is $141.00",
+    "bug": "the total spent reads $114.00, its digits transposed",
+    "edits": [
+      {
+        "file": "orders.html",
+        "find": "<p id=\"orders-total\">Total spent: <strong>$141.00</strong></p>",
+        "replace": "<p id=\"orders-total\">Total spent: <strong>$114.00</strong></p>"
+      }
+    ]
+  },
+  {
+    "id": "total-decimal",
+    "class": "literal",
+    "test": ".blastproof/tests/orders.yaml",
+    "step": "verify the total spent is $141.00",
+    "bug": "the total spent reads $14.10, its decimal point moved",
+    "edits": [
+      {
+        "file": "orders.html",
+        "find": "<p id=\"orders-total\">Total spent: <strong>$141.00</strong></p>",
+        "replace": "<p id=\"orders-total\">Total spent: <strong>$14.10</strong></p>"
+      }
+    ]
+  },
+  {
+    "id": "cart-total-cents",
+    "class": "literal",
+    "test": ".blastproof/tests/cart-discount.yaml",
+    "step": "verify the total is $96.00",
+    "bug": "the cart total is 60 cents too high",
+    "edits": [
+      {
+        "file": "app.js",
+        "find": "document.getElementById('total').textContent = money(Math.max(0, subtotal - discount));",
+        "replace": "document.getElementById('total').textContent = money(Math.max(0, subtotal - discount) + 0.6);"
+      }
+    ]
+  },
+  {
+    "id": "date-off-by-one",
+    "class": "literal",
+    "test": ".blastproof/tests/orders-detail.yaml",
+    "step": "verify order \"#BP-1001\" is dated 2026-07-20 with a total of $96.00",
+    "bug": "order #BP-1001 is dated a day late, 2026-07-21",
+    "edits": [
+      {
+        "file": "orders.html",
+        "find": "<tr><td>#BP-1001</td><td>2026-07-20</td><td>2</td><td>$96.00</td><td>Delivered</td></tr>",
+        "replace": "<tr><td>#BP-1001</td><td>2026-07-21</td><td>2</td><td>$96.00</td><td>Delivered</td></tr>"
+      }
+    ]
+  },
+  {
+    "id": "dates-swapped",
+    "class": "subtle",
+    "incident": "#87: the right value in the wrong place",
+    "test": ".blastproof/tests/orders-detail.yaml",
+    "step": "verify order \"#BP-1001\" is dated 2026-07-20 with a total of $96.00",
+    "bug": "the two orders show each other's dates",
+    "edits": [
+      {
+        "file": "orders.html",
+        "find": "<tr><td>#BP-1001</td><td>2026-07-20</td><td>2</td><td>$96.00</td><td>Delivered</td></tr>\n        <tr><td>#BP-1000</td><td>2026-07-11</td><td>1</td><td>$45.00</td><td>Refunded</td></tr>",
+        "replace": "<tr><td>#BP-1001</td><td>2026-07-11</td><td>2</td><td>$96.00</td><td>Delivered</td></tr>\n        <tr><td>#BP-1000</td><td>2026-07-20</td><td>1</td><td>$45.00</td><td>Refunded</td></tr>"
+      }
+    ]
+  },
+  {
+    "id": "totals-swapped",
+    "class": "subtle",
+    "incident": "#87: the right value in the wrong place",
+    "test": ".blastproof/tests/orders-detail.yaml",
+    "step": "verify order \"#BP-1001\" is dated 2026-07-20 with a total of $96.00",
+    "bug": "the two orders show each other's totals",
+    "edits": [
+      {
+        "file": "orders.html",
+        "find": "<tr><td>#BP-1001</td><td>2026-07-20</td><td>2</td><td>$96.00</td><td>Delivered</td></tr>\n        <tr><td>#BP-1000</td><td>2026-07-11</td><td>1</td><td>$45.00</td><td>Refunded</td></tr>",
+        "replace": "<tr><td>#BP-1001</td><td>2026-07-20</td><td>2</td><td>$45.00</td><td>Delivered</td></tr>\n        <tr><td>#BP-1000</td><td>2026-07-11</td><td>1</td><td>$96.00</td><td>Refunded</td></tr>"
+      }
+    ]
   }
 ]

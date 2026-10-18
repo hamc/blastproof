@@ -2,29 +2,31 @@
 
 ## 1. Configuration
 
-- [ ] 1.1 `config.ts`: `first_judge` schema (`model` required, `api_key_env` default `OPENROUTER_API_KEY`, `threshold` in (0, 1) default 0.7), strict keys; unit tests for absent, defaults, out-of-range threshold, unknown key (design D1)
-- [ ] 1.2 `ENV_OVERRIDES`: `BLASTPROOF_FIRST_JUDGE_MODEL`, `BLASTPROOF_FIRST_JUDGE_THRESHOLD`; tests that the model alone turns it on with defaults and that a bad threshold names the variable (spec config-overrides)
-- [ ] 1.3 Missing key fails before the browser launches, with a `MissingApiKeyError`-standard message naming the variable and the model; test (spec first-judge)
+- [x] 1.1 `config.ts`: `first_judge` schema (`model` required, `api_key_env` default `OPENROUTER_API_KEY`, `threshold` in (0, 1) default 0.7), unit tests for absent, defaults, out-of-range threshold, an unknown key warned about (design D1)
+- [x] 1.2 `ENV_OVERRIDES`: `BLASTPROOF_FIRST_JUDGE_MODEL`, `BLASTPROOF_FIRST_JUDGE_THRESHOLD`; tests that the model alone turns it on with defaults and that a bad threshold names the variable (spec config-overrides)
+- [x] 1.3 Missing key fails before the browser launches, with a `MissingApiKeyError`-standard message naming the variable and the model; test (spec first-judge)
 
 ## 2. The client and the choke point
 
 - [ ] 2.1 Confirm against a live response the `noul` answer's shape, the usage field names, and `d1-ultra`'s documented context limit; record them in the design's Open Questions (design D3, D6)
-- [ ] 2.2 `brain.ts`: `countedGenerate` over a general `counted(budget, call)`; existing budget, timeout, deadline and refusal tests pass unchanged (design D3)
-- [ ] 2.3 `llm/decision.ts`: the `fetch` client, `APICallError` on an error status or a network failure, two retries with the SDK's backoff, abort across retries; unit tests with a stubbed `fetch` for success, 401, 503-then-success, network error, abort (design D2)
-- [ ] 2.4 `prompts.ts`: `firstJudgeQuestion()` (instructions + criteria from `evals/judge/jev.ts`); `jev.ts` imports it (design D4)
+- [x] 2.2 `brain.ts`: `countedGenerate` over a general `counted(budget, call)`; existing budget, timeout, deadline and refusal tests pass unchanged (design D3)
+- [x] 2.3 `llm/decision.ts`: the `fetch` client, `APICallError` on an error status or a network failure, two retries with the SDK's backoff, abort across retries; unit tests with a stubbed `fetch` for success, 401, 503-then-success, network error, abort (design D2)
+- [x] 2.4 `prompts.ts`: `firstJudgeQuestion()` (instructions + criteria from `evals/judge/jev.ts`); `jev.ts` imports it (design D4)
 
 ## 3. The judgment
 
-- [ ] 3.1 `judge()` asks the first judge when configured: size bound, threshold, label check over a pass, unreadable answer and below-threshold to the LLM; unit tests for each branch in spec first-judge, including that a label-check failure makes no LLM call and that the input carries labels (design D5, D6)
-- [ ] 3.2 A pass's reason names the model, the probability and the threshold; the executor's result line shows it; test
-- [ ] 3.3 `FirstJudgeStats` shared across a run's brains; `first-judge.jsonl` appended per decision call in the session directory; tests that it holds the masked page and no secret value (design D7)
-- [ ] 3.4 Summary line in `run` (and therefore `test`), and only when configured; test
-- [ ] 3.5 `estimateMaxModelCalls` and the login ceiling: `N + R + 3·min(N, R)` with a first judge, its comment's derivation extended; tests (design D8, spec run-budget)
-- [ ] 3.6 Mutation-check: removing the label check over a decision pass, or the threshold comparison, fails a test
+- [x] 3.1 `judge()` asks the first judge when configured: size bound, threshold, label check over a pass, unreadable answer and below-threshold to the LLM; unit tests for each branch in spec first-judge, including that a label-check failure makes no LLM call and that the input carries labels (design D5, D6)
+- [x] 3.2 A pass's reason names the model, the probability and the threshold; the executor's result line shows it; test
+- [x] 3.3 `FirstJudgeStats` shared across a run's brains; `first-judge.jsonl` appended per decision call in the session directory; tests that it holds the masked page and no secret value (design D7)
+- [x] 3.4 Summary line in `run` (and therefore `test`), and only when configured; test
+- [x] 3.5 `estimateMaxModelCalls` and the login ceiling: `N + R + 3·min(N, R)` with a first judge, its comment's derivation extended; tests (design D8, spec run-budget)
+- [x] 3.6 Mutation-check: removing the label check over a decision pass, or the threshold comparison, fails a test
+  - *Done.* Label check removed: the wrong-secret test fails. `p < threshold` made `p < 0`: the below-threshold test fails. Made `p <= threshold`: the at-threshold test fails
 
 ## 4. Measurement
 
-- [ ] 4.1 Six number and date mutants on the demo app's orders and cart pages in `evals/reliability/mutants.json`; `tests/reliability.test.ts` passes (design D9)
+- [x] 4.1 Six number and date mutants on the demo app's orders and cart pages in `evals/reliability/mutants.json`; `tests/reliability.test.ts` passes (design D9)
+  - *Done.* As the lab defined them, with its `orders-detail.yaml` in the dogfood suite; every edit applies exactly once
 - [ ] 4.2 `npm run eval:judge` on the reference pair unchanged (the LLM path is untouched) and `jev.ts` on `liquid/d1-ultra` at 0.7: no false PASS
 - [ ] 4.3 `npm run eval:reliability` with `BLASTPROOF_FIRST_JUDGE_MODEL=liquid/d1-ultra` on Haiku, new mutants included: no false PASS; compare calls with the run without it
 - [ ] 4.4 Live: the budgeting app's suite with the first judge; the summary line and the jsonl match the run

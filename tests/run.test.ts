@@ -100,6 +100,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -978,5 +979,32 @@ describe('runCommand uncommitted-work warning', () => {
 
     expect(getUncommittedFilesMock).not.toHaveBeenCalled();
     expect(errOut()).not.toContain('working tree');
+  });
+});
+
+describe('runCommand with a first judge (spec first-judge)', () => {
+  it('counts both judges in the dry-run ceiling (spec run-budget)', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    vi.stubEnv('BLASTPROOF_FIRST_JUDGE_MODEL', 'liquid/d1-ultra');
+
+    const code = await runCommand({ cwd: dir, tags: [], dryRun: true });
+
+    expect(code).toBe(EXIT_OK);
+    // One step: 15 + 3 + 3 * min(15, 3) = 27, against 21 without it.
+    expect(out()).toContain('Worst case: up to 27 model call(s)');
+  });
+
+  it('exits 2 naming its key variable before any browser launch when the key is unset', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    vi.stubEnv('BLASTPROOF_TEST_MISSING_KEY', 'sk-llm');
+    vi.stubEnv('BLASTPROOF_FIRST_JUDGE_MODEL', 'liquid/d1-ultra');
+    vi.stubEnv('OPENROUTER_API_KEY', '');
+
+    const code = await runCommand({ cwd: dir, tags: [] });
+
+    expect(code).toBe(EXIT_USAGE);
+    expect(errOut()).toContain('OPENROUTER_API_KEY');
+    expect(errOut()).toContain('first judge "liquid/d1-ultra"');
+    expect(launchMock).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +21,7 @@ vi.mock('../src/runner/executor.js', async (importOriginal) => {
 });
 
 import { EXIT_OK, runCommand } from '../src/commands/run.js';
+import type { AgentBrain } from '../src/llm/brain.js';
 
 const TEST_A = 'summary: Test A\npriority: P0\nsteps:\n  - do a\n';
 
@@ -113,5 +114,79 @@ describe('runCommand threads the configured browser timeout and snapshot cap int
     // browser.timeout_ms always has a schema default (30s), same as before navigate
     // and the action itself were hardcoded/defaulted to it.
     expect(options?.timeoutMs).toBe(30_000);
+  });
+});
+
+describe('a run with a first judge reports and keeps its decisions (design a-decision-model-judges-first, D7)', () => {
+  it('prints the summary line and writes first-judge.jsonl in the session directory', async () => {
+    await writeProject('');
+    process.env.BLASTPROOF_RUNTIMEOUT_JUDGE_KEY = 'sk-or';
+    await writeFile(
+      path.join(dir, '.blastproof', 'config.yaml'),
+      [
+        'base_url: http://localhost:4173',
+        'llm:',
+        '  provider: anthropic',
+        '  api_key_env: BLASTPROOF_RUNTIMEOUT_TEST_KEY',
+        'first_judge:',
+        '  model: liquid/d1-ultra',
+        '  api_key_env: BLASTPROOF_RUNTIMEOUT_JUDGE_KEY',
+        '',
+      ].join('\n'),
+    );
+    const decisions = vi.fn(async () =>
+      new Response(JSON.stringify({ answers: { pass: { noul: 0.91 } }, usage: { total_tokens: 900 } })),
+    );
+    vi.stubGlobal('fetch', decisions);
+    // The real brain, as `runOne` built it, judging one step the way the executor does.
+    executeTestMock.mockImplementation(
+      async (
+        _page: unknown,
+        test: { path: string; summary: string; priority: string; tags: string[] },
+        options: { brain: AgentBrain },
+      ) => {
+        const judgment = await options.brain.judge('verify the heading', 'the heading is shown', '- heading "Notes"');
+        return {
+          file: test.path,
+          summary: test.summary,
+          priority: test.priority,
+          tags: test.tags,
+          status: judgment.pass ? ('passed' as const) : ('failed' as const),
+          steps: [],
+          durationMs: 1,
+        };
+      },
+    );
+
+    try {
+      const code = await runCommand({ cwd: dir, tags: [] });
+
+      expect(code).toBe(EXIT_OK);
+      expect(decisions).toHaveBeenCalledWith('https://openrouter.ai/api/alpha/decisions', expect.anything());
+      expect(logs.join('\n')).toContain(
+        'First judge (experimental, liquid/d1-ultra at 0.7): 1 passed, 0 to the LLM judge',
+      );
+      const [session] = await readdir(path.join(dir, '.blastproof', 'reports'));
+      const lines = (await readFile(path.join(dir, '.blastproof', 'reports', session!, 'first-judge.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(lines).toEqual([
+        expect.objectContaining({
+          test: path.join('.blastproof', 'tests', 'a.yaml'),
+          p: 0.91,
+          outcome: 'passed',
+          snapshot: '- heading "Notes"',
+        }),
+      ]);
+    } finally {
+      delete process.env.BLASTPROOF_RUNTIMEOUT_JUDGE_KEY;
+    }
+  });
+
+  it('prints no first-judge line when none is configured', async () => {
+    await writeProject('');
+    await runCommand({ cwd: dir, tags: [] });
+    expect(logs.join('\n')).not.toContain('First judge');
   });
 });

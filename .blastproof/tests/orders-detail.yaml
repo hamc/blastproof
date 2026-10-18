@@ -1,0 +1,8 @@
+summary: Order history shows each order's date and total
+priority: P1
+tags: [account]
+routes: ["/orders"]
+steps:
+  - navigate to /orders
+  - verify order "#BP-1001" is dated 2026-07-20 with a total of $96.00
+  - verify order "#BP-1000" is dated 2026-07-11 with a total of $45.00

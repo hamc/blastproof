@@ -7,7 +7,7 @@ An opt-in decision model that judges a step before the LLM judge does. It passes
 ### Requirement: The first judge is off unless configured
 The system SHALL ask a decision model first only when the configuration's `first_judge` section names a model. Without that section, every judgment SHALL be made exactly as before: the LLM judge alone, with no request to any other endpoint.
 
-The section SHALL take `model` (required), `api_key_env` (default `OPENROUTER_API_KEY`) and `threshold` (a probability strictly between 0 and 1, default 0.7). An unknown key in the section, a missing model or a threshold out of range SHALL fail validation like any other config error.
+The section SHALL take `model` (required), `api_key_env` (default `OPENROUTER_API_KEY`) and `threshold` (a probability strictly between 0 and 1, default 0.7). A missing model or a threshold out of range SHALL fail validation like any other config error, and an unknown key in the section SHALL be warned about like any other unknown key.
 
 #### Scenario: No section, no change
 - **WHEN** the configuration has no `first_judge` section
@@ -25,7 +25,7 @@ When the first judge is configured and the variable named by `first_judge.api_ke
 - **THEN** the run exits before launching a browser, naming `OPENROUTER_API_KEY` and the configured model
 
 ### Requirement: The first judge reads what the LLM judge reads
-The first judge SHALL be asked about the same input the LLM judge receives for that judgment: the step, the claim and the step's record with every `{{env.NAME}}` placeholder written as its redaction label, and the masked page without element refs. It SHALL be asked one yes/no question, whose probability of "yes" is compared with the threshold. This SHALL hold for every judgment, including the re-observation after a failed one and the check that a login succeeded.
+The first judge SHALL be asked about the same input the LLM judge receives for that judgment: the step, the claim and the step's record with every `{{env.NAME}}` placeholder written as its redaction label, and the masked page without element refs. It SHALL be asked one yes/no question, whose probability of "yes" is compared with the threshold. This SHALL hold for every judgment a run makes, including the re-observation after a failed one and the check that a login succeeded.
 
 #### Scenario: Placeholders as labels
 - **WHEN** a step names `{{env.PASSWORD}}` and the first judge is configured

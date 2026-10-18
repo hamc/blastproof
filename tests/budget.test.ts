@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { AgentBrain } from '../src/llm/brain.js';
+import { createBrain, type AgentBrain, type GenerateObjectFn } from '../src/llm/brain.js';
+import { assertJudgmentSchema } from '../src/llm/schemas.js';
 import type { AgentAction, AssertJudgment } from '../src/llm/schemas.js';
 import {
   BudgetExhaustedError,
@@ -145,6 +146,12 @@ describe('estimateMaxModelCalls', () => {
     // 33 when a failing assert began costing a re-judgment too (design D3).
     expect(high - low).toBe(33);
   });
+
+  it('counts both judges for every judgment when a first judge is configured (design a-decision-model-judges-first, D8)', () => {
+    // 1 step, N=15, R=3: 15 + 3 + 3 * min(15,3) = 27, against 21 without it.
+    expect(estimateMaxModelCalls([{ steps: ['a'] }], 15, 3, 2)).toBe(27);
+    expect(estimateMaxModelCalls([{ steps: ['a'] }], 15, 3, 1)).toBe(21);
+  });
 });
 
 /**
@@ -233,6 +240,64 @@ describe('estimateMaxModelCalls bounds the real executor (DEF-001 regression)', 
     // = 11, which is 3 + 5 + min(3, 5).
     expect(actualCalls).toBe(N + R + Math.min(N, R));
     expect(ceiling).toBe(N + R + Math.min(N, R));
+  });
+});
+
+/**
+ * The same worst case through the real brain with a first judge in front of the
+ * LLM judge: every judgment is below the threshold, so each one costs a decision
+ * call and an LLM call, and the ceiling must still bound what the run spends.
+ */
+describe('estimateMaxModelCalls bounds the real executor with a first judge', () => {
+  it('is exactly the calls the worst case spends', async () => {
+    const N = 3;
+    const R = 5;
+    let actionCalls = 0;
+    const generate: GenerateObjectFn = async ({ schema }) => {
+      if (schema === assertJudgmentSchema) {
+        return { object: { outcome: 'o', reason: 'not yet', pass: false }, usage: { totalTokens: 1 } };
+      }
+      actionCalls++;
+      if (actionCalls <= R - N) return { object: { nonsense: true }, usage: { totalTokens: 1 } };
+      return { object: { action: 'assert', reasoning: 'check', expectation: 'x' }, usage: { totalTokens: 1 } };
+    };
+    const budget = new RunBudget();
+    const brain = createBrain({} as never, generate, budget, {
+      model: 'decision/model',
+      threshold: 0.7,
+      decide: async () => ({ p: 0.1, usage: { totalTokens: 1 } }),
+      record: () => {},
+    });
+    const test: TestFile = {
+      path: '.blastproof/tests/first-judge-ceiling.yaml',
+      summary: 'first judge ceiling',
+      steps: ['one step, worst case'],
+      priority: 'P1',
+      tags: [],
+      routes: [],
+      auth: true,
+    };
+    const fakePage = {
+      goto: async () => {},
+      screenshot: async () => {},
+      waitForLoadState: async () => {},
+      url: () => 'http://localhost:4173/',
+    } as unknown as PageLike;
+
+    const result = await executeTest(fakePage, test, {
+      brain,
+      sessionDir: '/tmp',
+      baseUrl: 'http://localhost:4173',
+      maxRetries: R,
+      maxIterationsPerStep: N,
+      timeoutMs: 30_000,
+      snapshot: async () => 'snapshot',
+    });
+
+    expect(result.status).toBe('failed');
+    // 2 malformed actions + 3 iterations x (1 action + 2 judgments x 2 judges) = 17 = 3 + 5 + 3 * 3.
+    expect(budget.spend().calls).toBe(N + R + 3 * Math.min(N, R));
+    expect(estimateMaxModelCalls([test], N, R, 2)).toBe(budget.spend().calls);
   });
 });
 

@@ -517,3 +517,62 @@ describe('an inverted routes: map', () => {
     expect(findInvertedRouteEntries({ 'src/cart/**': ['/cart', '/checkout'] })).toEqual([]);
   });
 });
+
+describe('first_judge section (design a-decision-model-judges-first, D1)', () => {
+  it('is absent unless configured — the LLM judge alone, as before', async () => {
+    await writeConfig('base_url: http://localhost:3000\n');
+    const config = await loadConfig(dir, {});
+    expect(config.first_judge).toBeUndefined();
+  });
+
+  it('defaults the key variable and the threshold', async () => {
+    await writeConfig('base_url: http://localhost:3000\nfirst_judge:\n  model: liquid/d1-ultra\n');
+    const config = await loadConfig(dir, {});
+    expect(config.first_judge).toEqual({
+      model: 'liquid/d1-ultra',
+      api_key_env: 'OPENROUTER_API_KEY',
+      threshold: 0.7,
+    });
+  });
+
+  it('requires a model: there is no default to fall back on', async () => {
+    await writeConfig('base_url: http://localhost:3000\nfirst_judge:\n  threshold: 0.8\n');
+    await expect(loadConfig(dir, {})).rejects.toThrow(/first_judge\.model/);
+  });
+
+  it.each([0, 1, 1.2, -0.1])('rejects a threshold of %s, naming the field', async (threshold) => {
+    await writeConfig(
+      `base_url: http://localhost:3000\nfirst_judge:\n  model: liquid/d1-ultra\n  threshold: ${threshold}\n`,
+    );
+    await expect(loadConfig(dir, {})).rejects.toThrow(/first_judge\.threshold/);
+  });
+
+  it('is turned on by BLASTPROOF_FIRST_JUDGE_MODEL alone, with the defaults (spec config-overrides)', async () => {
+    await writeConfig('base_url: http://localhost:3000\n');
+    const config = await loadConfig(dir, { BLASTPROOF_FIRST_JUDGE_MODEL: 'liquid/d1-ultra' });
+    expect(config.first_judge).toEqual({
+      model: 'liquid/d1-ultra',
+      api_key_env: 'OPENROUTER_API_KEY',
+      threshold: 0.7,
+    });
+  });
+
+  it('takes its threshold from BLASTPROOF_FIRST_JUDGE_THRESHOLD', async () => {
+    await writeConfig('base_url: http://localhost:3000\nfirst_judge:\n  model: liquid/d1-ultra\n');
+    const config = await loadConfig(dir, { BLASTPROOF_FIRST_JUDGE_THRESHOLD: '0.8' });
+    expect(config.first_judge?.threshold).toBe(0.8);
+  });
+
+  it('rejects an invalid threshold override, naming the variable', async () => {
+    await writeConfig('base_url: http://localhost:3000\nfirst_judge:\n  model: liquid/d1-ultra\n');
+    await expect(loadConfig(dir, { BLASTPROOF_FIRST_JUDGE_THRESHOLD: '0' })).rejects.toThrow(
+      /BLASTPROOF_FIRST_JUDGE_THRESHOLD/,
+    );
+  });
+
+  it('warns about an unknown key inside it, like any other section', () => {
+    expect(
+      findUnknownConfigKeys({ base_url: 'http://x', first_judge: { model: 'm', base_url: 'http://y' } }),
+    ).toEqual(['first_judge.base_url']);
+  });
+});

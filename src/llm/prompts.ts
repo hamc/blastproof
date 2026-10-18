@@ -165,6 +165,29 @@ export function assertUserPrompt(
   return parts.join('\n');
 }
 
+/**
+ * The one yes/no question a first judge is asked (design
+ * a-decision-model-judges-first, D4), with `assertUserPrompt` as its state.
+ *
+ * Kept exactly as #174 measured it, which is why it is cut where it is: the
+ * instructions are the judge's system prompt up to its answer format, so the
+ * paragraph about redaction labels after it was not part of what was measured;
+ * the label check over every pass covers that ground in code. The criteria are
+ * the two sentences the measurement used. `evals/judge/jev.ts` imports this, so
+ * the corpus replays the question that ships; changing a word here means
+ * measuring again.
+ */
+export function firstJudgeQuestion(): { instructions: string; criteria: { true: string; false: string } } {
+  const system = assertSystemPrompt();
+  return {
+    instructions: system.slice(0, system.indexOf('Answer with pass=true/false')).trim(),
+    criteria: {
+      true: 'The snapshot shows the state the step asks for. Every value the step names appears where the step places it, committed (not only typed into an open, unsubmitted field). An outcome that is an absence is shown by the thing being absent.',
+      false: 'Some part of the outcome the step asks for is not shown, or cannot be assessed from this snapshot: a value is missing or different, appears only somewhere else on the page, or only inside an unsubmitted control, or the claim is true of something other than what the step asks.',
+    },
+  };
+}
+
 export function plannerSystemPrompt(): string {
   return `You are a QA engineer writing one end-to-end test for a web page, in plain English.
 

@@ -5,12 +5,14 @@ import {
   agentUserPrompt,
   assertSystemPrompt,
   assertUserPrompt,
+  firstJudgeQuestion,
   plannerSystemPrompt,
   plannerUserPrompt,
   type AgentIterationInput,
   type PlannerInput,
 } from './prompts.js';
-import { ModelCallTimeoutError, ProviderRefusedError, type RunBudget } from '../runner/budget.js';
+import { ModelCallTimeoutError, ProviderRefusedError, type CallUsage, type RunBudget } from '../runner/budget.js';
+import { MAX_DECISION_CHARS, type FirstJudge } from './decision.js';
 import { labelledVariables, placeholdersAsLabels, redactionLabel } from '../runner/env.js';
 import type { StepHistoryEntry } from '../runner/recovery.js';
 import {
@@ -182,16 +184,22 @@ function spentAndExplained(error: unknown, budget: RunBudget): unknown {
   );
 }
 
-async function countedGenerate(
-  generate: GenerateObjectFn,
+/**
+ * Every model call in the product passes through here, whatever it calls
+ * (design a-decision-model-judges-first, D3): the LLM's `generate` and a first
+ * judge's decision request alike. The budget check, the abort, the usage record
+ * and the conversion of a provider's error into a stop of the run are held once,
+ * over the whole scope, rather than at each call site.
+ */
+async function counted<T extends { usage?: CallUsage }>(
   budget: RunBudget,
-  options: Parameters<GenerateObjectFn>[0],
-): ReturnType<GenerateObjectFn> {
+  call: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
   budget.check();
   const abort = callAbort(budget);
-  let result: Awaited<ReturnType<GenerateObjectFn>>;
+  let result: T;
   try {
-    result = await generate({ ...options, maxOutputTokens: MAX_OUTPUT_TOKENS, abortSignal: abort?.signal });
+    result = await call(abort?.signal);
   } catch (error) {
     if (abort?.signal.aborted) {
       // The deadline first (design D3): a call cut short by --max-duration is the
@@ -209,6 +217,48 @@ async function countedGenerate(
   return result;
 }
 
+function countedGenerate(
+  generate: GenerateObjectFn,
+  budget: RunBudget,
+  options: Parameters<GenerateObjectFn>[0],
+): ReturnType<GenerateObjectFn> {
+  return counted(budget, (abortSignal) => generate({ ...options, maxOutputTokens: MAX_OUTPUT_TOKENS, abortSignal }));
+}
+
+/**
+ * Asks the first judge, and returns the judgment when it decides one (design
+ * a-decision-model-judges-first, D5). Undefined means the LLM judge decides:
+ * the probability was below the threshold, the answer carried none, or the
+ * input was too large to send. A pass the label check fails is final, since the
+ * LLM's pass would fail the same check on the same input.
+ */
+async function firstJudgment(
+  firstJudge: FirstJudge,
+  budget: RunBudget,
+  judged: { step: string; claim: string; snapshot: string; prompt: string },
+  label: (judgment: AssertJudgment) => AssertJudgment,
+): Promise<AssertJudgment | undefined> {
+  const question = firstJudgeQuestion();
+  const entry = { step: judged.step, claim: judged.claim, snapshot: judged.snapshot };
+  if (judged.prompt.length + question.instructions.length > MAX_DECISION_CHARS) {
+    firstJudge.record({ ...entry, p: undefined, outcome: 'too-large' });
+    return undefined;
+  }
+  const { p } = await counted(budget, (signal) => firstJudge.decide(question, judged.prompt, signal));
+  if (p === undefined || p < firstJudge.threshold) {
+    firstJudge.record({ ...entry, p, outcome: 'to-llm' });
+    return undefined;
+  }
+  const judgment = label({
+    pass: true,
+    reason:
+      `passed by the first judge, ${firstJudge.model}, at p(yes) ${p.toFixed(2)} (threshold ${firstJudge.threshold}); ` +
+      'a decision model gives no reason',
+  });
+  firstJudge.record({ ...entry, p, outcome: judgment.pass ? 'passed' : 'label-check' });
+  return judgment;
+}
+
 export function createBrain(
   model: LanguageModel,
   generate: GenerateObjectFn = generateObject as unknown as GenerateObjectFn,
@@ -219,6 +269,11 @@ export function createBrain(
    * `new RunBudget()` with no limits, not the absence of an argument.
    */
   budget: RunBudget,
+  /**
+   * An opt-in decision model asked before the LLM judge (design
+   * a-decision-model-judges-first). Absent, every judgment is the LLM's alone.
+   */
+  firstJudge?: FirstJudge,
 ): AgentBrain {
   return {
     async nextAction(input) {
@@ -263,16 +318,22 @@ export function createBrain(
         action: placeholdersAsLabels(entry.action),
         result: placeholdersAsLabels(entry.result),
       }));
+      const judgedStep = placeholdersAsLabels(step);
+      const claim = placeholdersAsLabels(expectation);
+      const prompt = assertUserPrompt(judgedStep, claim, snapshot, asJudged);
+      const label = (judgment: AssertJudgment) =>
+        secretMismatch(judgedStep, snapshot, asJudged, usedEarlier ?? [], judgment);
+      if (firstJudge) {
+        // Inside `judge()`, so every caller gets it: the re-observation and the
+        // login check too (design a-decision-model-judges-first, D5).
+        const decided = await firstJudgment(firstJudge, budget, { step: judgedStep, claim, snapshot, prompt }, label);
+        if (decided) return decided;
+      }
       const result = await countedGenerate(generate, budget, {
         model,
         schema: assertJudgmentSchema,
         system: assertSystemPrompt(),
-        prompt: assertUserPrompt(
-          placeholdersAsLabels(step),
-          placeholdersAsLabels(expectation),
-          snapshot,
-          asJudged,
-        ),
+        prompt,
         temperature: 0,
       });
       const parsed = assertJudgmentSchema.safeParse(result.object);
@@ -281,7 +342,7 @@ export function createBrain(
           `Model returned an invalid assert judgment: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
         );
       }
-      return secretMismatch(placeholdersAsLabels(step), snapshot, asJudged, usedEarlier ?? [], parsed.data);
+      return label(parsed.data);
     },
   };
 }
