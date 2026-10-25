@@ -61,6 +61,7 @@ src/
     recovery.ts     # per-step record; refuses a repeated commit (contained-recovery)
     pool.ts         # bounded runWithConcurrency, results in input order (tests-in-parallel)
     browser.ts      # browser launch, with a failure explained without the Chrome argv
+    device.ts       # a Playwright device name → context options, validated with suggestions
   llm/
     provider.ts     # AI SDK provider factory (anthropic|openai|ollama)
     prompts.ts      # system/user prompts for plan + execute + assert
@@ -74,7 +75,7 @@ src/
 
 ### Conventions
 
-- **Test files** (the product's, not ours): `.blastproof/tests/**/*.yaml` — fields `summary` (required), `steps` (required, plain English), `priority` (P0–P2), `tags`, `routes`, optional `setup`, `auth` (default true; a login test must set `false`), `{{env.VAR}}` placeholders for secrets
+- **Test files** (the product's, not ours): `.blastproof/tests/**/*.yaml` — fields `summary` (required), `steps` (required, plain English), `priority` (P0–P2), `tags`, `routes`, optional `setup`, `auth` (default true; a login test must set `false`), `device` (a Playwright device name; wins over `browser.device`), `{{env.VAR}}` placeholders for secrets
 - **Config**: `.blastproof/config.yaml` — `base_url`, `llm.{provider,model,api_key_env}`, `browser`, `routes` (glob→URLs impact hints), `ignore`, `allowed_origins`, `max_retries_per_step`, `budget`, `concurrency` (default 1, opt-in — see below), optional `first_judge` (experimental — see below), optional `auth` recipe (one of `steps` | `storage_state` | `headers`/`cookies`, plus optional `verify` and `cache`). Overridable from the environment via `BLASTPROOF_*`
 - No static selectors anywhere in generated tests or runner state — resolution is always live via accessibility tree
 - **An action names the element the model read, by ref.** Every snapshot is taken with `ariaSnapshot({ mode: 'ai' })`, which gives each element a ref, and `resolveTarget` acts on `aria-ref=<ref>` and nothing else: no search by role, name or text, no substring, no first hit. The search it replaced picked the first `button` for a target with no name (#132) and the first of two same-named controls (#60), and a wrong click that succeeded left nothing in the report to show it. The role and name the model gives are checked against the ref's line (`bindTarget`), so a neighbour's ref is refused, and from there on the action carries the snapshot's words, which the record, the log and the commit-repeat identity read. A plain `ariaSnapshot()` invalidates the refs, so every capture must stay in AI mode. Only the acting model sees refs: the judge and the planner get `withoutRefs`. Measured cost, on Haiku: a refusal saying only "this exact action already succeeded" read as false to a model holding a new ref for the same button after a reload, and it insisted 4 runs in 5, so the refusal names the element and says refs are renumbered. See `openspec/changes/archive/*-act-on-the-element-the-model-read`

@@ -77,6 +77,7 @@ priority: P0                    # P0 | P1 | P2 — default P1. Weighs 3 / 2 / 1 
 tags: [cart, checkout]          # optional, filterable with --tag
 routes: ["/cart", "/checkout"]  # URLs this test covers; --impacted selects on these
 auth: false                     # optional; a login test needs this
+device: Pixel 7                 # optional; a Playwright device name, for a phone-only interface
 setup:                          # optional; runs before steps, fails the same way
   - navigate to /cart and verify the heading "Your cart" is shown
 steps:
@@ -92,6 +93,13 @@ test in a selection declares it, the run performs no login at all. Worth knowing
 when writing a signed-out test, because it is what keeps a `--tag` or
 `--impacted` run of those tests from spending most of its budget on a session
 none of them will read.
+
+`device:` names a device from Playwright's registry (`Pixel 7`, `iPhone 15`,
+case-sensitive), and the test runs at its screen size, as a mobile browser with
+touch. Use it for an interface only that device shows, such as a menu button
+that replaces the desktop links, and write the steps against that interface. A
+`browser.device` in the config sets it for every test; `device: Desktop Chrome`
+brings one back to the desktop.
 
 `routes:` compares by exact string equality — `/cart` and `/cart/` are different routes. A test declaring a route that no `routes:` mapping in `config.yaml` declares gets a warning, because it contributes nothing to `--impacted` selection.
 

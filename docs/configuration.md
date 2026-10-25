@@ -9,7 +9,7 @@ except `base_url` — each section below says what happens when you leave it out
 - [Precedence](#precedence)
 - [`base_url`](#base_url)
 - [`llm` — provider, model, key](#llm--provider-model-key)
-- [`browser` — waiting and snapshots](#browser--waiting-and-snapshots)
+- [`browser` — waiting, snapshots and devices](#browser--waiting-snapshots-and-devices)
 - [`concurrency` — running tests at once](#concurrency--running-tests-at-once)
 - [`budget` — bounding what a run spends](#budget--bounding-what-a-run-spends)
 - [`first_judge` — a decision model before the judge (experimental)](#first_judge--a-decision-model-before-the-judge-experimental)
@@ -38,6 +38,7 @@ file edit, and a single invocation can override the CI job.
 | `BLASTPROOF_MAX_DURATION_S` | `budget.max_duration_s` |
 | `BLASTPROOF_FIRST_JUDGE_MODEL` | `first_judge.model`, and turns the first judge on |
 | `BLASTPROOF_FIRST_JUDGE_THRESHOLD` | `first_judge.threshold` |
+| `BLASTPROOF_BROWSER_DEVICE` | `browser.device`; a test's own `device:` still wins |
 
 ## `base_url`
 
@@ -178,13 +179,14 @@ A key here would be set once, forgotten, and surface months later as a gate that
 
 **Pinning narrows variance; it does not make a run reproducible.** Provider batching, floating point, and gateway routing between providers or quantizations all remain — and a gateway is exactly where the reported flip was measured.
 
-## `browser` — waiting and snapshots
+## `browser` — waiting, snapshots and devices
 
 ```yaml
 browser:
   headless: true
   timeout_ms: 30000
   max_snapshot_lines: 200
+  device: Pixel 7        # optional; the desktop default without it
 ```
 
 ### `timeout_ms`
@@ -232,6 +234,41 @@ of every step, which is the single largest lever on what a run spends.
 
 `false` opens a visible browser, which is the fastest way to understand why a
 step is failing. Not useful in CI.
+
+### `device`
+
+Runs every test as a device from
+[Playwright's registry](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/deviceDescriptorsSource.json):
+`"Pixel 7"`, `"iPhone 15"`, `"iPad Pro 11"`, `"Desktop Chrome"`. One name sets
+the viewport, the screen, the user agent, the device scale factor, and whether
+the page is mobile and has touch, so a responsive application renders the
+interface it shows on that device. Without it, tests run at Playwright's
+1280×720 desktop default, as before.
+
+A test file can name its own with `device:`, which wins over this one, so a
+suite can hold desktop and phone journeys and run them together:
+
+```yaml
+summary: On a phone, the menu reaches the cart
+device: Pixel 7
+steps:
+  - click the "Menu" button
+  - click the "Cart" link in the menu
+  - verify the page heading is "Your cart"
+```
+
+`BLASTPROOF_BROWSER_DEVICE` sets it for one run, so a CI matrix can run the
+same suite on a desktop and a phone. Names are case-sensitive, and one the
+registry does not list is a configuration error suggesting the closest names.
+
+The login journey and `plan` run as `browser.device`. The session the login
+captures is cookies and storage, which do not depend on the screen, so it seeds
+a test on any device.
+
+What is emulated is the device's screen and its identity, in Chromium. An
+iPhone runs Chromium with an iPhone's viewport and user agent, not Safari's
+engine. On a touch device a `click` is still a click, which mobile pages accept;
+there is no separate tap.
 
 ## `concurrency` — running tests at once
 

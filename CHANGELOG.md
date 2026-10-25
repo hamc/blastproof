@@ -15,6 +15,12 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   call. The summary counts what it passed and what it sent on, and `first-judge.jsonl` keeps the
   page and the probability behind every decision, since a pass from it has no reason. Off by
   default.
+- **Tests on a phone** ([#163](https://github.com/hamc/blastproof/issues/163)). `browser.device`
+  names a device from Playwright's registry (`Pixel 7`, `iPhone 15`) and every test runs at its
+  screen size, user agent and touch; a test file's own `device:` wins over it, so desktop and
+  mobile journeys share one suite and one run. `BLASTPROOF_BROWSER_DEVICE` sets it for one run. An
+  unknown name is a configuration error suggesting the closest ones. The run log and the HTML
+  report name a test's device. Emulated in Chromium: an iPhone's screen, not Safari's engine.
 
 ### Tests
 
@@ -22,6 +28,8 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   or a moved decimal point, a cart total 60 cents high, an order dated a day late, and two orders
   showing each other's dates or totals. The dogfood suite gains `orders-detail.yaml`, which checks
   each order's date and total.
+- The demo app shows a menu button instead of its links at phone width, and the dogfood suite gains
+  `mobile-menu.yaml`, which runs as a Pixel 7 and fails on the desktop.
 
 ### Documentation
 
