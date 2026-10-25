@@ -13,7 +13,7 @@ The configuration SHALL accept an optional `browser.device`, and a test file an 
 
 #### Scenario: Misspelled device
 - **WHEN** `browser.device` is `"iphone"`
-- **THEN** the CLI exits with a configuration error naming `browser.device` and suggesting names such as `iPhone 15`
+- **THEN** the CLI exits with a configuration error naming `browser.device` and suggesting iPhone names from the registry
 
 ### Requirement: A test runs as its device
 A test's device SHALL be the test file's `device` when set, else `browser.device`. Its browser context SHALL be created with the device's viewport, screen, user agent, device scale factor, `isMobile` and `hasTouch`, in Chromium. A test's `device` SHALL apply to that test only.

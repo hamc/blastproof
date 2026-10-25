@@ -25,7 +25,7 @@ Alternative rejected: `viewport: { width, height }` with `is_mobile` and `has_to
 
 ### D2. Validated against the registry, at load time
 
-Both schemas refine the string with `name in devices`. The message names the field and up to three registry names that contain the given one's words, case-insensitively (`"iphone"` → `iPhone 15, iPhone 15 Plus, iPhone 15 Pro`), or says to see Playwright's list. The registry ships with the installed Playwright, so a device added in a later Playwright is valid as soon as it is installed.
+Both schemas refine the string with `name in devices`. The message names the field and the last three registry names that contain the given one's words, case-insensitively, which are the newest it lists (`"iphone"` → `iPhone 17 Pro, iPhone 17 Pro Max, iPhone 17e`), or says to see Playwright's list. A broken test file is already a failed test rather than a stopped run, and an unknown device in one is no different. The registry ships with the installed Playwright, so a device added in a later Playwright is valid as soon as it is installed.
 
 ### D3. A test's `device` wins over the config's
 
