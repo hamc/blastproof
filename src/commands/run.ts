@@ -16,6 +16,7 @@ import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
 import { printUncommitted } from '../report/uncommitted.js';
+import { emitWarning, type RunWarning } from '../report/warnings.js';
 import { computeScore, formatIncompleteLine, scoreOf, formatScoreLine, formatSpendLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
 import {
@@ -388,12 +389,18 @@ function printImpactReport(
  * supplied nor the form found, since a warning about a leak must not be one.
  * Silent when the widened comparison changed nothing, which is the common case.
  */
-function reportNearMissedSecrets(variables: string[]): void {
+function reportNearMissedSecrets(variables: string[], warnings: RunWarning[]): void {
   for (const variable of variables) {
-    console.error(
-      `warning: the application returned ${variable} in a different form than the value supplied ` +
-        `(case or spacing). It was redacted, but a form this tool cannot recognise — an encoding, ` +
-        `a hash — would not have been. Check what that page does with the value.`,
+    emitWarning(
+      {
+        kind: 'reformatted-secret',
+        title:
+          `warning: the application returned ${variable} in a different form than the value supplied ` +
+          `(case or spacing). It was redacted, but a form this tool cannot recognise — an encoding, ` +
+          `a hash — would not have been. Check what that page does with the value.`,
+        lines: [],
+      },
+      warnings,
     );
   }
 }
@@ -412,6 +419,7 @@ async function finalize(
   sessionDir: string,
   secretsHeld: boolean,
   nearMissedSecrets: string[],
+  warnings: RunWarning[],
   durationMs: number,
   impact?: ImpactResult,
   incomplete?: RunStoppedError,
@@ -420,7 +428,7 @@ async function finalize(
 ): Promise<number> {
   if (results.length > 0) printSummary(results);
 
-  reportNearMissedSecrets(nearMissedSecrets);
+  reportNearMissedSecrets(nearMissedSecrets, warnings);
 
   // Before the score, so the verdict stays the last thing printed. Reported for
   // an interrupted run too (design report-what-it-spent, D3): a stop already
@@ -448,6 +456,7 @@ async function finalize(
       cwd: options.cwd,
       incomplete: incomplete?.message,
       spend,
+      warnings,
     });
     await writeJUnit(target, xml);
     console.log(`JUnit report: ${path.relative(options.cwd, target)}`);
@@ -465,6 +474,7 @@ async function finalize(
       cwd: options.cwd,
       incomplete: incomplete?.message,
       spend,
+      warnings,
       // A screenshot cannot be masked, so a run that held any `{{env.*}}` value
       // links to it instead of carrying it (design
       // withhold-a-screenshot-that-saw-a-secret, D1): the run's mask, not the
@@ -517,25 +527,26 @@ function declaredConfigRoutes(config: BlastproofConfig): string[] {
 }
 
 /**
- * Prints route drift to stderr (design route-drift-warning D5): when a test declares
+ * The route drift warning, printed to stderr (design route-drift-warning D5): when a test declares
  * a route no `routes:` mapping declares, that route contributes nothing to
  * `--impacted` selection — indistinguishable from "genuinely not affected" — the
  * same silent-coverage false negative `--fail-on-unmapped` exists to prevent, on
  * the test side. Non-fatal; exit codes and selection semantics are unchanged.
  */
-function printRouteDrift(drift: RouteDriftResult, cwd: string): void {
-  if (drift.drifted.length === 0) return;
-  console.error(
-    'Route drift (test routes declared by no routes: mapping — contribute nothing to --impacted selection):',
-  );
-  for (const { test, routes } of drift.drifted) {
-    console.error(`  ${test.summary} (${path.relative(cwd, test.path)}): ${routes.join(', ')}`);
-  }
-  console.error('Fix the route typo, or add the route to a routes: mapping in .blastproof/config.yaml.');
+function routeDriftWarning(drift: RouteDriftResult, cwd: string): RunWarning | undefined {
+  if (drift.drifted.length === 0) return undefined;
+  return {
+    kind: 'route-drift',
+    title: 'Route drift (test routes declared by no routes: mapping — contribute nothing to --impacted selection):',
+    lines: [
+      ...drift.drifted.map(({ test, routes }) => `  ${test.summary} (${path.relative(cwd, test.path)}): ${routes.join(', ')}`),
+      'Fix the route typo, or add the route to a routes: mapping in .blastproof/config.yaml.',
+    ],
+  };
 }
 
 /**
- * Prints steps that enter a value but name none, to stderr (design
+ * The warning for steps that enter a value but name none, printed to stderr (design
  * steps-name-their-value D6). Each finding shows the user's own step beside the
  * shape that runs: a warning citing the README is ignorable in the way all
  * warnings are, and the fix here is mechanical enough to print.
@@ -553,21 +564,27 @@ function printRouteDrift(drift: RouteDriftResult, cwd: string): void {
  * found in English", never "this suite is clean", and a reader who infers the
  * second has been misled by us rather than by their own carelessness.
  */
-function printAuthoring(result: AuthoringResult, cwd: string): void {
-  if (result.findings.length === 0) return;
-  console.error('\nAuthoring (a step enters a value but names none):');
-  for (const { test, origin, index, step } of result.findings) {
-    const where = origin === 'setup' ? `setup step ${index}` : `step ${index}`;
-    console.error(`  ${test.summary} (${path.relative(cwd, test.path)}) ${where}:`);
-    console.error(`      ${step}`);
-    console.error(`    → ${suggestValueClause(step)}`);
-  }
-  console.error(
-    'The runner is forbidden from inventing values and enforces it: one it cannot trace to the step, ' +
-      'the page or an {{env.*}} placeholder is refused, so a step supplying none fails at run time. ' +
-      'Naming the value here is what makes it run.',
-  );
-  console.error('Steps are inspected in English only; steps in other languages are not checked.');
+function authoringWarning(result: AuthoringResult, cwd: string): RunWarning | undefined {
+  if (result.findings.length === 0) return undefined;
+  return {
+    kind: 'authoring',
+    title: 'Authoring (a step enters a value but names none):',
+    lines: [
+      ...result.findings.flatMap(({ test, origin, index, step }) => {
+        const where = origin === 'setup' ? `setup step ${index}` : `step ${index}`;
+        return [
+          `  ${test.summary} (${path.relative(cwd, test.path)}) ${where}:`,
+          `      ${step}`,
+          `    → ${suggestValueClause(step)}`,
+        ];
+      }),
+      'The runner is forbidden from inventing values and enforces it: one it cannot trace to the step, ' +
+        'the page or an {{env.*}} placeholder is refused, so a step supplying none fails at run time. ' +
+        'Naming the value here is what makes it run.',
+      'Steps are inspected in English only; steps in other languages are not checked.',
+    ],
+    spaced: true,
+  };
 }
 
 function printDryRun(
@@ -631,6 +648,10 @@ export async function runCommand(options: RunOptions): Promise<number> {
     throw error;
   }
 
+  // Every warning printed below, kept for the reports (design
+  // the-reports-carry-the-warnings, D5).
+  const warnings: RunWarning[] = [];
+
   const impacted = options.impacted ?? false;
   const base = options.base ?? 'main';
 
@@ -662,7 +683,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     // call site the drift warning uses: that rule is about a single command's
     // branches, and `plan` computes its own diff independently. Both sites call
     // this so "no affected routes" can never be read as "nothing was looked at".
-    printUncommitted(await getUncommittedFiles(options.cwd), changedFiles, config, base);
+    printUncommitted(await getUncommittedFiles(options.cwd), changedFiles, config, base, warnings);
   }
 
   const testsDir = path.join(options.cwd, TESTS_RELATIVE_DIR);
@@ -710,14 +731,14 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // is no reason to hide it. Non-fatal; exit codes and selection semantics are
   // unchanged. One call site (not two guarded by `!dryRun`) so a fourth code path
   // added later cannot silently drop the guarantee.
-  printRouteDrift(drift, options.cwd);
+  emitWarning(routeDriftWarning(drift, options.cwd), warnings);
 
   // Same single-call-site rule as the drift warning above (D5): a step that names
   // no value is independent of the diff and of selection, so there is no path that
   // could legitimately skip it, and no guard to get wrong when a fifth code path
   // is added later.
   const authoring = detectMissingValues(parsed);
-  printAuthoring(authoring, options.cwd);
+  emitWarning(authoringWarning(authoring, options.cwd), warnings);
 
   // The gate sits here, above preflight, the browser launch and the key check, so
   // it costs nothing when it fires (D7) — the whole point is to fail before the
@@ -764,7 +785,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       impact ? 'No impacted tests to run.' : 'No tests matched the given filters.',
     );
     // Nothing executed, so nothing was captured: there is no screenshot to withhold.
-    return finalize(results, selection.unroutedSkipped, options, sessionDir, false, [], Date.now() - startedAt, impact);
+    return finalize(results, selection.unroutedSkipped, options, sessionDir, false, [], warnings, Date.now() - startedAt, impact);
   }
 
   // Fail fast on a missing API key before launching any browser (spec: llm-providers),
@@ -959,6 +980,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     sessionDir,
     !runMask.isEmpty(),
     runMask.nearMissedVariables(),
+    warnings,
     Date.now() - startedAt,
     impact,
     incomplete,

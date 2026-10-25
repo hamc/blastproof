@@ -133,13 +133,21 @@ it carries:
 | `<property name="score">` | the weighted score |
 | `<property name="llm_calls">` · `llm_tokens` | what the run spent |
 | `<skipped/>` on unrouted tests | tests `--impacted` could not select |
+| `<property name="warnings">` · `<system-err>` | how many warnings the run printed, and their text |
 
 Unrouted tests appear as skipped rather than being omitted entirely, so the
-coverage gap shows up in the CI summary instead of vanishing silently.
+coverage gap shows up in the CI summary instead of vanishing silently. The
+warnings travel for the same reason: uncommitted work `--impacted` did not see,
+route drift, a step that names no value, a secret the page returned reformatted.
+Each is a caveat on the verdict, and a CI job hands its reviewer the reports,
+not the log. `warnings` is 0 when the run printed
+none, which is not the same as a clean suite: the authoring check reads English
+only.
 
 **HTML** is the one to attach as an artifact when a run fails. It carries the
-per-step trace and the failure screenshot: embedded when the run referenced no
-`{{env.*}}` value, and otherwise only linked, because a screenshot cannot be masked.
+same warnings right after the score, the per-step trace and the failure
+screenshot: embedded when the run referenced no `{{env.*}}` value, and otherwise
+only linked, because a screenshot cannot be masked.
 
 ```yaml
       - if: always()

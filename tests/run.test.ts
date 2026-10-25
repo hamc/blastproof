@@ -914,6 +914,56 @@ steps:
   });
 });
 
+describe('runCommand: the reports carry the warnings (#103)', () => {
+  const DRIFTED = `summary: Cart trailing slash
+routes: ["/cart/"]
+steps:
+  - fill the note field
+`;
+
+  it('writes the terminal\'s drift and authoring text into both reports', async () => {
+    await writeProject({ 'drift.yaml': DRIFTED });
+
+    const code = await runCommand({ cwd: dir, tags: [], query: 'no match', junit: 'junit.xml', html: 'report.html' });
+
+    expect(code).toBe(EXIT_OK);
+    const xml = await readFile(path.join(dir, 'junit.xml'), 'utf8');
+    expect(xml).toContain('<property name="warnings" value="2"/>');
+    const body = xml.match(/<system-err>([\s\S]*)<\/system-err>/)![1]!;
+    const unescaped = body.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+    // The same text the terminal printed: the blank line before Authoring is the
+    // separator between the two warnings.
+    expect(unescaped).toBe(errOut());
+    const html = await readFile(path.join(dir, 'report.html'), 'utf8');
+    expect(html).toContain('<h2>Warnings (2)</h2>');
+    expect(html).toContain('Route drift');
+    expect(html).toContain('fill the note field with &lt;value&gt;');
+  });
+
+  it('carries the uncommitted-work warning of an --impacted run', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue([]);
+    getUncommittedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    await runCommand({ cwd: dir, tags: [], impacted: true, junit: 'junit.xml', html: 'report.html' });
+
+    expect(await readFile(path.join(dir, 'junit.xml'), 'utf8')).toContain('src/cart/discount.ts -&gt; /cart');
+    expect(await readFile(path.join(dir, 'report.html'), 'utf8')).toContain('src/cart/discount.ts -&gt; /cart');
+  });
+
+  it('writes no warning into a clean run\'s reports', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+
+    await runCommand({ cwd: dir, tags: [], query: 'no match', junit: 'junit.xml', html: 'report.html' });
+
+    expect(errOut()).toBe('');
+    const xml = await readFile(path.join(dir, 'junit.xml'), 'utf8');
+    expect(xml).toContain('<property name="warnings" value="0"/>');
+    expect(xml).not.toContain('<system-err>');
+    expect(await readFile(path.join(dir, 'report.html'), 'utf8')).not.toContain('class="warnings"');
+  });
+});
+
 describe('runCommand uncommitted-work warning', () => {
   it("names the file and the routes it would have affected, and selects nothing extra", async () => {
     // #99: --impacted selects from <base>...HEAD, so an edit that has not been

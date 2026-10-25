@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { BudgetSpend } from '../runner/budget.js';
 import type { TestResult } from '../runner/executor.js';
 import { ReportError, fsReason } from './errors.js';
+import { type RunWarning, warningText } from './warnings.js';
 
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -40,6 +41,11 @@ export interface JUnitMeta {
    * uses, so the report and the console cannot disagree about what a run cost.
    */
   spend?: BudgetSpend;
+  /**
+   * Every warning the run printed (design the-reports-carry-the-warnings, D2):
+   * counted in a property, their text in the suite's `<system-err>`.
+   */
+  warnings?: RunWarning[];
 }
 
 function seconds(ms: number): string {
@@ -53,7 +59,8 @@ function seconds(ms: number): string {
  * they executed (`not-run`, spec run-budget) are emitted the same way, with the
  * limit named in the reason rather than the fixed unrouted-skip message. When the
  * run is incomplete, that is recorded as a run-level property, not folded into any
- * one testcase. Pure — returns the XML, writes nothing.
+ * one testcase. The run's warnings are carried too, so the caveat on the
+ * verdict reaches CI with it (#103). Pure — returns the XML, writes nothing.
  */
 export function renderJUnit(
   results: TestResult[],
@@ -63,6 +70,7 @@ export function renderJUnit(
   const relative = (file: string): string =>
     meta.cwd ? path.relative(meta.cwd, file) : file;
 
+  const warnings = meta.warnings ?? [];
   const failures = results.filter((result) => result.status === 'failed').length;
   const notRun = results.filter((result) => result.status === 'not-run');
   const lines = [
@@ -86,6 +94,9 @@ export function renderJUnit(
           `    <property name="incomplete_reason" value="${escapeXml(meta.incomplete)}"/>`,
         ]
       : []),
+    // Emitted as 0 too (design D2): unlike a token count nobody reported, 0 is
+    // a true claim here, that the run printed no warning.
+    `    <property name="warnings" value="${warnings.length}"/>`,
     '  </properties>',
   ];
 
@@ -118,6 +129,12 @@ export function renderJUnit(
       '    <skipped message="no routes: declared, skipped by --impacted"/>',
       '  </testcase>',
     );
+  }
+
+  // After the cases, where the schema puts a suite's output; `system-err`
+  // because that is where the run printed them.
+  if (warnings.length > 0) {
+    lines.push(`  <system-err>${escapeXml(warnings.map(warningText).join('\n\n'))}</system-err>`);
   }
 
   lines.push('</testsuite>', '');

@@ -1,5 +1,6 @@
 import type { BlastproofConfig } from '../config.js';
 import { mapImpact } from '../impact.js';
+import { emitWarning, type RunWarning } from './warnings.js';
 
 /**
  * Prints the working-tree changes the diff excluded, to stderr (design D2).
@@ -28,14 +29,26 @@ import { mapImpact } from '../impact.js';
  * is what makes it impossible for this warning to disagree with the impact
  * report printed beside it.
  *
- * Non-fatal: no exit code, no selection and no gate changes.
+ * Non-fatal: no exit code, no selection and no gate changes. `run` passes its
+ * list of warnings so the reports carry it too; `plan` writes no report.
  */
 export function printUncommitted(
   uncommitted: string[],
   changedFiles: string[],
   config: Pick<BlastproofConfig, 'routes' | 'ignore'>,
   baseRef: string,
+  into?: RunWarning[],
 ): void {
+  emitWarning(uncommittedWarning(uncommitted, changedFiles, config, baseRef), into);
+}
+
+/** The warning `printUncommitted` prints, or none when nothing was left out. */
+export function uncommittedWarning(
+  uncommitted: string[],
+  changedFiles: string[],
+  config: Pick<BlastproofConfig, 'routes' | 'ignore'>,
+  baseRef: string,
+): RunWarning | undefined {
   const inDiff = new Set(changedFiles.map((file) => file.replace(/\\/g, '/')));
   const routes = config.routes ?? {};
   const ignore = config.ignore ?? [];
@@ -45,18 +58,19 @@ export function printUncommitted(
     .map((file) => ({ file, impact: mapImpact([file], routes, ignore) }))
     .filter(({ impact }) => impact.ignoredFiles.length === 0);
 
-  if (findings.length === 0) return;
+  if (findings.length === 0) return undefined;
 
-  console.error(
-    `\nwarning: ${findings.length} file(s) changed in the working tree are not in the diff ` +
-      `against '${baseRef}':`,
-  );
-  for (const { file, impact } of findings) {
-    console.error(
-      impact.affectedRoutes.length > 0
-        ? `  ${file} -> ${impact.affectedRoutes.join(', ')}`
-        : `  ${file}  (matched by no routes: or ignore: glob)`,
-    );
-  }
-  console.error('Nothing above was considered. Commit or stash them to include them.');
+  return {
+    kind: 'uncommitted',
+    title: `warning: ${findings.length} file(s) changed in the working tree are not in the diff against '${baseRef}':`,
+    lines: [
+      ...findings.map(({ file, impact }) =>
+        impact.affectedRoutes.length > 0
+          ? `  ${file} -> ${impact.affectedRoutes.join(', ')}`
+          : `  ${file}  (matched by no routes: or ignore: glob)`,
+      ),
+      'Nothing above was considered. Commit or stash them to include them.',
+    ],
+    spaced: true,
+  };
 }

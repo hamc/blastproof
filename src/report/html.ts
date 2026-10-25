@@ -5,6 +5,7 @@ import type { StepResult, TestResult } from '../runner/executor.js';
 import { formatSpendLine } from './score.js';
 import { ReportError, fsReason } from './errors.js';
 import { type SkippedCase } from './junit.js';
+import type { RunWarning } from './warnings.js';
 
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -62,6 +63,8 @@ export interface HtmlMeta {
    * console prints, rather than recomposed here.
    */
   spend?: BudgetSpend;
+  /** Every warning the run printed (design the-reports-carry-the-warnings, D3). */
+  warnings?: RunWarning[];
   /**
    * Required, not optional (D2): an optional field would default to embedding,
    * so a caller that forgot it would silently put a secret back in the report.
@@ -71,10 +74,10 @@ export interface HtmlMeta {
 
 const STYLES = `
 :root { color-scheme: light dark; --bg:#fff; --fg:#111; --muted:#666; --line:#e3e3e3;
-  --pass:#137333; --fail:#c5221f; --card:#fafafa; }
+  --pass:#137333; --fail:#c5221f; --warn:#b06000; --card:#fafafa; }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#15171a; --fg:#e8e8e8; --muted:#9aa0a6; --line:#2c2f34;
-    --pass:#5bb974; --fail:#f28b82; --card:#1c1f23; }
+    --pass:#5bb974; --fail:#f28b82; --warn:#fdd663; --card:#1c1f23; }
 }
 * { box-sizing: border-box; }
 body { margin:0; padding:2rem 1.25rem; background:var(--bg); color:var(--fg);
@@ -89,6 +92,11 @@ h1 { font-size:1.35rem; margin:0 0 .25rem; }
 .verdict { font-weight:600; }
 .verdict.pass { color:var(--pass); } .verdict.fail { color:var(--fail); }
 .counts { color:var(--muted); font-size:.9rem; }
+.warnings { padding:1rem 1.25rem; border:1px solid var(--warn); border-radius:10px;
+  background:color-mix(in srgb, var(--warn) 8%, transparent); margin-bottom:1.5rem; }
+.warnings h2 { font-size:1rem; margin:0 0 .5rem; color:var(--warn); }
+.warnings h3 { font-size:.9rem; margin:.75rem 0 .25rem; }
+.warnings pre { margin:0; white-space:pre-wrap; font-size:.82rem; }
 .incomplete { padding:1rem 1.25rem; border:1px solid var(--fail); border-radius:10px;
   background:color-mix(in srgb, var(--fail) 10%, transparent); margin-bottom:1.5rem; font-weight:600; }
 table { width:100%; border-collapse:collapse; margin-bottom:1.5rem; }
@@ -227,6 +235,23 @@ export async function renderHtml(
       ? ''
       : `  <section class="incomplete">Run stopped: ${escapeHtml(meta.incomplete)}</section>\n\n`;
 
+  // Directly after the score (design D3): the score leads, and a caveat read
+  // at the end, once the number has been believed, is the terminal's problem
+  // again.
+  const warnings = meta.warnings ?? [];
+  const warningsSection =
+    warnings.length === 0
+      ? ''
+      : `  <section class="warnings">\n    <h2>Warnings (${warnings.length})</h2>\n` +
+        warnings
+          .map(
+            (w) =>
+              `    <h3>${escapeHtml(w.title)}</h3>` +
+              (w.lines.length > 0 ? `\n    <pre>${escapeHtml(w.lines.join('\n'))}</pre>` : ''),
+          )
+          .join('\n') +
+        '\n  </section>\n\n';
+
   const rows = results
     .map((r) => {
       const file = meta.cwd ? path.relative(meta.cwd, r.file) : r.file;
@@ -275,7 +300,7 @@ ${banner}  <section class="score">
     }${skipped.length > 0 ? ` · ${skipped.length} skipped` : ''}</span>
   </section>
 
-  <table>
+${warningsSection}  <table>
     <thead><tr><th>Status</th><th>Priority</th><th>Test</th><th>File</th><th class="num">Time</th></tr></thead>
     <tbody>
 ${rows}${rows && skippedRows ? '\n' : ''}${skippedRows}

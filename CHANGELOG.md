@@ -5,6 +5,15 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Added
+
+- **The reports carry the warnings** ([#103](https://github.com/hamc/blastproof/issues/103)).
+  Uncommitted work `--impacted` did not see, route drift, a step that names no value and a
+  secret the page returned reformatted were printed to stderr only, so a reviewer reading the
+  CI artifacts saw the score without the caveat on it. JUnit now counts them in a `warnings`
+  property, with their text in the suite's `<system-err>`, and the HTML report shows them right
+  after the score. The terminal, the exit code and the selection are unchanged.
+
 ## [0.28.0] — 2026-10-25
 
 Minor: two new options, both off by default. A config without them runs exactly as before.
