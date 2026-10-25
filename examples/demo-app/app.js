@@ -23,6 +23,34 @@
     return '$' + value.toFixed(2);
   }
 
+  // --- phone menu: the main nav's links behind a button ----------------------
+  // Built from the page's own nav, so every page gets the same links. CSS shows
+  // it only under 600px and hides the inline nav there.
+  var mainNav = document.querySelector('nav[aria-label="Main"]');
+  if (mainNav) {
+    var menu = document.createElement('nav');
+    menu.className = 'phone-menu';
+    menu.setAttribute('aria-label', 'Phone menu');
+    var toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.textContent = 'Menu';
+    toggle.setAttribute('aria-expanded', 'false');
+    var links = document.createElement('ul');
+    links.hidden = true;
+    mainNav.querySelectorAll('a').forEach(function (link) {
+      var item = document.createElement('li');
+      item.appendChild(link.cloneNode(true));
+      links.appendChild(item);
+    });
+    toggle.addEventListener('click', function () {
+      links.hidden = !links.hidden;
+      toggle.setAttribute('aria-expanded', String(!links.hidden));
+    });
+    menu.appendChild(toggle);
+    menu.appendChild(links);
+    mainNav.parentNode.insertBefore(menu, mainNav);
+  }
+
   // --- home: add to cart -----------------------------------------------------
   document.querySelectorAll('[data-add-to-cart]').forEach(function (button) {
     button.addEventListener('click', function () {

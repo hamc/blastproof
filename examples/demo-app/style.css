@@ -62,3 +62,23 @@ button,
   opacity: 0.7;
   font-size: 0.875rem;
 }
+
+/* A phone gets a menu button instead of the inline links (design
+   a-test-names-its-device, D6): neither is in the accessibility tree at the
+   other's width, so a test that uses the menu can only pass on a phone. */
+.phone-menu {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  nav[aria-label='Main'] {
+    display: none;
+  }
+
+  .phone-menu {
+    display: block;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #8884;
+    margin-bottom: 1rem;
+  }
+}

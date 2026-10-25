@@ -1,0 +1,10 @@
+summary: On a phone, the menu button opens the main links and reaches the cart
+priority: P1
+tags: [mobile]
+routes: ["/"]
+device: Pixel 7
+steps:
+  - click the "Menu" button
+  - verify the "Menu" button is expanded and the menu lists the links Home, Login and Cart
+  - click the "Cart" link in the menu
+  - verify the page heading is "Your cart"
