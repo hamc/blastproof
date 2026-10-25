@@ -24,7 +24,11 @@ const {
     writeDraftMock: vi.fn(),
   }));
 
-vi.mock('playwright', () => ({ chromium: { launch: launchMock } }));
+// The real device registry, a fake launch (spec device-emulation).
+vi.mock('playwright', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('playwright')>()),
+  chromium: { launch: launchMock },
+}));
 
 vi.mock('../src/diff.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/diff.js')>();
@@ -181,6 +185,25 @@ describe('planCommand route selection', () => {
     expect(generateForRouteMock.mock.calls[0]?.[1]).toMatchObject({
       maxSnapshotLines: 400,
     });
+  });
+
+  it('drafts every route as browser.device (design a-test-names-its-device, D4)', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST }, ['browser:', '  device: Pixel 7'].join('\n'));
+    getChangedFilesMock.mockResolvedValue(['src/settings/flags.ts']);
+    const seen: Record<string, unknown>[] = [];
+    const page = { setDefaultTimeout: () => {} };
+    launchMock.mockResolvedValue({
+      newContext: async (options: Record<string, unknown> = {}) => {
+        seen.push(options);
+        return { newPage: async () => page, close: async () => {} };
+      },
+      close: async () => {},
+    });
+
+    expect(await planCommand({ cwd: dir })).toBe(EXIT_OK);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ viewport: { width: 412 }, isMobile: true });
   });
 
   it('exits 0 without browser or LLM when everything is covered', async () => {

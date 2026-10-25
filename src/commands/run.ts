@@ -283,6 +283,12 @@ function printSummary(results: TestResult[]): void {
   }
 }
 
+/** The device a test runs as, for its header line, or nothing on the desktop default (design D5). */
+function deviceTag(test: TestFile, config: BlastproofConfig): string {
+  const device = test.device ?? config.browser.device;
+  return device ? ` [${device}]` : '';
+}
+
 async function runOne(
   browser: import('playwright').Browser,
   test: TestFile,
@@ -320,11 +326,13 @@ async function runOne(
   // Fresh context per test: no cookies, storage or history leakage (m1 design D6).
   // With auth configured the context merely starts from the shared session instead
   // of empty, so isolation is preserved (auth design D3); `auth: false` opts out.
-  const context = await browser.newContext(test.auth ? contextOptions(session) : {});
+  // A test's own device wins over the run's (design a-test-names-its-device, D3).
+  const device = test.device ?? config.browser.device;
+  const context = await browser.newContext(contextOptions(test.auth ? session : undefined, device));
   try {
     const page = await context.newPage();
     page.setDefaultTimeout(config.browser.timeout_ms);
-    return await executeTest(page as unknown as PageLike, resolved, {
+    const result = await executeTest(page as unknown as PageLike, resolved, {
       brain,
       sessionDir,
       baseUrl: config.base_url,
@@ -336,6 +344,7 @@ async function runOne(
       mask: (text) => mask.mask(text),
       onEvent: (event) => printEvent(event, write),
     });
+    return device ? { ...result, device } : result;
   } finally {
     await context.close();
   }
@@ -568,7 +577,7 @@ function printDryRun(
 ): void {
   console.log(`\nDry run: ${selected.length} test(s) selected, base_url=${config.base_url}`);
   for (const test of selected) {
-    console.log(`  ${test.summary} [${test.priority}] (${path.relative(cwd, test.path)})`);
+    console.log(`  ${test.summary} [${test.priority}]${deviceTag(test, config)} (${path.relative(cwd, test.path)})`);
   }
   // A ceiling, not a forecast (design D5): the arithmetic is exact (see
   // estimateMaxModelCalls for the derivation), but a real run almost always
@@ -851,6 +860,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
           maxRetries: config.max_retries_per_step,
           timeoutMs: config.browser.timeout_ms,
           maxSnapshotLines: config.browser.max_snapshot_lines,
+          device: config.browser.device,
           mask: runMask,
           onEvent: printEvent,
         });
@@ -891,7 +901,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
         // The header belongs to the block, not to the moment the test starts:
         // printed on start, a concurrent run would separate every header from
         // the transcript it introduces (design D2, task 3.3).
-        const header = `\n> ${test.summary} [${test.priority}] (${path.relative(options.cwd, test.path)})`;
+        const header = `\n> ${test.summary} [${test.priority}]${deviceTag(test, config)} (${path.relative(options.cwd, test.path)})`;
         const write: LineSink = streaming ? console.log : (line) => lines.push(line);
         if (streaming) console.log(header);
         else lines.push(header);

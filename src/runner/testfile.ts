@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { deviceSchema } from '../config.js';
 
 export const TESTS_RELATIVE_DIR = path.join('.blastproof', 'tests');
 
@@ -16,6 +17,7 @@ const testFileSchema = z.object({
   setup: z.array(z.string().min(1)).optional(),
   routes: z.array(z.string()).default([]),
   auth: z.boolean().default(true),
+  device: deviceSchema.optional(),
 });
 
 export interface TestFile {
@@ -33,6 +35,8 @@ export interface TestFile {
    * A login test must set `false`, or it would start already signed in.
    */
   auth: boolean;
+  /** The device this test runs as instead of `browser.device` (spec device-emulation). */
+  device?: string;
 }
 
 export class TestFileError extends Error {

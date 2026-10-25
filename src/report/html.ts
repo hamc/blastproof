@@ -154,10 +154,11 @@ async function renderTest(
   const tagClass = failed ? 'fail' : notRun ? 'skip' : 'pass';
   const label = failed ? 'FAIL' : notRun ? 'NOT RUN' : 'PASS';
   const file = cwd ? path.relative(cwd, result.file) : result.file;
+  const device = result.device ? ` · ${escapeHtml(result.device)}` : '';
   const parts = [
     `    <details${failed || notRun ? ' open' : ''}>`,
     `      <summary><span class="tag ${tagClass}">${label}</span> ` +
-      `${escapeHtml(result.summary)} <span class="note">${escapeHtml(result.priority)} · ${escapeHtml(file)}</span></summary>`,
+      `${escapeHtml(result.summary)} <span class="note">${escapeHtml(result.priority)}${device} · ${escapeHtml(file)}</span></summary>`,
   ];
 
   if (failed) {

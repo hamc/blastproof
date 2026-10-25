@@ -110,6 +110,8 @@ export interface TestResult {
    * nothing about the application under test.
    */
   status: 'passed' | 'failed' | 'not-run';
+  /** The device it ran as, when not the desktop default (spec device-emulation). */
+  device?: string;
   steps: StepResult[];
   /** Failing step text + reason, for summary reporting. */
   failedStep?: string;

@@ -260,6 +260,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           maxRetries: config.max_retries_per_step,
           timeoutMs: config.browser.timeout_ms,
           maxSnapshotLines: config.browser.max_snapshot_lines,
+          device: config.browser.device,
           mask,
           onEvent: printAuthEvent,
         });
@@ -279,7 +280,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
     for (const { route, changedFiles } of incomplete ? [] : work) {
       console.log(`\n> ${route}`);
       let draft: PlannedDraft;
-      const context = await browser.newContext(contextOptions(session));
+      const context = await browser.newContext(contextOptions(session, config.browser.device));
       try {
         const page = await context.newPage();
         page.setDefaultTimeout(config.browser.timeout_ms);

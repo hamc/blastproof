@@ -8,6 +8,7 @@ import { RunStoppedError } from './runner/budget.js';
 import { SecretsMask, substituteEnv } from './runner/env.js';
 import { defaultSnapshot, executeTest, type ExecutorEvent } from './runner/executor.js';
 import { withoutRefs } from './runner/snapshot.js';
+import { deviceOptions } from './runner/device.js';
 
 /** Where a captured session is cached when `auth.cache` is enabled (design D9). */
 export const AUTH_STATE_RELATIVE_PATH = path.join('.blastproof', '.auth-state.json');
@@ -83,6 +84,8 @@ export interface AuthenticateOptions {
    * snapshotter; an injected `snapshot` fully replaces it.
    */
   maxSnapshotLines?: number;
+  /** The run's `browser.device`: an app whose login differs on a phone is logged into as its tests use it (design D4). */
+  device?: string;
   /**
    * Progress reporter for the login journey. Without it authentication is a black
    * box, and a failing login is the moment you most need to see what happened.
@@ -211,7 +214,7 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
   // fully replaces it, same contract as the executor.
   const takeSnapshot = snapshot ?? ((page: PageLike) => defaultSnapshot(page, maxSnapshotLines));
 
-  const context = await browser.newContext();
+  const context = await browser.newContext(deviceOptions(options.device));
   try {
     const page = await context.newPage();
     // The executor's opening navigation happens outside its per-step error handling,
@@ -330,10 +333,15 @@ export async function authenticate(options: AuthenticateOptions): Promise<AuthSe
   return session;
 }
 
-/** Context options that seed a browser context with the session, if any. */
-export function contextOptions(session: AuthSession | undefined): Record<string, unknown> {
-  if (!session) return {};
+/**
+ * Context options that seed a browser context with the session, if any, as the
+ * device, if any. A session is cookies and storage, which do not depend on the
+ * viewport, so it seeds a context on any device (design a-test-names-its-device, D4).
+ */
+export function contextOptions(session: AuthSession | undefined, device?: string): Record<string, unknown> {
+  if (!session) return deviceOptions(device);
   return {
+    ...deviceOptions(device),
     ...(session.storageState ? { storageState: session.storageState } : {}),
     ...(session.extraHTTPHeaders ? { extraHTTPHeaders: session.extraHTTPHeaders } : {}),
   };

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { isDevice, unknownDeviceMessage } from './runner/device.js';
 
 export const CONFIG_RELATIVE_PATH = path.join('.blastproof', 'config.yaml');
 
@@ -39,6 +40,11 @@ const llmSchema = z.object({
   }
 });
 
+/** A name from Playwright's device registry, checked at load time (design a-test-names-its-device, D2). */
+export const deviceSchema = z.string().superRefine((name, ctx) => {
+  if (!isDevice(name)) ctx.addIssue({ code: 'custom', message: unknownDeviceMessage(name) });
+});
+
 const browserSchema = z.object({
   headless: z.boolean().default(true),
   /**
@@ -54,6 +60,12 @@ const browserSchema = z.object({
    * that never mentions this behaves exactly as before it existed.
    */
   max_snapshot_lines: z.number().int().positive().optional(),
+  /**
+   * The device every test runs as unless its file names its own (spec
+   * device-emulation). Optional: undefined is Playwright's desktop default, so a
+   * config that never mentions it behaves exactly as before it existed.
+   */
+  device: deviceSchema.optional(),
 });
 
 /**
@@ -254,6 +266,7 @@ export const ENV_OVERRIDES: Record<string, readonly [string] | readonly [string,
   BLASTPROOF_MAX_DURATION_S: ['budget', 'max_duration_s'],
   BLASTPROOF_FIRST_JUDGE_MODEL: ['first_judge', 'model'],
   BLASTPROOF_FIRST_JUDGE_THRESHOLD: ['first_judge', 'threshold'],
+  BLASTPROOF_BROWSER_DEVICE: ['browser', 'device'],
 };
 
 export interface OverrideResult {
