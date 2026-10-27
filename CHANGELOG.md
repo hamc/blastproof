@@ -5,6 +5,10 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-10-27
+
+Minor: the reports gain a property and a section. The terminal, the exit code and the selection are unchanged.
+
 ### Added
 
 - **The reports carry the warnings** ([#103](https://github.com/hamc/blastproof/issues/103)).
