@@ -5,9 +5,12 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
-## [0.29.0] — 2026-10-27
+## [0.29.1] — 2026-10-27
 
 Minor: the reports gain a property and a section. The terminal, the exit code and the selection are unchanged.
+
+The first release of this version. The `v0.29.0` tag was pushed on the commit before the version
+bump, so the release workflow refused it and nothing was published as 0.29.0.
 
 ### Added
 
