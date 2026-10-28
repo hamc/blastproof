@@ -3,7 +3,9 @@
 ## Purpose
 
 Translate changed files into the set of affected routes (the blast radius), deterministically and without LLM calls.
+
 ## Requirements
+
 ### Requirement: Glob-based route mapping
 The system SHALL map each changed file to affected routes using the `routes:` glob→URL-list entries in `.blastproof/config.yaml`, producing a de-duplicated, sorted set of affected routes.
 
@@ -16,40 +18,40 @@ The system SHALL map each changed file to affected routes using the `routes:` gl
 - **THEN** `/checkout` appears exactly once in the affected route set
 
 ### Requirement: Unmapped file reporting
-Changed files matching no `routes:` glob SHALL be reported as "unmapped files"; unmapped files SHALL NOT fail the run and SHALL NOT contribute affected routes.
+Changed files matching no `routes:` glob SHALL be reported as "unclassified"; unclassified files SHALL NOT fail the run and SHALL NOT contribute affected routes.
 
-#### Scenario: Unmapped files listed
+#### Scenario: Unclassified files listed
 - **WHEN** the diff contains `docs/guide.md` and no glob matches it
-- **THEN** the output lists `docs/guide.md` under unmapped files and the run continues normally
+- **THEN** the output lists `docs/guide.md` as unclassified and the run continues normally
 
 ### Requirement: Deterministic mapping
 Impact mapping in this slice SHALL use glob matching only; no LLM calls are made to infer impact.
 
 #### Scenario: Empty mapping configuration
 - **WHEN** config has no `routes:` entries
-- **THEN** every changed file is reported as unmapped and no routes are affected
+- **THEN** every changed file is reported as unclassified and no routes are affected
 
 ### Requirement: Ignore globs
-The system SHALL accept an optional `ignore:` glob list in `.blastproof/config.yaml`. A changed file matching an ignore glob SHALL be treated as knowingly irrelevant: it contributes no routes and SHALL NOT be reported as unmapped.
+The system SHALL accept an optional `ignore:` glob list in `.blastproof/config.yaml`. A changed file matching an ignore glob SHALL be treated as knowingly irrelevant: it contributes no routes and SHALL NOT be reported as unclassified.
 
-#### Scenario: Documentation is not reported as unmapped
+#### Scenario: Documentation is not reported as unclassified
 - **WHEN** `ignore:` contains `"**/*.md"` and the diff contains `README.md`
-- **THEN** `README.md` is absent from the unmapped files report
+- **THEN** `README.md` is absent from the unclassified files
 
 #### Scenario: Ignored files contribute no routes
 - **WHEN** a changed file matches both a `routes:` glob and an `ignore:` glob
 - **THEN** the file is treated as ignored and contributes no affected routes
 
 ### Requirement: Three-way classification
-Each changed file SHALL be classified as mapped to routes, ignored, or unclassified; only files matching neither `routes:` nor `ignore:` SHALL be reported as unmapped.
+Each changed file SHALL be classified as mapped to routes, ignored, or unclassified; only files matching neither `routes:` nor `ignore:` SHALL be reported as unclassified.
 
 #### Scenario: A shared module is unclassified
 - **WHEN** `src/lib/money.ts` matches no `routes:` glob and no `ignore:` glob
-- **THEN** it is reported as unmapped
+- **THEN** it is reported as unclassified
 
 #### Scenario: No ignore list configured
 - **WHEN** no `ignore:` globs are configured
-- **THEN** every changed file matching no `routes:` glob is reported as unmapped, as before
+- **THEN** every changed file matching no `routes:` glob is reported as unclassified, as before
 
 ### Requirement: Route drift detection
 When `.blastproof/config.yaml` declares at least one `routes:` mapping, the system SHALL detect test-declared routes that no `routes:` mapping declares and SHALL expose them as a drift set. Route comparison SHALL be exact equality against the set of routes declared as values across all `routes:` mappings; no normalization (trailing slash, case) SHALL be applied. Drift detection SHALL NOT alter test selection.
@@ -69,7 +71,6 @@ When `.blastproof/config.yaml` declares at least one `routes:` mapping, the syst
 #### Scenario: A valid route absent from the diff is not drift
 - **WHEN** config maps a glob to `["/cart"]`, a test declares `routes: ["/cart"]`, and the diff affects only `/login`
 - **THEN** `/cart` is not drift, because it is declared by a mapping (drift is independent of the current diff)
-
 
 ### Requirement: An inverted routes map is refused
 The system SHALL refuse to load a configuration whose `routes:` entries are inverted — a route as the key mapped to file paths as values — rather than accepting a map that can match no changed file. An entry SHALL be treated as inverted only when its key reads as a route (a leading `/` and no glob metacharacter) **and** at least one of its values reads as a file path (a glob metacharacter, or a trailing file extension). Both conditions SHALL be required, so that neither signal alone rejects a valid map. The error SHALL name one offending entry, SHALL state how many others were found, and SHALL show the corrected form built from that entry's own key and value. The system SHALL NOT correct the entry on the user's behalf.

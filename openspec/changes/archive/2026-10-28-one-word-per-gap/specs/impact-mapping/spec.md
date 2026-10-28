@@ -3,7 +3,7 @@
 ### Requirement: Unmapped file reporting
 Changed files matching no `routes:` glob SHALL be reported as "unclassified"; unclassified files SHALL NOT fail the run and SHALL NOT contribute affected routes.
 
-#### Scenario: Unmapped files listed
+#### Scenario: Unclassified files listed
 - **WHEN** the diff contains `docs/guide.md` and no glob matches it
 - **THEN** the output lists `docs/guide.md` as unclassified and the run continues normally
 
@@ -17,7 +17,7 @@ Impact mapping in this slice SHALL use glob matching only; no LLM calls are made
 ### Requirement: Ignore globs
 The system SHALL accept an optional `ignore:` glob list in `.blastproof/config.yaml`. A changed file matching an ignore glob SHALL be treated as knowingly irrelevant: it contributes no routes and SHALL NOT be reported as unclassified.
 
-#### Scenario: Documentation is not reported as unmapped
+#### Scenario: Documentation is not reported as unclassified
 - **WHEN** `ignore:` contains `"**/*.md"` and the diff contains `README.md`
 - **THEN** `README.md` is absent from the unclassified files
 
