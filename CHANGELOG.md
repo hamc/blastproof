@@ -5,6 +5,16 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Changed
+
+- **The impact report says what is not covered, once** ([#39](https://github.com/hamc/blastproof/issues/39)).
+  `--impacted` listed seven near-synonyms as peers: affected, unclassified, ignored, unrouted,
+  uncovered, skipped, not run. It now opens with one line, `Not covered: …`, counting unclassified
+  files, routes no selected test covers and tests with no `routes:`, then reports changed files, the
+  routes they reach and the tests, in that order, each gap marked where it is listed. The header
+  names the base ref, and ignored files are named (the first three) rather than only counted.
+  Output only: the exit code, the selection and every gate are unchanged.
+
 ## [0.29.1] — 2026-10-27
 
 Minor: the reports gain a property and a section. The terminal, the exit code and the selection are unchanged.

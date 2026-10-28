@@ -132,10 +132,10 @@ describe('runCommand --impacted', () => {
     expect(code).toBe(EXIT_OK);
     expect(launchMock).not.toHaveBeenCalled();
     expect(getChangedFilesMock).toHaveBeenCalledWith('main', dir);
-    expect(out()).toContain('Affected routes: none');
-    expect(out()).toContain('Unclassified files');
+    expect(out()).toContain('Routes the diff reaches: none');
+    expect(out()).toContain('1 unclassified, matched by no routes: or ignore: glob:');
     expect(out()).toContain('docs/guide.md');
-    expect(out()).toContain('Unrouted tests (skipped)');
+    expect(out()).toContain('1 declares no routes:, so --impacted cannot select it:');
     expect(out()).toContain('Legacy test');
     expect(out()).toContain('No impacted tests to run.');
   });
@@ -148,8 +148,7 @@ describe('runCommand --impacted', () => {
 
     expect(code).toBe(EXIT_OK);
     expect(launchMock).not.toHaveBeenCalled();
-    expect(out()).toContain('Affected but uncovered routes');
-    expect(out()).toContain('/cart');
+    expect(out()).toContain('  /cart  (no selected test covers it)');
   });
 
   it('passes the --base ref through to the diff', async () => {
@@ -189,11 +188,11 @@ describe('runCommand --dry-run', () => {
 
     expect(code).toBe(EXIT_OK);
     expect(launchMock).not.toHaveBeenCalled();
-    expect(out()).toContain('Affected routes:');
+    expect(out()).toContain('Routes the diff reaches: 1');
     expect(out()).toContain('/cart');
-    expect(out()).toContain('Unclassified files');
+    expect(out()).toContain('1 unclassified, matched by no routes: or ignore: glob:');
     expect(out()).toContain('docs/guide.md');
-    expect(out()).toContain('Unrouted tests (skipped)');
+    expect(out()).toContain('1 declares no routes:, so --impacted cannot select it:');
     expect(out()).toContain('Legacy test');
     expect(out()).toContain('Dry run: 1 test(s) selected');
     expect(out()).toContain('Cart discount');
@@ -694,7 +693,89 @@ describe('runCommand --fail-on-unmapped', () => {
     const code = await runCommand({ cwd: dir, tags: [], impacted: true });
 
     expect(code).toBe(EXIT_OK);
-    expect(out()).toContain('Unclassified files');
+    expect(out()).toContain('1 unclassified, matched by no routes: or ignore: glob:');
+  });
+});
+
+describe('runCommand impact report layout (design one-word-per-gap)', () => {
+  const impactBlock = (): string => {
+    // From the header to the closing rule, so a line printed after the report
+    // cannot satisfy an assertion about it.
+    const text = out();
+    const start = text.indexOf('--- Impact');
+    return text.slice(start, text.indexOf(`\n${'-'.repeat(63)}`, start));
+  };
+
+  it('opens with what is not covered, then files, routes and tests, each route once', async () => {
+    await writeProject({ 'login.yaml': LOGIN_TEST, 'legacy.yaml': UNROUTED_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts', 'src/auth/form.ts', 'src/mystery.ts']);
+
+    await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true, base: 'develop' });
+
+    const lines = impactBlock().split('\n');
+    expect(lines[0]).toBe(`--- Impact against develop ${'-'.repeat(64 - 27)}`);
+    expect(lines[1]).toBe(
+      'Not covered: 1 unclassified file · 1 route no selected test covers · 1 test with no routes:',
+    );
+    expect(impactBlock()).toContain(
+      [
+        'Changed files: 3',
+        '  2 reach a route',
+        '  1 unclassified, matched by no routes: or ignore: glob:',
+        '      src/mystery.ts',
+        'Routes the diff reaches: 2',
+        '  /cart  (no selected test covers it)',
+        '  /login',
+        'Tests: 1 selected',
+        '  1 declares no routes:, so --impacted cannot select it:',
+        '      Legacy test (.blastproof/tests/legacy.yaml)',
+      ].join('\n'),
+    );
+    expect(impactBlock().match(/\/cart/g)).toHaveLength(1);
+  });
+
+  it('says nothing is uncovered when every file, route and test is accounted for', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(impactBlock()).toContain('Not covered: nothing');
+    expect(impactBlock()).not.toMatch(/unclassified|no selected test|declares no routes/);
+  });
+
+  it('counts a route as uncovered when the filters left out the test that covers it', async () => {
+    await writeProject({ 'cart.yaml': CART_TEST });
+    getChangedFilesMock.mockResolvedValue(['src/cart/discount.ts']);
+
+    await runCommand({ cwd: dir, tags: ['checkout'], impacted: true, dryRun: true });
+
+    expect(impactBlock()).toContain('  /cart  (no selected test covers it)');
+    expect(impactBlock()).toContain('Tests: 0 selected');
+  });
+
+  it('names the first three ignored files and counts the rest', async () => {
+    await mkdir(path.join(dir, '.blastproof', 'tests'), { recursive: true });
+    await writeFile(
+      path.join(dir, '.blastproof', 'config.yaml'),
+      [
+        'base_url: http://localhost:4173',
+        'llm:',
+        '  provider: anthropic',
+        '  api_key_env: BLASTPROOF_TEST_MISSING_KEY',
+        'routes:',
+        '  "src/cart/**": ["/cart"]',
+        'ignore:',
+        '  - "**/*.md"',
+        '',
+      ].join('\n'),
+    );
+    getChangedFilesMock.mockResolvedValue(['a.md', 'b.md', 'c.md', 'd.md', 'e.md']);
+
+    await runCommand({ cwd: dir, tags: [], impacted: true, dryRun: true });
+
+    expect(impactBlock()).toContain('  5 ignored by an ignore: glob: a.md, b.md, c.md and 2 more');
+    expect(impactBlock()).not.toContain('reach a route');
   });
 });
 

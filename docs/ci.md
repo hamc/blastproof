@@ -132,11 +132,11 @@ it carries:
 | --- | --- |
 | `<property name="score">` | the weighted score |
 | `<property name="llm_calls">` · `llm_tokens` | what the run spent |
-| `<skipped/>` on unrouted tests | tests `--impacted` could not select |
+| `<skipped/>` on tests with no `routes:` | tests `--impacted` could not select |
 | `<property name="warnings">` · `<system-err>` | how many warnings the run printed, and their text |
 
-Unrouted tests appear as skipped rather than being omitted entirely, so the
-coverage gap shows up in the CI summary instead of vanishing silently. The
+Tests with no `routes:` appear as skipped rather than being omitted entirely, so
+the coverage gap shows up in the CI summary instead of vanishing silently. The
 warnings travel for the same reason: uncommitted work `--impacted` did not see,
 route drift, a step that names no value, a secret the page returned reformatted.
 Each is a caveat on the verdict, and a CI job hands its reviewer the reports,

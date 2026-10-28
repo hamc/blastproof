@@ -351,33 +351,65 @@ async function runOne(
   }
 }
 
-/** Prints the --impacted report sections (affected/unmapped/unrouted-skipped/uncovered). */
+/** `1 unclassified file`, `2 unclassified files`. */
+function count(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
+/** How many ignored files the report names before saying how many more (design one-word-per-gap, D3). */
+const IGNORED_NAMED = 3;
+
+/**
+ * Prints the --impacted report (design one-word-per-gap). One line first says
+ * what is not covered, then each subject once, in the order the pipeline works
+ * — changed files, the routes they reach, the tests — with its gap marked where
+ * it is listed. Before, seven near-synonyms sat as peers in one flat list, and
+ * the line meaning "nobody knows whether this change is covered" read like the
+ * lines around it (#39). Two words stay because the config uses them:
+ * `unclassified` and `ignored`.
+ */
 function printImpactReport(
   impact: ImpactResult,
   selection: ImpactedSelection,
+  changedCount: number,
+  base: string,
   cwd: string,
 ): void {
-  console.log('\n--- Impact -----------------------------------------------------');
-  console.log(
-    impact.affectedRoutes.length > 0 ? 'Affected routes:' : 'Affected routes: none',
-  );
-  for (const route of impact.affectedRoutes) console.log(`  ${route}`);
-  if (impact.unmappedFiles.length > 0) {
-    console.log('Unclassified files (matched by no routes: or ignore: glob):');
-    for (const file of impact.unmappedFiles) console.log(`  ${file}`);
-  }
+  const uncovered = new Set(selection.uncoveredRoutes);
+  const unrouted = selection.unroutedSkipped;
+  const gaps = [
+    impact.unmappedFiles.length > 0 && count(impact.unmappedFiles.length, 'unclassified file', 'unclassified files'),
+    uncovered.size > 0 && count(uncovered.size, 'route no selected test covers', 'routes no selected test covers'),
+    unrouted.length > 0 && count(unrouted.length, 'test with no routes:', 'tests with no routes:'),
+  ].filter((gap): gap is string => gap !== false);
+
+  console.log(`\n${`--- Impact against ${base} `.padEnd(64, '-')}`);
+  console.log(`Not covered: ${gaps.length > 0 ? gaps.join(' · ') : 'nothing'}`);
+
+  console.log(`\nChanged files: ${changedCount}`);
+  const reaching = changedCount - impact.ignoredFiles.length - impact.unmappedFiles.length;
+  if (reaching > 0) console.log(`  ${reaching} reach a route`);
   if (impact.ignoredFiles.length > 0) {
-    console.log(`Ignored files: ${impact.ignoredFiles.length}`);
+    const named = impact.ignoredFiles.slice(0, IGNORED_NAMED).join(', ');
+    const more = impact.ignoredFiles.length - IGNORED_NAMED;
+    console.log(`  ${impact.ignoredFiles.length} ignored by an ignore: glob: ${named}${more > 0 ? ` and ${more} more` : ''}`);
   }
-  if (selection.unroutedSkipped.length > 0) {
-    console.log('Unrouted tests (skipped):');
-    for (const test of selection.unroutedSkipped) {
-      console.log(`  ${test.summary} (${path.relative(cwd, test.path)})`);
-    }
+  if (impact.unmappedFiles.length > 0) {
+    console.log(`  ${impact.unmappedFiles.length} unclassified, matched by no routes: or ignore: glob:`);
+    for (const file of impact.unmappedFiles) console.log(`      ${file}`);
   }
-  if (selection.uncoveredRoutes.length > 0) {
-    console.log('Affected but uncovered routes:');
-    for (const route of selection.uncoveredRoutes) console.log(`  ${route}`);
+
+  // "Selected" on purpose (design D2): with --tag or --priority a route can
+  // have a test the filters left out, and "no test covers it" would be false.
+  console.log(`Routes the diff reaches: ${impact.affectedRoutes.length > 0 ? impact.affectedRoutes.length : 'none'}`);
+  for (const route of impact.affectedRoutes) {
+    console.log(`  ${route}${uncovered.has(route) ? '  (no selected test covers it)' : ''}`);
+  }
+
+  console.log(`Tests: ${selection.selected.length} selected`);
+  if (unrouted.length > 0) {
+    console.log(`  ${unrouted.length} ${unrouted.length === 1 ? 'declares' : 'declare'} no routes:, so --impacted cannot select ${unrouted.length === 1 ? 'it' : 'them'}:`);
+    for (const test of unrouted) console.log(`      ${test.summary} (${path.relative(cwd, test.path)})`);
   }
   console.log('---------------------------------------------------------------');
 }
@@ -666,6 +698,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
 
   // Impact analysis fails fast (usage error) before any browser launch.
   let impact: ImpactResult | undefined;
+  let changedCount = 0;
   if (impacted) {
     let changedFiles: string[];
     try {
@@ -678,6 +711,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       throw error;
     }
     impact = mapImpact(changedFiles, config.routes ?? {}, config.ignore ?? []);
+    changedCount = changedFiles.length;
 
     // The diff says what it excluded (design D2), here rather than at the one
     // call site the drift warning uses: that rule is about a single command's
@@ -761,7 +795,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
   const selected = selection.selected;
 
   if (impact) {
-    printImpactReport(impact, selection, options.cwd);
+    printImpactReport(impact, selection, changedCount, base, options.cwd);
   }
 
   if (options.dryRun) {
