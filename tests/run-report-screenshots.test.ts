@@ -46,7 +46,13 @@ let dir: string;
 function browserDouble(): unknown {
   return {
     newContext: async () => ({
-      newPage: async () => ({ setDefaultTimeout: () => {} }),
+      newPage: async () => ({
+        setDefaultTimeout: () => {},
+        // The capture's two page reads (design carry-the-whole-session, D2/D3): nothing to repair, no session storage.
+        evaluate: async (fn: { name: string }) =>
+          fn.name === 'readFalsyRecords' ? { origin: 'null', databases: [] } : { origin: 'null', items: [] },
+      }),
+      addInitScript: async () => {},
       storageState: async () => ({ cookies: [], origins: [] }),
       close: async () => {},
     }),

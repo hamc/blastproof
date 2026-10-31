@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
+import { authenticate, AuthError, contextOptions, seedContext, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
 import { DiffError, getChangedFiles, getUncommittedFiles } from '../diff.js';
 import { mapImpact, type ImpactResult } from '../impact.js';
@@ -331,6 +331,7 @@ async function runOne(
   const device = test.device ?? config.browser.device;
   const context = await browser.newContext(contextOptions(test.auth ? session : undefined, device));
   try {
+    await seedContext(context, test.auth ? session : undefined);
     const page = await context.newPage();
     page.setDefaultTimeout(config.browser.timeout_ms);
     const result = await executeTest(page as unknown as PageLike, resolved, {

@@ -7,9 +7,11 @@ import {
   AuthError,
   AUTH_STATE_RELATIVE_PATH,
   contextOptions,
+  seedContext,
   type BrowserLike,
   type StorageState,
 } from '../src/auth.js';
+import { SESSION_SEEDED_MARKER } from '../src/session-capture.js';
 import type { AuthConfig } from '../src/config.js';
 import type { AgentBrain } from '../src/llm/brain.js';
 import type { AssertJudgment } from '../src/llm/schemas.js';
@@ -18,6 +20,18 @@ import { BudgetExhaustedError, ProviderRefusedError } from '../src/runner/budget
 import { SecretsMask } from '../src/runner/env.js';
 
 const CAPTURED: StorageState = { cookies: [{ name: 'session', value: 'abc' }], origins: [] };
+
+/**
+ * A page's `evaluate` as a capture calls it: the falsy-record read finds an empty
+ * IndexedDB, the session storage read finds `sessionItems`. Dispatched on the page
+ * function's name, the one thing a double can know about it.
+ */
+function fakeEvaluate(sessionItems: { name: string; value: string }[] = []) {
+  return async (fn: { name: string }) =>
+    fn.name === 'readFalsyRecords'
+      ? { origin: 'http://localhost:4173', databases: [] }
+      : { origin: 'http://localhost:4173', items: sessionItems };
+}
 
 /** Browser double: one context whose page records navigation and actions. */
 function fakeBrowser(overrides: { fail?: boolean } = {}): {
@@ -39,12 +53,14 @@ function fakeBrowser(overrides: { fail?: boolean } = {}): {
             waitForLoadState: async () => {},
             keyboard: { press: async () => {} },
             screenshot: async () => undefined,
+            evaluate: fakeEvaluate(),
           } as never;
         },
         async storageState() {
           if (overrides.fail) throw new Error('no state');
           return CAPTURED;
         },
+        async addInitScript() {},
         async close() {},
       };
     },
@@ -145,11 +161,12 @@ function fakeBrowserWithPage(page: PageLike): BrowserLike {
     async newContext() {
       return {
         async newPage() {
-          return page;
+          return Object.assign(page, { evaluate: fakeEvaluate() }) as never;
         },
         async storageState() {
           return CAPTURED;
         },
+        async addInitScript() {},
         async close() {},
       };
     },
@@ -420,10 +437,11 @@ describe('authenticate: steps strategy', () => {
 
     it('asks again, and a login verified on the next answer is a login', async () => {
       // Journey: one passing judgment. Verify: malformed once, then answered.
-      const brain = verifyBrain([ok, bad(), ok]);
+      // Then verify again where the session is used (carry-the-whole-session, D4).
+      const brain = verifyBrain([ok, bad(), ok, ok]);
       const session = await authenticate(options({ steps: ['sign in'], verify: 'signed in', cache: false }, brain));
       expect(session.storageState).toBeDefined();
-      expect(brain.judgeCalls).toBe(3);
+      expect(brain.judgeCalls).toBe(4);
     });
 
     it('reports a login that could not be verified once every attempt was malformed', async () => {
@@ -660,5 +678,154 @@ describe('contextOptions', () => {
     expect(contextOptions({ extraHTTPHeaders: { A: 'b' } })).toEqual({
       extraHTTPHeaders: { A: 'b' },
     });
+  });
+});
+
+describe('the whole session (carry-the-whole-session)', () => {
+  /** Contexts as created: their options, their init scripts, the URLs their pages opened. */
+  function recordingBrowser(sessionItems: { name: string; value: string }[] = []) {
+    const contexts: { options: Record<string, unknown>; seeds: unknown[]; visited: string[] }[] = [];
+    const browser: BrowserLike = {
+      async newContext(options = {}) {
+        const record = { options, seeds: [] as unknown[], visited: [] as string[] };
+        contexts.push(record);
+        return {
+          async newPage() {
+            return {
+              goto: async (url: string) => {
+                record.visited.push(url);
+              },
+              url: () => 'http://localhost:4173/account',
+              waitForLoadState: async () => {},
+              keyboard: { press: async () => {} },
+              screenshot: async () => undefined,
+              evaluate: fakeEvaluate(sessionItems),
+            } as never;
+          },
+          async storageState() {
+            return CAPTURED;
+          },
+          async addInitScript(_script: unknown, arg: unknown) {
+            record.seeds.push(arg);
+          },
+          async close() {},
+        };
+      },
+    };
+    return { browser, contexts };
+  }
+
+  /** Drives the journey like `stubBrain`, and answers the judgments in order. */
+  function judgingBrain(verdicts: boolean[]): AgentBrain & { judged: number } {
+    const inner = stubBrain();
+    let judged = 0;
+    return {
+      nextAction: inner.nextAction,
+      get judged() {
+        return judged;
+      },
+      async judge() {
+        const pass = verdicts[judged++] ?? true;
+        return { pass, reason: pass ? 'account menu visible' : 'the sign-in form is shown' };
+      },
+    };
+  }
+
+  it('judges verify again in a new context seeded with the session, on the page the login ended on', async () => {
+    const { browser, contexts } = recordingBrowser();
+    const brain = judgingBrain([true, true]);
+
+    await authenticate(options({ steps: ['sign in'], verify: 'signed in', cache: false }, brain, browser));
+
+    expect(brain.judged).toBe(2);
+    expect(contexts).toHaveLength(2);
+    expect(contexts[1]!.options).toMatchObject({ storageState: CAPTURED });
+    expect(contexts[1]!.visited).toEqual(['http://localhost:4173/account']);
+  });
+
+  it('stops with an AuthError when the seeded context is not signed in', async () => {
+    const { browser } = recordingBrowser();
+
+    const error = await authenticate(
+      options({ steps: ['sign in'], verify: 'signed in', cache: false }, judgingBrain([true, false]), browser),
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(AuthError);
+    expect((error as Error).message).toMatch(/^Signed in, but the captured session does not keep the sign-in/);
+    expect((error as Error).message).toContain('(the sign-in form is shown)');
+    expect((error as Error).message).toContain('Tests would start signed out, so none were run.');
+  });
+
+  it('opens no second context without verify', async () => {
+    const { browser, contexts } = recordingBrowser();
+    const brain = judgingBrain([]);
+
+    await authenticate(options({ steps: ['sign in'], cache: false }, brain, browser));
+
+    expect(contexts).toHaveLength(1);
+    expect(brain.judged).toBe(0);
+  });
+
+  it('captures the session storage of the last page and seeds the second check with it', async () => {
+    const { browser, contexts } = recordingBrowser([{ name: 'bid', value: '1' }]);
+
+    const session = await authenticate(
+      options({ steps: ['sign in'], verify: 'signed in', cache: false }, judgingBrain([true, true]), browser),
+    );
+
+    const seed = { origin: 'http://localhost:4173', items: [{ name: 'bid', value: '1' }] };
+    expect(session.sessionStorage).toEqual(seed);
+    // Never a Playwright option: it has no place for session storage.
+    expect(contexts[1]!.options).not.toHaveProperty('sessionStorage');
+    expect(contexts[1]!.seeds).toEqual([{ ...seed, marker: SESSION_SEEDED_MARKER }]);
+  });
+
+  it('seeds nothing when the last page had no session storage', async () => {
+    const { browser, contexts } = recordingBrowser();
+
+    const session = await authenticate(
+      options({ steps: ['sign in'], verify: 'signed in', cache: false }, judgingBrain([true, true]), browser),
+    );
+
+    expect(session.sessionStorage).toBeUndefined();
+    expect(contexts[1]!.seeds).toEqual([]);
+  });
+
+  it('caches session storage beside the state, and reads it back apart from it', async () => {
+    const { browser } = recordingBrowser([{ name: 'bid', value: '1' }]);
+    await authenticate(options({ steps: ['sign in'], cache: true }, stubBrain(), browser));
+
+    const written = JSON.parse(await readFile(path.join(dir, AUTH_STATE_RELATIVE_PATH), 'utf8'));
+    expect(written.sessionStorage).toEqual({ origin: 'http://localhost:4173', items: [{ name: 'bid', value: '1' }] });
+
+    const cached = await authenticate(options({ steps: ['sign in'], cache: true }, stubBrain(), browser));
+    expect(cached.storageState).toEqual(CAPTURED);
+    expect(cached.sessionStorage).toEqual(written.sessionStorage);
+  });
+
+  it('reads a storage_state file without session storage as before', async () => {
+    await writeFile(path.join(dir, 'state.json'), JSON.stringify(CAPTURED));
+
+    const session = await authenticate(options({ storage_state: 'state.json', cache: false }));
+
+    expect(session).toEqual({ storageState: CAPTURED });
+  });
+});
+
+describe('seedContext', () => {
+  it('adds the init script only for a session with session storage', async () => {
+    const seeds: unknown[] = [];
+    const context = {
+      addInitScript: async (_script: unknown, arg: unknown) => {
+        seeds.push(arg);
+      },
+    };
+    const sessionStorage = { origin: 'http://localhost:4173', items: [{ name: 'bid', value: '1' }] };
+
+    await seedContext(context, undefined);
+    await seedContext(context, { storageState: CAPTURED });
+    await seedContext(context, { storageState: CAPTURED, sessionStorage });
+
+    expect(seeds).toEqual([{ ...sessionStorage, marker: SESSION_SEEDED_MARKER }]);
   });
 });

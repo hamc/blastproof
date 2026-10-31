@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { authenticate, AuthError, contextOptions, type AuthSession, type BrowserLike } from '../auth.js';
+import { authenticate, AuthError, contextOptions, seedContext, type AuthSession, type BrowserLike } from '../auth.js';
 import { ConfigError, loadConfig, type BlastproofConfig } from '../config.js';
 import { DiffError, getChangedFiles, getUncommittedFiles } from '../diff.js';
 import { mapImpact } from '../impact.js';
@@ -282,6 +282,7 @@ export async function planCommand(options: PlanOptions): Promise<number> {
       let draft: PlannedDraft;
       const context = await browser.newContext(contextOptions(session, config.browser.device));
       try {
+        await seedContext(context, session);
         const page = await context.newPage();
         page.setDefaultTimeout(config.browser.timeout_ms);
         draft = await generateForRoute(page as unknown as PageLike, {

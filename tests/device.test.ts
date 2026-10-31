@@ -47,7 +47,13 @@ function browserDouble(): unknown {
     newContext: async (options: Record<string, unknown> = {}) => {
       contextOptionsSeen.push(options);
       return {
-        newPage: async () => ({ setDefaultTimeout: () => {} }),
+        newPage: async () => ({
+          setDefaultTimeout: () => {},
+          // The capture's two page reads (design carry-the-whole-session, D2/D3): nothing to repair, no session storage.
+          evaluate: async (fn: { name: string }) =>
+            fn.name === 'readFalsyRecords' ? { origin: 'null', databases: [] } : { origin: 'null', items: [] },
+        }),
+        addInitScript: async () => {},
         storageState: async () => CAPTURED,
         close: async () => {},
       };

@@ -5,6 +5,18 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Fixed
+
+- **A login journey's session reaches the tests whole** ([#59](https://github.com/hamc/blastproof/issues/59)).
+  Only cookies and local storage were carried from the login to the tests, so an app that keeps its
+  sign-in in IndexedDB or session storage was signed in for the login and signed out for every test.
+  The session now includes IndexedDB and the session storage of the page the login ended on.
+  Playwright's IndexedDB capture drops any key or value that is `0`, `''`, `false` or `null`, which
+  made a real app's state fail to restore at all; blastproof reads those back from the page and puts
+  them in. With `auth.verify`, the sign-in is judged a second time in a new browser context holding
+  only the captured session, and a session that does not survive capture stops the run with exit 2
+  instead of failing every test on the login page. `auth.cache` keeps the session storage too.
+
 ### Changed
 
 - **The impact report says what is not covered, once** ([#39](https://github.com/hamc/blastproof/issues/39)).

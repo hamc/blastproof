@@ -75,7 +75,7 @@ const RENDER_POLL_MS = 250;
  * budget — never exceeding {@link SETTLE_TIMEOUT_MS} in total, even when two
  * waits are needed to observe the destination page settle.
  */
-async function waitForSettled(page: PageLike): Promise<void> {
+export async function waitForSettled(page: PageLike): Promise<void> {
   const deadline = Date.now() + SETTLE_TIMEOUT_MS;
   const urlBefore = page.url();
   await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => {

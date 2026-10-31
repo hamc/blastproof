@@ -50,6 +50,26 @@ because a login you could not complete says nothing about the code under review.
 That distinction is the same one behind `not run`: never report a verdict about
 an application you did not actually exercise.
 
+`verify` is judged twice: once on the page the login ended on, and again on the
+same page in a new browser context holding only the captured session, which is
+what every test starts from. A session that works for the login and does not
+survive capture (one an app keeps in memory or a service worker) stops the run
+there, with exit 2 and a message saying the captured session does not keep the
+sign-in, instead of every test failing on the login page. That costs a second
+model call.
+
+### What the session holds
+
+After the journey, blastproof keeps cookies, local storage and IndexedDB, and the
+session storage of the page the login ended on. Each test's browser context
+starts with all of it. An app that keeps its sign-in in IndexedDB or session
+storage is signed in for its tests the way a cookie-based one is.
+
+Session storage is written into each tab once, when a page of the login's origin
+first loads, so a key your app removes later (on sign-out, say) stays removed.
+To know it has done so, blastproof leaves one extra key in that tab's session
+storage, `blastproof:session-seeded`.
+
 ## 2. A session captured by hand
 
 For SSO, MFA, magic links — anything that cannot be scripted as a journey.
@@ -60,7 +80,8 @@ auth:
 ```
 
 The file is a Playwright storage state: cookies plus local storage, captured
-from a browser where you signed in yourself.
+from a browser where you signed in yourself. It holds no session storage, so an
+app that keeps its sign-in there needs a journey (strategy 1).
 
 To produce one:
 

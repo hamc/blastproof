@@ -6,9 +6,20 @@ import type { AssertJudgment } from './llm/schemas.js';
 import type { PageLike } from './runner/actions.js';
 import { RunStoppedError } from './runner/budget.js';
 import { SecretsMask, substituteEnv } from './runner/env.js';
-import { defaultSnapshot, executeTest, type ExecutorEvent } from './runner/executor.js';
+import { defaultSnapshot, executeTest, waitForSettled, type ExecutorEvent } from './runner/executor.js';
 import { withoutRefs } from './runner/snapshot.js';
 import { deviceOptions } from './runner/device.js';
+import {
+  captureSession,
+  isSessionStorageSeed,
+  seedSessionStorageInto,
+  type EvaluatingPage,
+  type SeedableContext,
+  type SessionStorageSeed,
+  type StorageState,
+} from './session-capture.js';
+
+export type { StorageState } from './session-capture.js';
 
 /** Where a captured session is cached when `auth.cache` is enabled (design D9). */
 export const AUTH_STATE_RELATIVE_PATH = path.join('.blastproof', '.auth-state.json');
@@ -20,12 +31,6 @@ export class AuthError extends Error {
   }
 }
 
-/** Playwright storage state: cookies plus per-origin storage. */
-export interface StorageState {
-  cookies: unknown[];
-  origins: unknown[];
-}
-
 /**
  * The single internal contract every strategy produces (design D1). Consumers seed
  * a browser context with it and never learn how the session was obtained.
@@ -33,12 +38,18 @@ export interface StorageState {
 export interface AuthSession {
   storageState?: StorageState;
   extraHTTPHeaders?: Record<string, string>;
+  /**
+   * Session storage of the origin the login ended on. Playwright's storage state
+   * has no place for it, so it is seeded by {@link seedContext} instead
+   * (design carry-the-whole-session, D3).
+   */
+  sessionStorage?: SessionStorageSeed;
 }
 
 /** Narrow Playwright subset the authenticator needs; real objects are compatible. */
-export interface ContextLike {
-  newPage(): Promise<PageLike>;
-  storageState(): Promise<StorageState>;
+export interface ContextLike extends SeedableContext {
+  newPage(): Promise<PageLike & EvaluatingPage>;
+  storageState(options?: { indexedDB?: boolean }): Promise<StorageState>;
   close(): Promise<void>;
 }
 
@@ -124,7 +135,10 @@ async function fromStorageState(file: string): Promise<AuthSession> {
       `Invalid storage state at ${file}: expected an object with "cookies" and "origins" arrays.`,
     );
   }
-  return { storageState: parsed };
+  // The cache keeps session storage beside Playwright's fields (design
+  // carry-the-whole-session, D5); Playwright must not be handed it.
+  const { sessionStorage, ...storageState } = parsed as StorageState & { sessionStorage?: unknown };
+  return { storageState, ...(isSessionStorageSeed(sessionStorage) ? { sessionStorage } : {}) };
 }
 
 /**
@@ -283,7 +297,73 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
       }
     }
 
-    return { storageState: await context.storageState() };
+    let session: AuthSession;
+    try {
+      session = await captureSession(context, page);
+    } catch (error) {
+      throw new AuthError(
+        `Signed in, but the session could not be captured: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await checkWhereUsed(options, session, page, takeSnapshot);
+    return session;
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * With `auth.verify`, judges the sign-in again where tests consume it: in a new
+ * context seeded with the captured session and nothing else, on the page the
+ * login ended on (design carry-the-whole-session, D4). The first judgment passed
+ * on that page, so a failure here is about the session. Before, `verify` was
+ * judged only in the login's own context, where the session always works, and a
+ * session lost on capture showed up as every test failing on the login page (#59).
+ */
+async function checkWhereUsed(
+  options: AuthenticateOptions,
+  session: AuthSession,
+  loginPage: PageLike,
+  takeSnapshot: (page: PageLike) => Promise<string>,
+): Promise<void> {
+  const { browser, brain, mask, maxRetries, timeoutMs } = options;
+  const verify = options.auth.verify;
+  if (!verify) return;
+  let context: ContextLike;
+  try {
+    context = await browser.newContext(contextOptions(session, options.device));
+  } catch (error) {
+    throw new AuthError(
+      'Signed in, but the captured session cannot be restored into a new browser context: ' +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  }
+  try {
+    await seedContext(context, session);
+    const page = await context.newPage();
+    try {
+      await page.goto(loginPage.url(), { timeout: timeoutMs });
+    } catch (error) {
+      throw new AuthError(
+        'Signed in, but the page the login ended on did not open in a new browser context seeded with the session: ' +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+    await waitForSettled(page);
+    const judgment = await verifyJudgment(
+      brain,
+      verify,
+      async () => withoutRefs(mask.mask(await takeSnapshot(page))),
+      (text) => mask.mask(text),
+      maxRetries,
+    );
+    if (!judgment.pass) {
+      throw new AuthError(
+        'Signed in, but the captured session does not keep the sign-in: a new browser context seeded with it ' +
+          `is not signed in (${mask.mask(judgment.reason)}). The app may keep its session where a storage state ` +
+          'cannot hold it, such as memory or a service worker. Tests would start signed out, so none were run.',
+      );
+    }
   } finally {
     await context.close();
   }
@@ -303,7 +383,10 @@ async function writeCached(cwd: string, session: AuthSession): Promise<void> {
   if (!session.storageState) return;
   const file = path.join(cwd, AUTH_STATE_RELATIVE_PATH);
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify(session.storageState), 'utf8');
+  const cached = session.sessionStorage
+    ? { ...session.storageState, sessionStorage: session.sessionStorage }
+    : session.storageState;
+  await writeFile(file, JSON.stringify(cached), 'utf8');
 }
 
 /**
@@ -345,4 +428,14 @@ export function contextOptions(session: AuthSession | undefined, device?: string
     ...(session.storageState ? { storageState: session.storageState } : {}),
     ...(session.extraHTTPHeaders ? { extraHTTPHeaders: session.extraHTTPHeaders } : {}),
   };
+}
+
+/**
+ * Gives a context seeded by {@link contextOptions} the part of the session a
+ * storage state cannot hold: the session storage of the origin the login ended
+ * on (design carry-the-whole-session, D3). Called right after every `newContext`
+ * that receives the session.
+ */
+export async function seedContext(context: SeedableContext, session: AuthSession | undefined): Promise<void> {
+  if (session?.sessionStorage) await seedSessionStorageInto(context, session.sessionStorage);
 }
