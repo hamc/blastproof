@@ -5,6 +5,12 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-10-31
+
+Minor: a login journey's session now carries IndexedDB and session storage, and `auth.verify` is
+judged a second time where tests use the session. The impact report is reorganised; its exit code
+and selection are unchanged.
+
 ### Fixed
 
 - **A login journey's session reaches the tests whole** ([#59](https://github.com/hamc/blastproof/issues/59)).
