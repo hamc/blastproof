@@ -22,4 +22,4 @@
 
 - [x] 4.1 `docs/auth.md` (what is captured, the second check, the marker key), the CHANGELOG
 - [x] 4.2 `npm run build`, `npm run typecheck`, `npm test` pass
-- [ ] 4.3 Archive in the same pull request, as its own commit
+- [x] 4.3 Archive in the same pull request, as its own commit
