@@ -5,6 +5,17 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Fixed
+
+- **The agent reads what its action did and which checks failed** ([#83](https://github.com/hamc/blastproof/issues/83)).
+  A step could fail because the agent took an action that did not produce the outcome, a search
+  typed but never submitted, and then checked the unchanged page until the step ran out of attempts.
+  The record of the step at the top of the agent's prompt now lists the checks that failed, and after
+  each action it says what changed on the page: nothing at all, or the few lines that changed. On
+  OWASP Juice Shop's search, Haiku passed 7 and 9 of 20 runs in two measurements instead of 3; the
+  reference model stayed at 10 of 10, and the reliability benchmark found no new wrong verdict. The
+  judge's record is unchanged.
+
 ## [0.30.0] — 2026-10-31
 
 Minor: a login journey's session now carries IndexedDB and session storage, and `auth.verify` is

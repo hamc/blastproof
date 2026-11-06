@@ -14,7 +14,7 @@ import {
 } from './actions.js';
 import { referencedEnvVars } from './env.js';
 import { indexRefs, snapshotCutAt, withoutRefs } from './snapshot.js';
-import { StepRecovery, describeAction } from './recovery.js';
+import { StepRecovery, describeAction, type StepHistoryEntry } from './recovery.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
  * dry-run ceiling (design D5, `estimateMaxModelCalls`) is derived from, so the
@@ -248,6 +248,31 @@ async function pageChangedWithin(
   return undefined;
 }
 
+/** How many changed lines a page-change note lists; beyond it, the page speaks for itself (design D2). */
+const NOTE_MAX_LINES = 4;
+
+/**
+ * What an action changed on the page, as a note for the acting model's record
+ * (design tell-the-agent-what-its-action-did, D2). Both pages are masked and
+ * without refs, so a secret cannot reach the note and a renumbered ref is not
+ * a change. A line counts as changed when the other page has no such line, so
+ * a reordering is not seen. On a snapshot cut at `max_snapshot_lines`, a change
+ * in the part left out is not seen either. The wording and the limit are the
+ * measured ones; a change to either is measured again.
+ */
+export function pageChangeNote(before: string, after: string): string | undefined {
+  const beforeLines = before.split('\n');
+  const afterLines = after.split('\n');
+  const kept = { before: new Set(beforeLines), after: new Set(afterLines) };
+  const removed = beforeLines.filter((line) => !kept.after.has(line));
+  const added = afterLines.filter((line) => !kept.before.has(line));
+  const changed = removed.length + added.length;
+  if (changed === 0) return ' (after it, the page did not change at all)';
+  if (changed > NOTE_MAX_LINES) return undefined;
+  const lines = [...removed.map((line) => `- ${line.trim()}`), ...added.map((line) => `+ ${line.trim()}`)];
+  return ` (after it, the only change on the page: ${lines.join('; ')})`;
+}
+
 /**
  * Executes one test against a page from a fresh browser context.
  * The loop per step: snapshot → LLM action → perform → repeat, until
@@ -324,6 +349,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     // step's own text is its first readable source: a value the step names is
     // one the model may type (design refuse-an-invented-value, D3).
     const recovery = new StepRecovery(step);
+    // The acting model's record: the recovery's, plus the checks that failed
+    // and what each action changed on the page (design
+    // tell-the-agent-what-its-action-did, D1). The judge keeps the recovery's.
+    const agentRecord: StepHistoryEntry[] = [];
+    // The page the last successful action was chosen on, until the next
+    // snapshot is compared with it (design D2).
+    let pageActedOn: string | undefined;
 
     try {
       while (true) {
@@ -369,6 +401,17 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         const refs = indexRefs(maskedSnap);
         const pageSnap = withoutRefs(maskedSnap);
         recovery.observe(pageSnap);
+        if (pageActedOn !== undefined) {
+          // In the record, not only in `lastResult`: placed after the snapshot,
+          // the same note changed nothing on Haiku (design D2, measured).
+          const note = pageChangeNote(pageActedOn, pageSnap);
+          const acted = agentRecord[agentRecord.length - 1];
+          if (note !== undefined && acted !== undefined && lastResult !== undefined) {
+            acted.result += note;
+            lastResult += note;
+          }
+          pageActedOn = undefined;
+        }
 
         let action: AgentAction;
         try {
@@ -384,7 +427,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             lastResult: lastResult === undefined ? undefined : mask(lastResult),
             // Already masked when recorded, on the same boundary as everything
             // else crossing into a prompt (design contained-recovery, D2).
-            stepHistory: recovery.stepHistory(),
+            stepHistory: agentRecord.map((entry) => ({ ...entry })),
             retriesLeft: maxRetries - failedAttempts,
             iterationsLeft: maxIterationsPerStep - iterations,
           });
@@ -528,6 +571,11 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           const result = judgment.pass
             ? `ok: assertion passed: ${judgment.reason}`
             : `assertion failed: ${judgment.reason}`;
+          if (!judgment.pass) {
+            // Failed on a settled page, so it reaches the model: in its record
+            // too, where it reads (design D1). Never in the judge's.
+            agentRecord.push({ action: `assert "${mask(expectation)}"`, result: mask(result) });
+          }
           emitAction(index, shown(), result);
           if (judgment.pass) {
             // Terminate here, exactly as `done` does. The extra turn this used to
@@ -592,6 +640,8 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           // rendered: the value may have been substituted from `{{env.*}}`, and
           // `select`/`navigate` embed the resolved value in their result string.
           recovery.record(action, mask(describeAction(action)), mask(result));
+          agentRecord.push({ action: mask(describeAction(action)), result: mask(result) });
+          pageActedOn = pageSnap;
           emitAction(index, action, result);
         } catch (error) {
           // Self-healing: fresh snapshot next iteration, up to the retry budget.

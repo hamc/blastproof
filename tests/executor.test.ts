@@ -19,6 +19,7 @@ import { MalformedModelOutputError } from '../src/llm/brain.js';
 import { SecretsMask } from '../src/runner/env.js';
 import {
   executeTest as executeTestOnRefs,
+  pageChangeNote,
   SETTLE_TIMEOUT_MS,
   type ExecutorEvent,
   type ExecutorOptions,
@@ -2990,5 +2991,130 @@ describe('the judgment learns which secrets earlier steps used (a-secret-used-ea
     );
 
     expect(brain.seen[0]?.usedEarlier).toEqual([]);
+  });
+});
+
+// The acting model's record also says which checks failed and what each action
+// changed on the page (design tell-the-agent-what-its-action-did). On Haiku, a
+// fill believed to have run a search was re-checked until the step ran out of
+// attempts, with both facts only after the snapshot (#83).
+
+describe('pageChangeNote (tell-the-agent-what-its-action-did, D2)', () => {
+  it('says the page did not change when no line changed', () => {
+    expect(pageChangeNote('- a\n- b', '- b\n- a')).toBe(' (after it, the page did not change at all)');
+  });
+
+  it('lists up to four changed lines, removed first', () => {
+    expect(pageChangeNote('- textbox "Search"\n- list', '- textbox "Search": apple\n- list')).toBe(
+      ' (after it, the only change on the page: - - textbox "Search"; + - textbox "Search": apple)',
+    );
+  });
+
+  it('lists exactly four changed lines and says nothing about five', () => {
+    expect(pageChangeNote('- a\n- b', '- c\n- d')).toBe(' (after it, the only change on the page: - - a; - - b; + - c; + - d)');
+    expect(pageChangeNote('- a\n- b', '- c\n- d\n- e')).toBeUndefined();
+  });
+});
+
+describe('executeTest tells the acting model what its actions did (#83)', () => {
+  function recordingBrain(script: AgentAction[], judgments: AssertJudgment[]) {
+    let calls = 0;
+    let judged = 0;
+    const inputs: AgentIterationInput[] = [];
+    const judgeRecords: { action: string; result: string }[][] = [];
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        inputs.push(input);
+        const next = script[calls++];
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(_step, _expectation, _snapshot, stepHistory) {
+        judgeRecords.push((stepHistory ?? []).map((entry) => ({ ...entry })));
+        const next = judgments[judged++];
+        if (!next) throw new Error('judgment script exhausted');
+        return next;
+      },
+    };
+    return { brain, inputs, judgeRecords };
+  }
+
+  const press: AgentAction = { action: 'press', value: 'Escape', reasoning: 'dismiss' };
+  const check: AgentAction = { action: 'assert', reasoning: 'check', expectation: 'the results show apples' };
+  const sequence = (pages: string[]) => {
+    let i = 0;
+    return async () => pages[Math.min(i++, pages.length - 1)]!;
+  };
+
+  it('notes in the record and the last result that an action changed nothing', async () => {
+    const { brain, inputs } = recordingBrain([press, { action: 'done', reasoning: 'ok' }], []);
+
+    await executeTest(new FakePage(), makeTest(), baseOptions(brain, { snapshot: sequence(['- list [ref=e1]', '- list [ref=e9]']) }));
+
+    // A ref renumbered between the two snapshots is not a change.
+    expect(inputs[1]?.stepHistory?.[0]?.result).toBe('ok: pressed Escape (after it, the page did not change at all)');
+    expect(inputs[1]?.lastResult).toBe('ok: pressed Escape (after it, the page did not change at all)');
+  });
+
+  it('lists the lines an action changed, masked', async () => {
+    const { brain, inputs } = recordingBrain([press, { action: 'done', reasoning: 'ok' }], []);
+
+    await executeTest(
+      new FakePage(),
+      makeTest(),
+      baseOptions(brain, {
+        snapshot: sequence(['- list', '- list\n- text: s3cret']),
+        mask: (s) => s.replaceAll('s3cret', '***'),
+      }),
+    );
+
+    expect(inputs[1]?.stepHistory?.[0]?.result).toBe('ok: pressed Escape (after it, the only change on the page: + - text: ***)');
+  });
+
+  it('adds no note when the page changed more than that', async () => {
+    const { brain, inputs } = recordingBrain([press, { action: 'done', reasoning: 'ok' }], []);
+
+    await executeTest(new FakePage(), makeTest(), baseOptions(brain, { snapshot: sequence(['- a\n- b\n- c', '- d\n- e\n- f']) }));
+
+    expect(inputs[1]?.stepHistory?.[0]?.result).toBe('ok: pressed Escape');
+  });
+
+  it("lists a failed check in the acting model's record and never in the judge's", async () => {
+    const { brain, inputs, judgeRecords } = recordingBrain(
+      [press, check, check, { action: 'fail', reasoning: 'gave up' }],
+      [
+        { pass: false, reason: 'no apples' },
+        { pass: false, reason: 'still no apples' },
+        { pass: false, reason: 'no apples' },
+        { pass: false, reason: 'no apples' },
+      ],
+    );
+
+    await executeTest(new FakePage(), makeTest(), baseOptions(brain, { maxRetries: 5 }));
+
+    // After the first check failed (on its re-observation too), the next turn reads it.
+    expect(inputs[2]?.stepHistory?.map((entry) => entry.action)).toEqual([
+      'press [Escape]',
+      'assert "the results show apples"',
+    ]);
+    expect(inputs[2]?.stepHistory?.[1]?.result).toBe('assertion failed: still no apples');
+    expect(inputs[2]?.stepHistory?.[0]?.result).toBe('ok: pressed Escape (after it, the page did not change at all)');
+    // Every judgment, the re-observations included, sees only the action, with no note.
+    const actionOnly = [{ action: 'press [Escape]', result: 'ok: pressed Escape' }];
+    expect(judgeRecords.slice(0, 4)).toEqual([actionOnly, actionOnly, actionOnly, actionOnly]);
+  });
+
+  it('records a judged done that failed as the check it became', async () => {
+    const { brain, inputs } = recordingBrain(
+      [press, { action: 'done', reasoning: 'the note is saved' }, { action: 'fail', reasoning: 'gave up' }],
+      [
+        { pass: false, reason: 'no note' },
+        { pass: false, reason: 'no note' },
+      ],
+    );
+
+    await executeTest(new FakePage(), makeTest({ steps: ['save the note and verify it is listed'] }), baseOptions(brain));
+
+    expect(inputs[2]?.stepHistory?.[1]).toEqual({ action: 'assert "the note is saved"', result: 'assertion failed: no note' });
   });
 });
