@@ -494,7 +494,7 @@ ignore:
 ```
 
 Explained in full in the README under
-[Impact mapping](../README.md#impact-mapping), since it is the part most worth
+[Impact mapping](./running.md#impact-mapping), since it is the part most worth
 reading before deciding whether the tool fits.
 
 ## `allowed_origins`
@@ -512,7 +512,7 @@ allowed_origins:
 
 The boundary and why it is enforced by comparison rather than instruction is
 covered in the README under
-[Trust boundaries](../README.md#trust-boundaries).
+[Trust boundaries](./trust-boundaries.md).
 
 ## `auth`
 

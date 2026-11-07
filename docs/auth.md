@@ -168,4 +168,4 @@ session by hand.
 
 An identity provider on a different host needs that host declared in
 `allowed_origins:`, or the agent will refuse to follow the redirect. See
-[Trust boundaries](../README.md#trust-boundaries).
+[Trust boundaries](./trust-boundaries.md).
