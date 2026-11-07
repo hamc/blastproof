@@ -101,7 +101,9 @@ A ref that resolves to nothing, because the page changed since the snapshot, SHA
 - **THEN** the attempt fails within milliseconds saying the page changed since the snapshot, rather than waiting out the browser timeout
 
 ### Requirement: Supported actions
-The executor SHALL support the actions `navigate`, `click`, `fill`, `press`, `select`, `assert`, `done`, and `fail`, mapping them to Playwright operations resolved via `getByRole`/`getByLabel`/`getByText`. Action payloads SHALL have `{{env.*}}` placeholders substituted at the moment the action is performed, and `navigate` SHALL be bounded by the allowed origins.
+The executor SHALL support the actions `navigate`, `click`, `fill`, `press`, `select`, `hover`, `assert`, `done`, and `fail`, mapping them to Playwright operations on the element the ref of its snapshot line names. Action payloads SHALL have `{{env.*}}` placeholders substituted at the moment the action is performed, and `navigate` SHALL be bounded by the allowed origins.
+
+A `hover` SHALL point at its target without clicking it. It SHALL NOT be a commit: it SHALL NOT be refused as a repeat, and it SHALL be allowed in a verification step.
 
 A `navigate` SHALL report where it landed when the browser ends up at a URL other than the one requested, so that a redirect is visible in the result rather than reported as arrival at the requested URL.
 
@@ -148,6 +150,18 @@ The value carried by an action SHALL come from the step, from the page, or from 
 #### Scenario: A navigation that goes where it was asked
 - **WHEN** a navigation ends at the URL requested
 - **THEN** the result is unchanged from before
+
+#### Scenario: A menu that opens on hover
+- **WHEN** a link is shown only while the pointer is over a menu, and the model hovers over the menu
+- **THEN** the pointer moves onto the menu without clicking it, the result says which element was hovered, and the next snapshot shows the link
+
+#### Scenario: A hover in a verification step
+- **WHEN** a verification step needs a tooltip that appears on hover, and the model hovers over its element
+- **THEN** the hover is performed, not refused
+
+#### Scenario: A hover repeated
+- **WHEN** the model hovers over the same element a second time in a step
+- **THEN** the hover is performed, not refused as a repeated commit
 
 ### Requirement: Setup steps and browser lifecycle
 The executor SHALL run optional `setup` steps before the test steps, start from the configured `base_url`, and run each test in a fresh browser context.
@@ -443,7 +457,7 @@ The documentation SHALL state that pinning narrows verdict variance and does not
 ### Requirement: An obstructed action is reported as an obstruction, not as a bad target
 When an action fails because another element received the pointer event aimed at its target, the executor SHALL report that failure as an obstruction rather than as a resolution failure. The result returned to the model SHALL state that the target was found and is actionable, SHALL name the element that took the event, and SHALL give the ways to clear it: the overlay's own control as it appears in the accessibility snapshot, or a targetless `Escape`. The result SHALL state that retrying the same target under a different name cannot help.
 
-This SHALL apply to every action performed against a resolved element — `click`, `fill`, `select`, and a `press` carrying a target — since all of them wait for the same actionability. An error arising from any other cause SHALL reach the model unchanged.
+This SHALL apply to every action performed against a resolved element — `click`, `hover`, `fill`, `select`, and a `press` carrying a target — since all of them wait for the same actionability. An error arising from any other cause SHALL reach the model unchanged.
 
 The obstruction SHALL be reported, never cleared by the executor. Dismissing an overlay SHALL remain an action the model chooses and the step records, because an overlay may be the subject of the test rather than an obstacle to it.
 
@@ -458,7 +472,7 @@ The failure SHALL cost one failed attempt against the existing per-step retry bu
 - **THEN** the result says so explicitly, so that choosing a different accessible name for the same target is not the model's reading of the failure
 
 #### Scenario: A fill blocked by an overlay reads the same as a blocked click
-- **WHEN** a `fill` or a `select` fails for the same reason
+- **WHEN** a `fill`, a `select` or a `hover` fails for the same reason
 - **THEN** it is translated identically, because the guarantee is over the action path rather than over one action
 
 #### Scenario: An unrelated failure is untouched

@@ -15,4 +15,4 @@
 
 - [x] 3.1 README (hover leaves the unsupported list), the CHANGELOG
 - [x] 3.2 `npm run build`, `npm run typecheck`, `npm test` pass
-- [ ] 3.3 Archive in the same pull request, as its own commit
+- [x] 3.3 Archive in the same pull request, as its own commit
