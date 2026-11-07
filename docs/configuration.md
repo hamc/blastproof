@@ -500,7 +500,10 @@ reading before deciding whether the tool fits.
 ## `allowed_origins`
 
 Extra origins the agent may reach beyond `base_url`'s own — an identity
-provider, a hosted payment step.
+provider, a hosted payment step. The same list decides which frames the agent
+can see into: a payment form embedded in an `iframe` from another origin is
+shown to the agent only when that origin is listed here, and a run that met one
+that is not prints a warning naming it.
 
 ```yaml
 allowed_origins:

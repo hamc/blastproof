@@ -1262,7 +1262,7 @@ describe('the accessibility snapshot cap is configurable', () => {
   it('captureSnapshot defaults to 200 lines when no cap is given', async () => {
     const raw = Array.from({ length: 250 }, (_, i) => `- text "line ${i}"`).join('\n');
     const fakePage = { locator: () => ({ ariaSnapshot: async () => raw }), url: () => 'http://x.test/' };
-    const snap = await captureSnapshot(fakePage as unknown as Page);
+    const snap = await captureSnapshot(fakePage as unknown as Page, { frames: { allowed: new Set() } });
     const lines = snap.split('\n');
     expect(lines).toHaveLength(1 + 200 + 1); // url line + 200 kept + truncation note
     expect(snap).toContain('lines omitted: max_snapshot_lines is 200');
@@ -1271,7 +1271,7 @@ describe('the accessibility snapshot cap is configurable', () => {
   it('a raised cap admits more lines than the default', async () => {
     const raw = Array.from({ length: 250 }, (_, i) => `- text "line ${i}"`).join('\n');
     const fakePage = { locator: () => ({ ariaSnapshot: async () => raw }), url: () => 'http://x.test/' };
-    const snap = await captureSnapshot(fakePage as unknown as Page, { maxLines: 300 });
+    const snap = await captureSnapshot(fakePage as unknown as Page, { maxLines: 300, frames: { allowed: new Set() } });
     const lines = snap.split('\n');
     expect(lines).toHaveLength(1 + 250); // every line admitted, no truncation
     expect(snap).not.toContain('omitted');

@@ -6,7 +6,7 @@
  * is what the run could not vouch for, as the terminal said it.
  */
 export interface RunWarning {
-  kind: 'uncommitted' | 'route-drift' | 'authoring' | 'reformatted-secret';
+  kind: 'uncommitted' | 'route-drift' | 'authoring' | 'reformatted-secret' | 'hidden-frame';
   /** The header line the terminal prints. */
   title: string;
   /** The rest, as printed. */
@@ -31,4 +31,18 @@ export function emitWarning(warning: RunWarning | undefined, into?: RunWarning[]
 /** A warning as plain text, title first, for a report. */
 export function warningText(warning: RunWarning): string {
   return [warning.title, ...warning.lines].join('\n');
+}
+
+/**
+ * One origin whose frame content no snapshot showed (design
+ * show-frames-from-declared-origins, D3): named with the line that shows it.
+ */
+export function hiddenFrameWarning(origin: string): RunWarning {
+  return {
+    kind: 'hidden-frame',
+    title:
+      `warning: content from ${origin} was not shown to the agent: it is in a frame on a page under test, ` +
+      `and not in allowed_origins.`,
+    lines: [`Add it to allowed_origins in .blastproof/config.yaml if the agent should read and act on it.`],
+  };
 }

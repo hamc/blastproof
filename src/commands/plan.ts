@@ -16,6 +16,7 @@ import {
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import type { PageLike } from '../runner/actions.js';
 import { formatSpendLine } from '../report/score.js';
+import { emitWarning, hiddenFrameWarning } from '../report/warnings.js';
 import { RunBudget, RunStoppedError } from '../runner/budget.js';
 import type { ExecutorEvent } from '../runner/executor.js';
 import {
@@ -243,6 +244,10 @@ export async function planCommand(options: PlanOptions): Promise<number> {
     return EXIT_USAGE;
   }
   const browser = preflight.browser!;
+  // Origins whose frame content a snapshot left out, warned about once each
+  // (design show-frames-from-declared-origins, D3).
+  const hiddenFrames = new Set<string>();
+  const onHiddenFrame = (origin: string) => hiddenFrames.add(origin);
   try {
     // The planner authenticates too (design D8): without a session it would snapshot
     // the login wall and draft a test for that instead of for the actual feature.
@@ -263,12 +268,16 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           device: config.browser.device,
           mask,
           onEvent: printAuthEvent,
+          onHiddenFrame,
         });
       } catch (error) {
         if (error instanceof RunStoppedError) {
           incomplete = error;
         } else if (error instanceof AuthError) {
           console.error(`error: ${error.message}`);
+          // A login form in an undeclared frame is the likeliest cause of this
+          // failure, so the origin is named here too (design D3).
+          for (const origin of hiddenFrames) emitWarning(hiddenFrameWarning(origin));
           return EXIT_USAGE;
         } else {
           throw error;
@@ -290,6 +299,8 @@ export async function planCommand(options: PlanOptions): Promise<number> {
           baseUrl: config.base_url,
           changedFiles,
           brain,
+          allowedOrigins: config.allowed_origins,
+          onHiddenFrame,
           mask: (text) => mask.mask(text),
           maxSnapshotLines: config.browser.max_snapshot_lines,
           timeoutMs: config.browser.timeout_ms,
@@ -346,6 +357,8 @@ export async function planCommand(options: PlanOptions): Promise<number> {
   } finally {
     await browser.close();
   }
+
+  for (const origin of hiddenFrames) emitWarning(hiddenFrameWarning(origin));
 
   const notAttempted = incomplete
     ? work.map((item) => item.route).filter((route) => !generated.includes(route) && !failed.some((f) => f.route === route))

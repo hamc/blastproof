@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { AuthConfig } from './config.js';
 import type { AgentBrain } from './llm/brain.js';
 import type { AssertJudgment } from './llm/schemas.js';
-import type { PageLike } from './runner/actions.js';
+import { allowedOriginsFor, type PageLike } from './runner/actions.js';
 import { RunStoppedError } from './runner/budget.js';
 import { SecretsMask, substituteEnv } from './runner/env.js';
 import { defaultSnapshot, executeTest, waitForSettled, type ExecutorEvent } from './runner/executor.js';
@@ -66,6 +66,8 @@ export interface AuthenticateOptions {
   maxRetries?: number;
   /** Extra origins the login journey may reach (an external identity provider). */
   allowedOrigins?: string[];
+  /** Told the origin of each frame a snapshot left out (design show-frames-from-declared-origins, D3). */
+  onHiddenFrame?: (origin: string) => void;
   /**
    * The run's mask. The credential typed here stays dangerous for the whole run —
    * an authenticated page can echo it during any later test — so it must be
@@ -226,7 +228,8 @@ async function fromSteps(options: AuthenticateOptions): Promise<AuthSession> {
   // executeTest's own cap-aware default. Building the fallback here instead means
   // the cap actually reaches the page render; an injected `snapshot` (tests) still
   // fully replaces it, same contract as the executor.
-  const takeSnapshot = snapshot ?? ((page: PageLike) => defaultSnapshot(page, maxSnapshotLines));
+  const frames = { allowed: allowedOriginsFor(baseUrl, options.allowedOrigins), onHidden: options.onHiddenFrame };
+  const takeSnapshot = snapshot ?? ((page: PageLike) => defaultSnapshot(page, maxSnapshotLines, frames));
 
   const context = await browser.newContext(deviceOptions(options.device));
   try {
