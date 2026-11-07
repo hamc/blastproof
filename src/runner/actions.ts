@@ -7,6 +7,7 @@ import type { SnapshotElement } from './snapshot.js';
  */
 export interface LocatorLike {
   click(): Promise<void>;
+  hover(): Promise<void>;
   fill(value: string): Promise<void>;
   press(key: string): Promise<void>;
   selectOption(option: { label: string }): Promise<unknown>;
@@ -326,10 +327,10 @@ function obstructionFor(error: unknown, action: AgentAction): ActionError | unde
  * Returns a short human-readable result string fed back into the next prompt.
  *
  * The obstruction translation is guarded here, over the whole action path,
- * rather than at the four call sites that touch a locator (design D1).
- * `click`, `fill`, `select` and a targeted `press` all wait for the same
- * actionability and can all be intercepted; wrapping each of them is four
- * places to forget the fifth, which is this codebase's named recurring defect
+ * rather than at the five call sites that touch a locator (design D1).
+ * `click`, `hover`, `fill`, `select` and a targeted `press` all wait for the
+ * same actionability and can all be intercepted; wrapping each of them is five
+ * places to forget the sixth, which is this codebase's named recurring defect
  * — a guarantee implemented at a call site instead of over its scope.
  */
 export async function performAction(
@@ -374,6 +375,14 @@ async function performResolvedAction(
       const locator = await resolveTarget(page, target, ctx.resolveTimeoutMs);
       await locator.click();
       return `ok: clicked ${describeTarget(target)}`;
+    }
+    case 'hover': {
+      // Not a commit (design hover-over-an-element, D2): it changes what the
+      // page shows, never what the application holds.
+      const target = requireTarget(action);
+      const locator = await resolveTarget(page, target, ctx.resolveTimeoutMs);
+      await locator.hover();
+      return `ok: hovered ${describeTarget(target)}`;
     }
     case 'fill': {
       const target = requireTarget(action);

@@ -6,7 +6,7 @@ describe('agentActionSchema', () => {
   const absent = { target: null, value: null, expectation: null };
 
   it('accepts all supported actions', () => {
-    for (const action of ['navigate', 'click', 'fill', 'press', 'select', 'assert', 'done', 'fail']) {
+    for (const action of ['navigate', 'click', 'fill', 'press', 'select', 'hover', 'assert', 'done', 'fail']) {
       const result = agentActionSchema.safeParse({ action, reasoning: 'because', ...absent });
       expect(result.success, action).toBe(true);
     }
@@ -64,7 +64,7 @@ describe('agentActionSchema', () => {
   });
 
   it('rejects unknown actions', () => {
-    expect(agentActionSchema.safeParse({ action: 'hover', reasoning: 'x', ...absent }).success).toBe(
+    expect(agentActionSchema.safeParse({ action: 'scroll', reasoning: 'x', ...absent }).success).toBe(
       false,
     );
   });

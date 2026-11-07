@@ -53,7 +53,7 @@ src/
   runner/
     executor.ts     # agentic per-step loop (retry budget, self-heal)
     snapshot.ts     # ariaSnapshot capture + trimming
-    actions.ts      # navigate/click/fill/press/select/assert on the element a snapshot ref names
+    actions.ts      # navigate/click/fill/press/select/hover/assert on the element a snapshot ref names
     selection.ts    # tag/priority/query filters + impacted selection
     testfile.ts     # YAML test discovery and validation
     env.ts          # {{env.*}} substitution + secret masking

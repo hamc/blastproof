@@ -38,6 +38,9 @@ function pageThatFailsWith(error: Error): PageLike {
     click: async () => {
       throw error;
     },
+    hover: async () => {
+      throw error;
+    },
     fill: async () => {
       throw error;
     },
@@ -179,6 +182,9 @@ function pageOfRefs(
         click: async () => {
           clicked.push(element!.name);
         },
+        hover: async () => {
+          clicked.push(`hover ${element!.name}`);
+        },
       };
     },
     keyboard: { press: async () => {} },
@@ -188,6 +194,29 @@ function pageOfRefs(
   } as unknown as PageLike;
   return { page, selectors, clicked };
 }
+
+describe('hover (hover-over-an-element, D1)', () => {
+  it('points at the element its ref names, without clicking it, and says so', async () => {
+    const { page, selectors, clicked } = pageOfRefs({ e1: { name: 'Products' }, e2: { name: 'Account' } });
+    const result = await performAction(
+      page,
+      { action: 'hover', target: { ref: 'e1', role: 'button', name: 'Products' }, reasoning: '' },
+      { baseUrl: BASE },
+    );
+    expect(selectors).toEqual(['aria-ref=e1']);
+    expect(clicked).toEqual(['hover Products']);
+    expect(result).toBe('ok: hovered role=button name="Products"');
+  });
+
+  it('is reported as an obstruction when something takes the pointer', async () => {
+    const error = await failureFor(
+      { action: 'hover', target: { ref: 'e4', role: 'button', name: 'Products' }, reasoning: '' },
+      new Error(INTERCEPTED_CLICK.replace('locator.click', 'locator.hover')),
+    );
+    expect(error).toBeInstanceOf(ActionError);
+    expect(error.message).toMatch(/^blocked: the hover on role=button name="Products" was NOT performed\./);
+  });
+});
 
 describe('resolveTarget: the element the ref names, or none (spec agentic-execution: live element resolution)', () => {
   it('acts on the ref, never on a search for the name', async () => {

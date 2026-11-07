@@ -95,6 +95,9 @@ function delayedElementPage(delayedKey: string, thresholdMs: number): { page: Pa
       async click() {
         calls.push(`click ${key}`);
       },
+      async hover() {
+        calls.push(`hover ${key}`);
+      },
       async fill(value: string) {
         calls.push(`fill ${key}=${value}`);
       },

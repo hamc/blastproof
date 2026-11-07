@@ -24,6 +24,22 @@ function attempt(recovery: StepRecovery, page: string, action: AgentAction): str
 
 const tour = (stop: number): string => `- dialog:\n  - text: ${stop} of 8\n  - button "Next"`;
 
+describe('a hover is not a commit (hover-over-an-element, D2)', () => {
+  const hover: AgentAction = { action: 'hover', target: { role: 'button', name: 'Products' }, reasoning: 'r' };
+
+  it('is performed again on a page that did not move', () => {
+    const recovery = new StepRecovery('hover over Products and click Keyboards');
+    expect(attempt(recovery, '- button "Products"', hover)).toBeUndefined();
+    expect(attempt(recovery, '- button "Products"', hover)).toBeUndefined();
+  });
+
+  it('is performed in a verification step, and counts as something done', () => {
+    const recovery = new StepRecovery('verify the tooltip on Products says "All products"');
+    expect(attempt(recovery, '- button "Products"', hover)).toBeUndefined();
+    expect(recovery.acted).toBe(true);
+  });
+});
+
 describe('a repeated commit (spec agentic-execution, #164)', () => {
   it('is performed when it follows itself on a page that moved, as a tour does', () => {
     const recovery = new StepRecovery('click "Next" until the tour shows its last step');
