@@ -5,6 +5,12 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-11-07
+
+Minor, with a behaviour change: the agent sees inside a frame only when the frame's origin is the
+application's or declared in `allowed_origins:`. A test that drives a form embedded from another
+origin, such as a hosted payment frame, needs that origin declared.
+
 ### Changed
 
 - **A frame's content is shown to the agent only from a declared origin** ([#21](https://github.com/hamc/blastproof/issues/21)).
