@@ -5,6 +5,11 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-11-07
+
+Minor: a new agent action, `hover`. The agent's record of a step now also lists the checks that
+failed and what each action changed on the page; the judge is unchanged.
+
 ### Added
 
 - **The agent can hover** ([#22](https://github.com/hamc/blastproof/issues/22)). A new action, `hover`,
