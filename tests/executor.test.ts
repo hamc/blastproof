@@ -156,6 +156,12 @@ class FakeLocator implements LocatorLike {
     this.page.onClick?.(`${this.kind}:${this.query}`);
   }
 
+  async hover(): Promise<void> {
+    this.resolve();
+    this.intercept();
+    this.page.calls.push(`hover ${this.kind}:${this.query}`);
+  }
+
   async fill(value: string): Promise<void> {
     this.resolve();
     this.page.calls.push(`fill ${this.kind}:${this.query}=${value}`);

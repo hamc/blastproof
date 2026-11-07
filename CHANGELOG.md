@@ -5,6 +5,13 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Added
+
+- **The agent can hover** ([#22](https://github.com/hamc/blastproof/issues/22)). A new action, `hover`,
+  points at an element without clicking it, so a menu, tooltip or control that appears only on hover
+  can be reached. It is not a commit: it may be repeated, and it is allowed in a step that only
+  verifies. The rest of #22 (scroll, upload, tabs, native dialogs, drag and drop) is still unsupported.
+
 ### Fixed
 
 - **The agent reads what its action did and which checks failed** ([#83](https://github.com/hamc/blastproof/issues/83)).

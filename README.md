@@ -104,7 +104,7 @@ That test failed 3 runs of 3 written as one step, and passed 3 of 3 written this
 Not supported yet:
 
 - **`iframe` content** — a hosted payment widget is invisible, so an embedded checkout cannot be driven end to end
-- **hover, scroll-to, drag and drop, file upload**
+- **scroll-to, drag and drop, file upload**
 - **multiple tabs**, and native `alert` / `confirm` dialogs
 
 **Windows is untested.** Development and CI run on Linux and macOS. Nothing is known to be broken and reports are welcome ([#8](https://github.com/hamc/blastproof/issues/8)).

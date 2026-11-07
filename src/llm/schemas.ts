@@ -20,7 +20,7 @@ function absentAsNull<T extends z.ZodTypeAny>(schema: T) {
 }
 
 /** Every action the loop can take. Shared, so the two schemas below cannot disagree. */
-const ACTION_NAMES = ['navigate', 'click', 'fill', 'press', 'select', 'assert', 'done', 'fail'] as const;
+const ACTION_NAMES = ['navigate', 'click', 'fill', 'press', 'select', 'hover', 'assert', 'done', 'fail'] as const;
 
 /**
  * The single structured decision the LLM returns on every loop iteration (design D3).
