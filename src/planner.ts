@@ -3,7 +3,7 @@ import path from 'node:path';
 import { stringify } from 'yaml';
 import type { PlannerBrain } from './llm/brain.js';
 import type { GeneratedTest } from './llm/schemas.js';
-import type { PageLike } from './runner/actions.js';
+import { allowedOriginsFor, type PageLike } from './runner/actions.js';
 import { entersNamedValue } from './runner/authoring.js';
 import { defaultSnapshot } from './runner/executor.js';
 import { withoutRefs } from './runner/snapshot.js';
@@ -23,6 +23,13 @@ export type TestDraft = GeneratedTest & { routes: string[] };
 export interface GenerateOptions {
   route: string;
   baseUrl: string;
+  /**
+   * `allowed_origins:`. Required, even when undefined: which frames' content the
+   * planner reads is the run's boundary (design show-frames-from-declared-origins, D1).
+   */
+  allowedOrigins: string[] | undefined;
+  /** Told the origin of each frame a snapshot left out (design D3). */
+  onHiddenFrame?: (origin: string) => void;
   /** Changed files that mapped to this route; empty for `--route` generation. */
   changedFiles: string[];
   brain: PlannerBrain;
@@ -170,7 +177,8 @@ export async function generateForRoute(
   options: GenerateOptions,
 ): Promise<PlannedDraft> {
   const { route, baseUrl, changedFiles, brain, mask, snapshot, maxSnapshotLines, timeoutMs } = options;
-  const takeSnapshot = snapshot ?? ((p: PageLike) => defaultSnapshot(p, maxSnapshotLines));
+  const frames = { allowed: allowedOriginsFor(baseUrl, options.allowedOrigins), onHidden: options.onHiddenFrame };
+  const takeSnapshot = snapshot ?? ((p: PageLike) => defaultSnapshot(p, maxSnapshotLines, frames));
 
   const url = new URL(route, baseUrl).toString();
   try {

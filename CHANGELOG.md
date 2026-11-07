@@ -5,6 +5,17 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Changed
+
+- **A frame's content is shown to the agent only from a declared origin** ([#21](https://github.com/hamc/blastproof/issues/21)).
+  Since 0.25.0 the agent could already see and act inside an `iframe`, including one from another
+  origin, with nothing in `allowed_origins:` — while a navigation to that same origin was refused. A
+  frame on the application's origin, or on one `allowed_origins:` declares, is shown as before. Any
+  other frame is replaced by one line saying its content is not shown and why, and the run prints one
+  warning per origin, naming the `allowed_origins:` entry to add. **A test that drives an embedded
+  form from another origin, such as a hosted payment frame, fails after upgrading until that origin
+  is declared.** Embedded content is no longer listed as unsupported.
+
 ## [0.31.0] — 2026-11-07
 
 Minor: a new agent action, `hover`. The agent's record of a step now also lists the checks that

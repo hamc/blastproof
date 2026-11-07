@@ -103,7 +103,6 @@ That test failed 3 runs of 3 written as one step, and passed 3 of 3 written this
 
 Not supported yet:
 
-- **`iframe` content** — a hosted payment widget is invisible, so an embedded checkout cannot be driven end to end
 - **scroll-to, drag and drop, file upload**
 - **multiple tabs**, and native `alert` / `confirm` dialogs
 
@@ -283,6 +282,8 @@ The application under test is not trusted input: its page content reaches the mo
 **The agent cannot leave your application.** The boundary is `base_url`'s origin plus whatever `allowed_origins:` declares, and it constrains where the page **is**, not only where an action asked to go. A `navigate` outside it is refused before the request; a page that ends up outside it any other way — a redirect, a link to another host, a script setting the location — fails the step, and its content is never sent to the model. Enforced by comparison, not by asking the model nicely.
 
 If your application legitimately spans hosts (an identity provider, a hosted payment step), declare them. A suite that was quietly walking onto a foreign page will now fail and name the origin to add.
+
+**Frames follow the same boundary.** The agent sees and acts inside an `iframe` on your application's origin, or on one `allowed_origins:` declares. A frame from any other origin shows up as the frame and one line saying its content is not shown and why, and the run prints one warning per origin left out. A hosted payment form is the usual case: declare its origin, and the agent can fill it. Providers' hosted card fields are often nested several frames deep and sandboxed; nesting is covered, but no provider's widget has been measured here, so spend one test on yours before relying on it ([#21](https://github.com/hamc/blastproof/issues/21)).
 
 **Your secrets stay out of prompts.** `{{env.*}}` placeholders survive intact and are substituted at the moment of typing. Every value your tests or auth recipe reference is redacted from everything else crossing into a prompt — page snapshots included — in literal and percent-encoded form, and replaced with a label naming its variable: `[redacted TEST_PASSWORD]`. The label carries the name and nothing derived from the value, so it tells a reader, and the model, *which* secret was there without telling anyone what it was. Redaction matches a known value case-insensitively and tolerantly of whitespace, so a page that uppercases what you typed is still covered. It does not chase a value your application re-encodes, hashes or truncates — no list of transforms can be complete, and one that pretends to be would make you careless. When a redaction is found only by that wider comparison, the run prints one warning naming the variable, because the same page could just as easily have returned a form nothing here can recognise. Treat all of it as a strong default rather than a guarantee against a hostile app.
 

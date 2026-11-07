@@ -1,8 +1,123 @@
 import type { Page } from 'playwright';
+import { isOriginAllowed } from './actions.js';
+
+/**
+ * Which frames' content a snapshot may carry (design
+ * show-frames-from-declared-origins, D1): the boundary navigation is compared
+ * against, and who to tell when a frame was left out.
+ */
+export interface FrameBoundary {
+  /** `base_url`'s origin plus `allowed_origins:`, as `allowedOriginsFor` builds it. */
+  allowed: ReadonlySet<string>;
+  /** Called with the origin of every frame whose content was not shown. */
+  onHidden?: (origin: string) => void;
+}
 
 export interface SnapshotOptions {
   /** Maximum number of snapshot lines sent to the LLM. Default 200. */
   maxLines?: number;
+  /** Required: a snapshot without it would carry every frame's content. */
+  frames: FrameBoundary;
+}
+
+/**
+ * The URLs of the frame an `iframe` element shows, then of each frame containing
+ * it, up to the page — but only when the element `contentRef` names is in that
+ * same frame. `undefined` otherwise, or when either element cannot be found.
+ */
+export type FrameChainLookup = (frameRef: string, contentRef: string) => Promise<string[] | undefined>;
+
+const IFRAME_WITH_CONTENT = /^(\s*)- iframe\b.*:$/;
+
+/** The origin a frame's content is judged by: its own URL's, or for `about:` its container's (design D2). */
+function contentUrl(chain: string[]): string | undefined {
+  return chain.find((url) => !url.startsWith('about:'));
+}
+
+/** The origin of a web URL, or `undefined` for one that has none (`data:`, `file:`). */
+function webOrigin(url: string): string | undefined {
+  try {
+    const origin = new URL(url).origin;
+    return origin === 'null' ? undefined : origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Replaces the content of every frame outside the boundary with one line saying
+ * so (design show-frames-from-declared-origins, D1/D2). Its refs go with it, so
+ * an action naming one is refused by `bindTarget` as a ref the snapshot does not
+ * have. A frame inside a cut frame goes with its lines. A page with no frame
+ * costs no lookup.
+ */
+export async function cutUndeclaredFrames(
+  snapshot: string,
+  lookup: FrameChainLookup,
+  frames: FrameBoundary,
+): Promise<string> {
+  if (!/- iframe\b/.test(snapshot)) return snapshot;
+  const lines = snapshot.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    out.push(line);
+    const frame = IFRAME_WITH_CONTENT.exec(line);
+    if (!frame) continue;
+    const indent = frame[1]!.length;
+    let end = i + 1;
+    while (end < lines.length && indentOf(lines[end]!) > indent) end++;
+    // Both refs are read from the lines' attribute groups, never from their
+    // text: a frame controls the names in its own lines, and a heading named
+    // "[ref=e1]" must not pass for the page's e1 (design D1).
+    const frameRef = lineRef(line);
+    const contentRef = lines.slice(i + 1, end).map(lineRef).find((r) => r !== undefined);
+    const chain = frameRef === undefined || contentRef === undefined ? undefined : await lookup(frameRef, contentRef);
+    const url = chain === undefined ? undefined : contentUrl(chain);
+    if (url !== undefined && isOriginAllowed(url, frames.allowed)) continue;
+    const origin = url === undefined ? undefined : webOrigin(url);
+    const reason =
+      url === undefined
+        ? "the frame's origin could not be read"
+        : origin === undefined
+          ? `a ${url.split(':')[0]}: frame is never shown`
+          : `${origin} is not in allowed_origins`;
+    // Only an origin `allowed_origins:` can name gets a warning offering it.
+    if (origin !== undefined) frames.onHidden?.(origin);
+    out.push(`${' '.repeat(indent + 2)}- text: "content not shown: ${reason}"`);
+    i = end - 1;
+  }
+  return out.join('\n');
+}
+
+/**
+ * The live lookup (design D1): the frame the `iframe` element shows, bound to
+ * the frame its first content element is in. The `iframe` line's ref is written
+ * by Playwright, not by the page; the content ref is tied to the document the
+ * snapshot read, so a frame that navigated since does not resolve and is cut.
+ */
+function frameChainOn(page: Page): FrameChainLookup {
+  const handleOf = (ref: string) => page.locator(`aria-ref=${ref}`).elementHandle({ timeout: 1_000 });
+  return async (frameRef, contentRef) => {
+    const handles: { dispose(): Promise<void> }[] = [];
+    try {
+      const frameElement = await handleOf(frameRef);
+      if (frameElement) handles.push(frameElement);
+      const content = await handleOf(contentRef);
+      if (content) handles.push(content);
+      const shown = await frameElement?.contentFrame();
+      const owner = await content?.ownerFrame();
+      if (!shown || shown !== owner) return undefined;
+      const chain: string[] = [];
+      for (let f: typeof shown | null = shown; f; f = f.parentFrame()) chain.push(f.url());
+      return chain;
+    } catch {
+      // Detached between the snapshot and the lookup: unknown, so not shown.
+      return undefined;
+    } finally {
+      await Promise.all(handles.map((h) => h.dispose().catch(() => {})));
+    }
+  };
 }
 
 const DEFAULT_MAX_LINES = 200;
@@ -123,9 +238,11 @@ export function trimSnapshot(snapshotYaml: string, maxLines: number = DEFAULT_MA
  * `[cursor=pointer]` marker it adds is dropped: it is about the mouse, not the
  * element, and it was most of the growth that was not a ref.
  */
-export async function captureSnapshot(page: Page, options: SnapshotOptions = {}): Promise<string> {
+export async function captureSnapshot(page: Page, options: SnapshotOptions): Promise<string> {
   const raw = await page.locator('body').ariaSnapshot({ mode: 'ai' });
-  return `url: ${page.url()}\n${trimSnapshot(raw.replace(/ \[cursor=pointer\]/g, ''), options.maxLines)}`;
+  // Before the trim, so a hidden frame uses none of the line budget (design D1).
+  const shown = await cutUndeclaredFrames(raw, frameChainOn(page), options.frames);
+  return `url: ${page.url()}\n${trimSnapshot(shown.replace(/ \[cursor=pointer\]/g, ''), options.maxLines)}`;
 }
 
 const REF_MARKER = / \[ref=[A-Za-z0-9_-]+\]/g;
@@ -164,6 +281,21 @@ function unquote(value: string): string {
 const ELEMENT_LINE =
   /^\s*- ([a-z][a-zA-Z]*)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)(?::(?: (.*))?)?$/;
 
+/** A snapshot line as an element: its role, quoted name, attribute group and text. */
+function parseElementLine(raw: string): RegExpExecArray | null {
+  // YAML single-quotes a whole entry whose text holds `: `, as in
+  // `- 'heading "Notes on file: 1" [level=2] [ref=e16]'`.
+  const quoted = /^(\s*- )'((?:[^']|'')*)'(:.*)?$/.exec(raw);
+  const line = quoted ? `${quoted[1]}${quoted[2]!.replace(/''/g, "'")}${quoted[3] ?? ''}` : raw;
+  return ELEMENT_LINE.exec(line);
+}
+
+/** The ref in a line's attribute group, never one its name or text spells out. */
+function lineRef(raw: string): string | undefined {
+  const match = parseElementLine(raw);
+  return match ? /\[ref=([A-Za-z0-9_-]+)\]/.exec(match[3] ?? '')?.[1] : undefined;
+}
+
 /**
  * Each ref in a snapshot, with the role and name its line shows (design
  * act-on-the-element-the-model-read, D2). Read from the snapshot text the model
@@ -173,11 +305,7 @@ const ELEMENT_LINE =
 export function indexRefs(snapshot: string): Map<string, SnapshotElement> {
   const index = new Map<string, SnapshotElement>();
   for (const raw of snapshot.split('\n')) {
-    // YAML single-quotes a whole entry whose text holds `: `, as in
-    // `- 'heading "Notes on file: 1" [level=2] [ref=e16]'`.
-    const quoted = /^(\s*- )'((?:[^']|'')*)'(:.*)?$/.exec(raw);
-    const line = quoted ? `${quoted[1]}${quoted[2]!.replace(/''/g, "'")}${quoted[3] ?? ''}` : raw;
-    const match = ELEMENT_LINE.exec(line);
+    const match = parseElementLine(raw);
     if (!match) continue;
     const ref = /\[ref=([A-Za-z0-9_-]+)\]/.exec(match[3] ?? '')?.[1];
     if (!ref) continue;

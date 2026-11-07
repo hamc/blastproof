@@ -16,7 +16,7 @@ import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
 import { printUncommitted } from '../report/uncommitted.js';
-import { emitWarning, type RunWarning } from '../report/warnings.js';
+import { emitWarning, hiddenFrameWarning, type RunWarning } from '../report/warnings.js';
 import { computeScore, formatIncompleteLine, scoreOf, formatScoreLine, formatSpendLine } from '../report/score.js';
 import type { PageLike } from '../runner/actions.js';
 import {
@@ -299,6 +299,7 @@ async function runOne(
   runMask: SecretsMask,
   budget: RunBudget,
   write: LineSink,
+  onHiddenFrame: (origin: string) => void,
   firstJudge?: FirstJudge,
 ): Promise<TestResult> {
   const brain = createBrain(createModel(config.llm).model, undefined, budget, firstJudge);
@@ -345,6 +346,7 @@ async function runOne(
       maxSnapshotLines: config.browser.max_snapshot_lines,
       mask: (text) => mask.mask(text),
       onEvent: (event) => printEvent(event, write),
+      onHiddenFrame,
     });
     return device ? { ...result, device } : result;
   } finally {
@@ -684,6 +686,9 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // Every warning printed below, kept for the reports (design
   // the-reports-carry-the-warnings, D5).
   const warnings: RunWarning[] = [];
+  // Origins whose frame content a snapshot left out, warned about once each.
+  const hiddenFrames = new Set<string>();
+  const onHiddenFrame = (origin: string) => hiddenFrames.add(origin);
 
   const impacted = options.impacted ?? false;
   const base = options.base ?? 'main';
@@ -919,12 +924,16 @@ export async function runCommand(options: RunOptions): Promise<number> {
           device: config.browser.device,
           mask: runMask,
           onEvent: printEvent,
+          onHiddenFrame,
         });
       } catch (error) {
         if (error instanceof RunStoppedError) {
           incomplete = error;
         } else if (error instanceof AuthError) {
           console.error(`error: ${error.message}`);
+          // A login form in an undeclared frame is the likeliest cause of this
+          // failure, so the origin is named here too (design D3).
+          for (const origin of hiddenFrames) emitWarning(hiddenFrameWarning(origin), warnings);
           return EXIT_USAGE;
         } else {
           throw error;
@@ -979,6 +988,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
             runMask,
             budget,
             write,
+            onHiddenFrame,
             firstJudgeFor(path.relative(options.cwd, test.path)),
           );
           if (!streaming) for (const line of lines) console.log(line);
@@ -1007,6 +1017,9 @@ export async function runCommand(options: RunOptions): Promise<number> {
   } finally {
     await browser.close();
   }
+
+  // One warning per origin, after the tests (design show-frames-from-declared-origins, D3).
+  for (const origin of hiddenFrames) emitWarning(hiddenFrameWarning(origin), warnings);
 
   return finalize(
     results,

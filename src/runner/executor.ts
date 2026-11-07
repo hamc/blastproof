@@ -13,7 +13,7 @@ import {
   type PageLike,
 } from './actions.js';
 import { referencedEnvVars } from './env.js';
-import { indexRefs, snapshotCutAt, withoutRefs } from './snapshot.js';
+import { indexRefs, snapshotCutAt, withoutRefs, type FrameBoundary } from './snapshot.js';
 import { StepRecovery, describeAction, type StepHistoryEntry } from './recovery.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
@@ -170,12 +170,18 @@ export interface ExecutorOptions {
   /** How long a `fail` with nothing done watches the page; tests shorten it. */
   renderWatchMs?: number;
   onEvent?: (event: ExecutorEvent) => void;
+  /** Told the origin of each frame whose content a snapshot left out (design show-frames-from-declared-origins, D3). */
+  onHiddenFrame?: (origin: string) => void;
 }
 
-/** Live snapshot via Playwright ariaSnapshot; kept here so tests can inject a fake. */
-export async function defaultSnapshot(page: PageLike, maxLines?: number): Promise<string> {
+/**
+ * Live snapshot via Playwright ariaSnapshot; kept here so tests can inject a fake.
+ * `frames` is required: every caller must say which frames' content it may read
+ * (design show-frames-from-declared-origins, D1).
+ */
+export async function defaultSnapshot(page: PageLike, maxLines: number | undefined, frames: FrameBoundary): Promise<string> {
   const { captureSnapshot } = await import('./snapshot.js');
-  return captureSnapshot(page as never, { maxLines });
+  return captureSnapshot(page as never, { maxLines, frames });
 }
 
 function slugify(text: string): string {
@@ -293,10 +299,17 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     maxSnapshotLines,
     renderWatchMs = RENDER_WATCH_MS,
     onEvent = () => {},
+    onHiddenFrame,
   } = options;
+  // Built once for the test: the same allowed set `performAction` compares a
+  // navigate target against, and frames are shown by, so the checks cannot
+  // drift (design D3; show-frames-from-declared-origins, D1).
+  const boundary = allowedOriginsFor(baseUrl, allowedOrigins);
   // The default snapshotter alone honours `maxSnapshotLines`; an injected fake
   // (every unit test) fully replaces it and ignores the cap, as before.
-  const takeSnapshot = snapshot ?? ((page: PageLike) => defaultSnapshot(page, maxSnapshotLines));
+  const takeSnapshot =
+    snapshot ??
+    ((page: PageLike) => defaultSnapshot(page, maxSnapshotLines, { allowed: boundary, onHidden: onHiddenFrame }));
 
   const startedAt = Date.now();
   const stepResults: StepResult[] = [];
@@ -317,9 +330,6 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
   };
 
   let failure: { step: string; reason: string } | undefined;
-  // Built once for the test: the same allowed set `performAction` compares a
-  // navigate target against, so the two checks cannot drift (design D3).
-  const boundary = allowedOriginsFor(baseUrl, allowedOrigins);
 
   // Every test starts from the configured base_url (spec: browser lifecycle).
   await page.goto(new URL(baseUrl).toString());

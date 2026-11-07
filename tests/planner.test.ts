@@ -178,6 +178,7 @@ function baseGenerateOptions(
 ): GenerateOptions {
   return {
     baseUrl: 'http://localhost:4173',
+    allowedOrigins: undefined,
     changedFiles: [],
     mask: (t: string) => t,
     snapshot: async () => '- main',
