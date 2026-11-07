@@ -21,4 +21,4 @@
 - [x] 4.1 README (trust boundaries, the unsupported list), `docs/configuration.md`, the CHANGELOG
 - [x] 4.2 The site's unsupported list: moved to its own pull request, because `site/` merges only after its preview is approved
 - [x] 4.3 `npm run build`, `npm run typecheck`, `npm test` pass
-- [ ] 4.4 Archive in the same pull request, as its own commit
+- [x] 4.4 Archive in the same pull request, as its own commit
