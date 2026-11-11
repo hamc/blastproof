@@ -414,3 +414,179 @@ async function performResolvedAction(
       throw new ActionError(`Action "${action.action}" is handled by the executor, not the page`);
   }
 }
+
+/** A value held in the page, as Playwright hands it back. */
+interface ProbeHandle {
+  evaluate<R>(fn: (value: never) => R): Promise<R>;
+  dispose(): Promise<void>;
+}
+
+/** The Playwright calls the default-button lookup needs, beyond {@link PageLike}. */
+interface FormProbePage {
+  evaluateHandle(fn: () => unknown): Promise<ProbeHandle>;
+  locator(selector: string): {
+    count(): Promise<number>;
+    elementHandle(options?: { timeout?: number }): Promise<ProbeHandle | null>;
+    evaluate(
+      fn: (element: DomControl, arg: { field: DomControl | null; enter: boolean }) => boolean,
+      arg: { field: unknown; enter: boolean },
+      options?: { timeout?: number },
+    ): Promise<boolean>;
+    evaluateHandle(fn: (element: DomControl) => unknown): Promise<ProbeHandle>;
+  };
+}
+
+/** The DOM a control is read through in the page; this build has no DOM types. */
+interface DomControl {
+  tagName: string;
+  type?: string;
+  disabled?: boolean;
+  form?: DomControl | null;
+  getRootNode(): { querySelectorAll(selector: string): ArrayLike<DomControl> };
+  addEventListener(type: string, listener: () => void, options: { capture: boolean; once: boolean }): void;
+}
+
+/** Enter submits a form; Space in a field types a space. */
+const SUBMIT_KEYS: ReadonlySet<string> = new Set(['Enter', 'NumpadEnter']);
+/** The keys that activate a focused button. */
+const ACTIVATING_KEYS: ReadonlySet<string> = new Set([...SUBMIT_KEYS, ' ', 'Space', 'Spacebar']);
+
+/** The button a press activates, and whether the press did. */
+export interface SubmitControl {
+  role: string;
+  name: string;
+  /**
+   * Whether the button was clicked, or its form submitted, since the lookup:
+   * asked after the press. Enter in a field whose own handler takes the key
+   * (an autocomplete, a tag input) does neither, and must not be recorded as
+   * the button's click. Asking also lets go of what the lookup held in the
+   * page, so it is asked for a press that was not performed too.
+   */
+  activated(): Promise<boolean>;
+}
+
+/**
+ * The button a press activates, as the snapshot shows it (design
+ * refuse-the-same-submit-twice, D2): for Enter in a field, the default submit
+ * button of the field's form; for Enter or Space with no target, also the
+ * focused button itself. The field is the press's target, or the focused
+ * element for a press with no target. `undefined` when the page names no such
+ * button, when the snapshot does not show it, when the lookup takes longer than
+ * `timeoutMs`, and on any failure: the press is then identified as before, and
+ * this never fails a step.
+ *
+ * Implicit submission is a fact about the page that the accessibility snapshot
+ * does not carry, since it has no form membership, so the browser is asked.
+ * The rule is the one measured in Chromium: Enter in an `<input>` clicks the
+ * first submit button its form owns, in tree order, an image button included,
+ * and does nothing when that button is disabled. The button is found by asking
+ * each `button` line's element, by its ref, whether it is that one. Matching it
+ * by its text would be the search by name that
+ * act-on-the-element-the-model-read removed.
+ */
+export async function submitControlOf(
+  page: PageLike,
+  action: AgentAction,
+  refs: ReadonlyMap<string, SnapshotElement>,
+  timeoutMs = 2_000,
+): Promise<SubmitControl | undefined> {
+  if (action.action !== 'press') return undefined;
+  // `||`, as `performAction` reads it: an empty key is Enter too.
+  const key = action.value || 'Enter';
+  const enter = SUBMIT_KEYS.has(key);
+  // Space activates only a button that has the focus; on a named target the
+  // record already knows whether it is a button.
+  if (!enter && !(ACTIVATING_KEYS.has(key) && !action.target?.ref)) return undefined;
+  if (action.target?.role !== undefined && action.target.role.trim().toLowerCase() === 'button') return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), timeoutMs);
+  });
+  try {
+    return await Promise.race([findSubmitControl(page as unknown as FormProbePage, action, enter, refs, timeoutMs), late]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function findSubmitControl(
+  probe: FormProbePage,
+  action: AgentAction,
+  enter: boolean,
+  refs: ReadonlyMap<string, SnapshotElement>,
+  timeoutMs: number,
+): Promise<SubmitControl | undefined> {
+  let field: ProbeHandle | null;
+  if (action.target?.ref) {
+    const locator = probe.locator(`aria-ref=${bareRef(action.target.ref)}`);
+    if ((await locator.count()) === 0) return undefined;
+    field = await locator.elementHandle({ timeout: timeoutMs });
+  } else {
+    field = await probe.evaluateHandle(
+      () => (globalThis as unknown as { document: { activeElement: unknown } }).document.activeElement,
+    );
+  }
+  try {
+    for (const [ref, element] of refs) {
+      if (element.role !== 'button') continue;
+      const locator = probe.locator(`aria-ref=${ref}`);
+      let clicks: ProbeHandle;
+      try {
+        if ((await locator.count()) === 0) continue;
+        const isIt = await locator.evaluate(
+          (button, arg) => {
+            const candidate = arg.field;
+            if (candidate === null) return false;
+            // The focused element is this button: the key activates it.
+            if (candidate === button) return true;
+            // Enter in an input its form owns. A textarea takes Enter as a new line.
+            if (!arg.enter || candidate.tagName !== 'INPUT' || !candidate.form) return false;
+            if (['button', 'submit', 'reset', 'image', 'file', 'color', 'range', 'hidden'].includes(candidate.type ?? 'text')) {
+              return false;
+            }
+            const form = candidate.form;
+            const owned = Array.from(form.getRootNode().querySelectorAll('button, input'));
+            const first = owned.find((control) => control.form === form && (control.type === 'submit' || control.type === 'image'));
+            // A disabled default button means Enter submits nothing.
+            return first === button && !first.disabled;
+          },
+          { field, enter },
+          { timeout: timeoutMs },
+        );
+        if (!isIt) continue;
+        clicks = await locator.evaluateHandle((button) => {
+          // No named function in here: this body is sent to the page as text,
+          // and a compiler's name helper would not exist there.
+          const seen = { clicked: false };
+          button.addEventListener('click', () => { seen.clicked = true; }, { capture: true, once: true });
+          // A key handler that calls `requestSubmit()` itself clicks nothing
+          // and submits all the same.
+          button.form?.addEventListener('submit', () => { seen.clicked = true; }, { capture: true, once: true });
+          return seen;
+        });
+      } catch {
+        // Another frame's element, or one that went away: not this button.
+        continue;
+      }
+      return {
+        role: element.role,
+        name: element.name ?? element.text ?? '',
+        activated: async () => {
+          try {
+            return await clicks.evaluate((seen: { clicked: boolean }) => seen.clicked);
+          } catch {
+            // The page that held the answer is gone: the press navigated.
+            return true;
+          } finally {
+            await clicks.dispose().catch(() => undefined);
+          }
+        },
+      };
+    }
+    return undefined;
+  } finally {
+    await field?.dispose().catch(() => undefined);
+  }
+}

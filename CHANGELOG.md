@@ -5,6 +5,21 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Fixed
+
+- **A form is not submitted twice in one step by Enter, or by its button again on the emptied form**
+  ([#205](https://github.com/hamc/blastproof/issues/205)). The runner refuses to repeat a commit
+  within a step, and two routes got past it on the demo app's notes page, 2 runs in 10 on
+  `gpt-6-luna`. After its repeated click was refused, the agent pressed Enter in the field and wrote
+  a second note: a key press is now the click it stands for, so Enter or Space on a button is that
+  button's click and Enter in a field of a form is the click of the form's submit button, which the
+  runner asks the browser for. And the same button pressed twice in a row, allowed when the page
+  changed so that a tour's "Next" works, went through on a form that had come back empty, sent an
+  empty form and failed a correct application: that repeat is now refused when a field that held a
+  value before the press is on the page again with no value. A press that names no key now counts
+  as the Enter it sends. A form built without a `<form>` element is still not covered, and
+  `docs/writing-tests.md` names the two steps this refuses that are not duplicates.
+
 ## [0.33.0] — 2026-11-10
 
 Minor, with a behaviour change: an action step followed directly by a check is judged on that check.

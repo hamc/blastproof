@@ -10,6 +10,7 @@ import {
   describeBoundary,
   isOriginAllowed,
   performAction,
+  submitControlOf,
   type PageLike,
 } from './actions.js';
 import { referencedEnvVars } from './env.js';
@@ -162,6 +163,11 @@ export interface ExecutorOptions {
   /** Injectable snapshotter (defaults to live ariaSnapshot via {@link defaultSnapshot}). */
   snapshot?: (page: PageLike) => Promise<string>;
   /**
+   * Injectable lookup of the button a press of Enter in a field activates
+   * (defaults to {@link submitControlOf}, which asks the browser).
+   */
+  submitControl?: typeof submitControlOf;
+  /**
    * Caps accessibility-tree lines sent to the model per snapshot (design: the
    * snapshot cap is configurable). Only applies to the default snapshotter above;
    * an injected `snapshot` fully replaces it. Undefined keeps `captureSnapshot`'s
@@ -301,6 +307,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     renderWatchMs = RENDER_WATCH_MS,
     onEvent = () => {},
     onHiddenFrame,
+    submitControl = submitControlOf,
   } = options;
   // Built once for the test: the same allowed set `performAction` compares a
   // navigate target against, and frames are shown by, so the checks cannot
@@ -633,8 +640,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           continue;
         }
 
-        const refusal = recovery.refusalFor(action);
+        // The button a press of Enter in a field activates, asked of the page
+        // (design refuse-the-same-submit-twice, D2), so the press is the same
+        // commit as that button's click, before and after.
+        const activates = await submitControl(page, action, refs);
+        const refusal = recovery.refusalFor(action, activates);
         if (refusal) {
+          void activates?.activated();
           // Not a malformed response and not a browser failure — the executor
           // declining. Counted as one failed attempt so a model that insists
           // terminates on the existing retry budget rather than grinding to the
@@ -659,12 +671,16 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           // Masked at the point the record is built, not only where it is
           // rendered: the value may have been substituted from `{{env.*}}`, and
           // `select`/`navigate` embed the resolved value in their result string.
-          recovery.record(action, mask(describeAction(action)), mask(result));
+          // Recorded as the button's click only when the press clicked it: Enter
+          // in a field whose own handler takes the key submits nothing.
+          const activated = activates !== undefined && (await activates.activated()) ? activates : undefined;
+          recovery.record(action, mask(describeAction(action)), mask(result), activated);
           agentRecord.push({ action: mask(describeAction(action)), result: mask(result) });
           pageActedOn = pageSnap;
           emitAction(index, action, result);
         } catch (error) {
           // Self-healing: fresh snapshot next iteration, up to the retry budget.
+          void activates?.activated();
           failedAttempts++;
           lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
           emitAction(index, action, lastResult);
