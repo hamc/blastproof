@@ -11,7 +11,7 @@ import {
   parseMutants,
   type Mutant,
 } from '../evals/reliability/mutants.js';
-import { authFailure, formatRate, parseJUnit, scoreMutant, scoreSuite, wilsonUpper } from '../evals/reliability/score.js';
+import { authFailure, formatRate, judgedBefore, parseJUnit, scoreMutant, scoreSuite, wilsonUpper } from '../evals/reliability/score.js';
 import { renderJUnit } from '../src/report/junit.js';
 import type { TestResult } from '../src/runner/executor.js';
 
@@ -125,6 +125,18 @@ describe('scoring (design measure-verdict-reliability, D3)', () => {
     expect(scoreMutant(junit(result('failed', { failedStep: 'navigate to the cart page', reason: 'r' }))[0], step)).toBe(
       'caught-elsewhere',
     );
+  });
+
+  it('a mutant failed at the step judged on its declared step is caught', () => {
+    // an-action-step-takes-the-next-check: the action step before a check is
+    // judged on it, so the seeded bug can fail the test one step early.
+    const test = { steps: ['apply promo code SAVE20', step, 'navigate to the cart page'] };
+    expect(judgedBefore(test, step)).toBe('apply promo code SAVE20');
+    expect(judgedBefore({ steps: ['verify the subtotal', step] }, step)).toBeUndefined();
+    expect(judgedBefore({ setup: ['apply promo code SAVE20'], steps: [step] }, step)).toBeUndefined();
+    const failedThere = junit(result('failed', { failedStep: 'apply promo code SAVE20', reason: 'r' }))[0];
+    expect(scoreMutant(failedThere, step, undefined, 'apply promo code SAVE20')).toBe('caught');
+    expect(scoreMutant(failedThere, step)).toBe('caught-elsewhere');
   });
 
   it('a mutant whose target passes is a false PASS', () => {

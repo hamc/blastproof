@@ -10,6 +10,8 @@
  * with no budget or deadline configured behaves exactly as it does today.
  */
 
+import { withNextCheck } from './authoring.js';
+
 export type BudgetLimit = 'calls' | 'tokens' | 'duration';
 
 /** What a completed model call reports spending. Only the total is counted (D1). */
@@ -318,6 +320,10 @@ export interface StepCounts {
  * is 2 and a failing `assert` costs `1 + 2·2 = 5` calls rather than 3. The
  * bundling argument above is unchanged, and the extra calls per bundled assert
  * go from 1 to 3: `N + R + (2·judgeCalls − 1)·min(N, R)`.
+ *
+ * A step judged on the check after it (design an-action-step-takes-the-next-check,
+ * D3) can be judged once more after its loop ends, before it fails: `judgeCalls`
+ * more for each such step, counted by the same `withNextCheck` the executor uses.
  */
 export function estimateMaxModelCalls(
   tests: StepCounts[],
@@ -330,7 +336,15 @@ export function estimateMaxModelCalls(
     (sum, test) => sum + (test.setup?.length ?? 0) + test.steps.length,
     0,
   );
+  const judgedOnNext = tests.reduce(
+    (sum, test) =>
+      sum +
+      [test.setup ?? [], test.steps]
+        .flatMap((list) => list.filter((step, i) => withNextCheck(step, list[i + 1]) !== step))
+        .length,
+    0,
+  );
   // Derivation and the two times this formula has been wrong: see above.
   const bundled = (2 * judgeCalls - 1) * Math.min(maxIterationsPerStep, maxRetriesPerStep);
-  return totalSteps * (maxIterationsPerStep + maxRetriesPerStep + bundled);
+  return totalSteps * (maxIterationsPerStep + maxRetriesPerStep + bundled) + judgedOnNext * judgeCalls;
 }

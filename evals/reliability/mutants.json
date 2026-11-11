@@ -238,5 +238,20 @@
         "replace": "<tr><td>#BP-1001</td><td>2026-07-20</td><td>2</td><td>$45.00</td><td>Delivered</td></tr>\n        <tr><td>#BP-1000</td><td>2026-07-11</td><td>1</td><td>$96.00</td><td>Refunded</td></tr>"
       }
     ]
+  },
+  {
+    "id": "menu-cart-goes-home",
+    "class": "subtle",
+    "incident": "#139 through an action step (an-action-step-takes-the-next-check, D2): an agent told the next check produced it by another route",
+    "test": ".blastproof/tests/mobile-menu.yaml",
+    "step": "verify the page heading is \"Your cart\"",
+    "bug": "the phone menu's Cart link goes to the home page",
+    "edits": [
+      {
+        "file": "app.js",
+        "find": "item.appendChild(link.cloneNode(true));",
+        "replace": "var copy = link.cloneNode(true);\n      if (copy.textContent === 'Cart') copy.setAttribute('href', 'index.html');\n      item.appendChild(copy);"
+      }
+    ]
   }
 ]

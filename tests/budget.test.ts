@@ -133,6 +133,15 @@ describe('estimateMaxModelCalls', () => {
     expect(ceiling).toBe(27);
   });
 
+  it('adds one judgment for each step judged on the check after it', () => {
+    // 3 steps * (5 + 2 + 2) = 27, plus the action step followed by a check:
+    // judged once more before failing (an-action-step-takes-the-next-check, D3).
+    const steps = ['submit the form', 'verify the note appears', 'close the dialog'];
+    expect(estimateMaxModelCalls([{ steps }], 5, 2)).toBe(28);
+    expect(estimateMaxModelCalls([{ steps }], 5, 2, 2)).toBe(3 * (5 + 2 + 3 * 2) + 2);
+    expect(estimateMaxModelCalls([{ setup: ['submit the form'], steps: ['verify the note appears'] }], 5, 2)).toBe(27 - 9);
+  });
+
   it('is zero for an empty selection', () => {
     expect(estimateMaxModelCalls([], 15, 3)).toBe(0);
   });

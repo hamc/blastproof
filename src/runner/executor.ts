@@ -15,6 +15,7 @@ import {
 import { referencedEnvVars } from './env.js';
 import { indexRefs, snapshotCutAt, withoutRefs, type FrameBoundary } from './snapshot.js';
 import { StepRecovery, describeAction, type StepHistoryEntry } from './recovery.js';
+import { withNextCheck } from './authoring.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
  * dry-run ceiling (design D5, `estimateMaxModelCalls`) is derived from, so the
@@ -342,9 +343,16 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
   const usedEarlier = new Set<string>();
 
   for (let index = 0; index < allSteps.length; index++) {
-    const { step, setup } = allSteps[index]!;
+    const { step: written, setup } = allSteps[index]!;
+    // What the judge reads: an action step that names no outcome takes the
+    // check right after it in the same list (design
+    // an-action-step-takes-the-next-check, D1). The acting model reads the step
+    // as written (D2), and so does everything a person reads and the source of
+    // typeable values (D4).
+    const following = allSteps[index + 1];
+    const step = withNextCheck(written, following?.setup === setup ? following.step : undefined);
     const stepStartedAt = Date.now();
-    onEvent({ type: 'step-start', index, total: allSteps.length, step: mask(step), setup });
+    onEvent({ type: 'step-start', index, total: allSteps.length, step: mask(written), setup });
 
     let iterations = 0;
     let failedAttempts = 0;
@@ -358,7 +366,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     // rule (design contained-recovery, D1) — there is no reset to forget. The
     // step's own text is its first readable source: a value the step names is
     // one the model may type (design refuse-an-invented-value, D3).
-    const recovery = new StepRecovery(step);
+    const recovery = new StepRecovery(written, step);
     // The acting model's record: the recovery's, plus the checks that failed
     // and what each action changed on the page (design
     // tell-the-agent-what-its-action-did, D1). The judge keeps the recovery's.
@@ -431,7 +439,9 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           // the model through `lastResult` while the display channel looked clean.
           // The page can render a secret too, so the snapshot is masked as well.
           action = await brain.nextAction({
-            step,
+            // As written, never joined (design an-action-step-takes-the-next-check,
+            // D2): a model told the check acts to make it true (#139).
+            step: written,
             isSetup: setup,
             snapshot: maskedSnap,
             lastResult: lastResult === undefined ? undefined : mask(lastResult),
@@ -671,10 +681,46 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
       if (error instanceof RunStoppedError) throw error;
       // Mask everything that reaches logs/reports, regardless of throw site.
       stepFailedReason = mask(error instanceof Error ? error.message : String(error));
+      // Judged once before failing (design an-action-step-takes-the-next-check,
+      // D3): a step that acted and is followed by a check may have done its
+      // work on a page that came back reset, which the acting model, never told
+      // the check, reads as nothing sent (#44). Only for a step whose action
+      // succeeded, never on a page outside the boundary, whose content must
+      // not reach a prompt (design contained-navigation, D1).
+      if (step !== written && error instanceof StepFailure && recovery.acted) {
+        const check = following!.step;
+        try {
+          await waitForSettled(page);
+          if (isOriginAllowed(page.url(), boundary)) {
+            const snap = await takeSnapshot(page);
+            lastSnapshot = snap;
+            const pageSnap = withoutRefs(mask(snap));
+            recovery.observe(pageSnap);
+            const judgment = await brain.judge(mask(step), mask(check), pageSnap, recovery.stepHistory(), [
+              ...usedEarlier,
+            ]);
+            const asked: AgentAction = {
+              action: 'assert',
+              expectation: check,
+              reasoning: 'judged on the check that follows before failing',
+            };
+            if (judgment.pass) {
+              emitAction(index, asked, `ok: the check after this step holds: ${judgment.reason}`);
+              stepFailedReason = undefined;
+            } else {
+              emitAction(index, asked, `the check after this step does not hold either: ${judgment.reason}`);
+            }
+          }
+        } catch (judgeError) {
+          // A stop of the run still ends it; anything else leaves the step's
+          // own failure in place, which is the conservative direction.
+          if (judgeError instanceof RunStoppedError) throw judgeError;
+        }
+      }
       // A hint, not a verdict change (design keep-the-open-dialog-in-the-snapshot,
       // D3): a false FAIL caused by the cap should read as one in the report.
       const cutAt = lastSnapshot === undefined ? undefined : snapshotCutAt(lastSnapshot);
-      if (cutAt !== undefined) {
+      if (stepFailedReason !== undefined && cutAt !== undefined) {
         stepFailedReason +=
           ` (The page's snapshot was cut at max_snapshot_lines (${cutAt}); ` +
           'what the step looks for may be in the part left out.)';
@@ -688,7 +734,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
 
     const status = stepFailedReason ? ('failed' as const) : ('passed' as const);
     stepResults.push({
-      step: mask(step), // results are a report channel — never store substituted secrets
+      step: mask(written), // results are a report channel — never store substituted secrets
       setup,
       status,
       iterations,
@@ -699,7 +745,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     onEvent({ type: 'step-end', index, status, reason: stepFailedReason });
 
     if (stepFailedReason) {
-      failure = { step: mask(step), reason: stepFailedReason };
+      failure = { step: mask(written), reason: stepFailedReason };
       break; // stop at the first failing step; remaining steps are not executed
     }
   }
