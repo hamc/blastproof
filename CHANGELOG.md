@@ -5,6 +5,13 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.33.0] — 2026-11-10
+
+Minor, with a behaviour change: an action step followed directly by a check is judged on that check.
+A test written as `submit the form` and then `verify …` stops failing a correct application on a
+page that resets after the submit, and such a step no longer passes on the agent's word alone when
+the check does not hold.
+
 ### Changed
 
 - **An action step followed by a check is judged on that check** ([#44](https://github.com/hamc/blastproof/issues/44)).
