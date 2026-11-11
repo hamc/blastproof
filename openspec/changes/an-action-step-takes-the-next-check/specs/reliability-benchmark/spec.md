@@ -9,7 +9,7 @@ A mutant sample SHALL be scored as caught (FAIL at the declared step, or at the 
 
 #### Scenario: Failing at the step judged on the declared one
 - **WHEN** a mutant's declared step is a check that directly follows an action step in the same list, and the target test fails at that action step
-- **THEN** the sample is caught, because that action step was judged on the declared check
+- **THEN** the sample is caught, since the declared check is what that action step is judged on; the report cannot tell a failure there that came before any judgment, and counts it the same
 
 #### Scenario: Sign-in fails on the correct app
 - **WHEN** a run of the unmodified suite exits 2 because its sign-in failed
