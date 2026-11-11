@@ -66,7 +66,7 @@ steps:
   - complete checkout and verify the confirmation shows an order number
 ```
 
-**Say what each step should produce.** A step that only names an action (`submit the form`) asks the judge whether something happened while it looks at a page that may have reset. A step that names its result (`submit the form and verify the task appears in the list`) gives it something to check. An outside evaluation took the same suite from Score 64 to Score 100 by rewriting two steps this way.
+**Say what each step should produce.** A step that only names an action (`submit the form`) asks the judge whether something happened while it looks at a page that may have reset. A step that names its result (`submit the form and verify the task appears in the list`) gives it something to check. An outside evaluation took the same suite from Score 64 to Score 100 by rewriting two steps this way. The runner now judges an action step on a check that directly follows it, but a step that names its own result does not depend on that.
 
 **A step that enters a value writes the value.** The agent is forbidden from inventing values: what it types must come from the step, the page or an `{{env.*}}` placeholder, and the runner refuses anything else rather than asking nicely. `run` warns about such steps before it starts; that check reads English only.
 

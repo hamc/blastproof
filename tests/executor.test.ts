@@ -3124,3 +3124,298 @@ describe('executeTest tells the acting model what its actions did (#83)', () => 
     expect(inputs[2]?.stepHistory?.[1]).toEqual({ action: 'assert "the note is saved"', result: 'assertion failed: no note' });
   });
 });
+
+describe('an action step takes the check after it (an-action-step-takes-the-next-check, #44)', () => {
+  const SUBMIT = 'submit the add-note form';
+  const CHECK = 'verify the note "Check the invoice" appears in the notes list';
+  const JOINED = 'submit the add-note form and verify the note "Check the invoice" appears in the notes list';
+
+  /** Records the step each call was given, so a test can read who saw which sentence. */
+  function recordingBrain(script: AgentAction[], judgments: AssertJudgment[]) {
+    const acted: string[] = [];
+    const judged: string[] = [];
+    const inputs: AgentIterationInput[] = [];
+    const brain: AgentBrain = {
+      async nextAction(input) {
+        acted.push(input.step);
+        inputs.push(input);
+        const next = script.shift();
+        if (!next) throw new Error('script exhausted');
+        return next;
+      },
+      async judge(step) {
+        judged.push(step);
+        const next = judgments.shift();
+        if (!next) throw new Error('judgment script exhausted');
+        return next;
+      },
+    };
+    return { brain, acted, judged, inputs };
+  }
+
+  function notesPage(): FakePage {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    page.visible.add('role:textbox|Note');
+    return page;
+  }
+
+  const listed: AgentAction = { action: 'assert', expectation: 'the note is in the list', reasoning: 'r' };
+
+  it('judges the done on the check, and only the judge reads it', async () => {
+    const { brain, acted, judged, inputs } = recordingBrain(
+      [click('Add note'), { action: 'done', reasoning: 'the note is in the list' }, listed],
+      [{ pass: true, reason: 'listed' }, { pass: true, reason: 'listed' }],
+    );
+
+    const result = await executeTest(notesPage(), makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain));
+
+    expect(result.status).toBe('passed');
+    expect(acted).toEqual([SUBMIT, SUBMIT, CHECK]);
+    expect(judged).toEqual([JOINED, CHECK]);
+    // Nothing the acting model reads on the action step names the check (D2).
+    expect(JSON.stringify(inputs.slice(0, 2))).not.toContain('Check the invoice');
+  });
+
+  it('fails the step when the check does not hold, where it used to close on done', async () => {
+    const { brain, judged } = recordingBrain(
+      [click('Add note'), { action: 'done', reasoning: 'submitted' }, { action: 'fail', reasoning: 'no note' }],
+      [
+        { pass: false, reason: 'the list is empty' },
+        { pass: false, reason: 'still empty' },
+        { pass: false, reason: 'empty before failing' },
+      ],
+    );
+
+    const result = await executeTest(notesPage(), makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain));
+
+    expect(result.status).toBe('failed');
+    expect(result.steps).toHaveLength(1);
+    expect(result.failedStep).toBe(SUBMIT);
+    expect(result.steps[0]?.reason).toBe('no note');
+    expect(judged).toEqual([JOINED, JOINED, JOINED]);
+  });
+
+  it('judges a step about to fail on the check, and the check still runs', async () => {
+    const { brain, acted, judged } = recordingBrain(
+      [click('Add note'), { action: 'fail', reasoning: 'the form came back empty' }, listed],
+      [{ pass: true, reason: 'the note is listed' }, { pass: true, reason: 'listed' }],
+    );
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      notesPage(),
+      makeTest({ steps: [SUBMIT, CHECK] }),
+      baseOptions(brain, { onEvent: (e) => events.push(e) }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(result.steps.map((s) => s.status)).toEqual(['passed', 'passed']);
+    expect(acted).toEqual([SUBMIT, SUBMIT, CHECK]);
+    expect(judged).toEqual([JOINED, CHECK]);
+    const rescued = events.find((e) => e.type === 'action' && e.index === 0 && e.action.action === 'assert');
+    expect(rescued?.type === 'action' && rescued.result).toBe('ok: the check after this step holds: the note is listed');
+  });
+
+  it('keeps the failure when the judgment before failing does not pass', async () => {
+    const { brain } = recordingBrain(
+      [click('Add note'), { action: 'fail', reasoning: 'no list' }],
+      [{ pass: false, reason: 'no note on the page' }],
+    );
+
+    const result = await executeTest(notesPage(), makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain));
+
+    expect(result.failedStep).toBe(SUBMIT);
+    expect(result.steps[0]?.reason).toBe('no list');
+  });
+
+  it('keeps the failure when the judgment before failing errors', async () => {
+    const { brain } = recordingBrain([click('Add note'), { action: 'fail', reasoning: 'no list' }], []);
+
+    const result = await executeTest(notesPage(), makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain));
+
+    expect(result.failedStep).toBe(SUBMIT);
+    expect(result.steps[0]?.reason).toBe('no list');
+  });
+
+  it('does not judge a step that did nothing', async () => {
+    const { brain, judged } = recordingBrain([{ action: 'fail', reasoning: 'no form' }], [{ pass: true, reason: 'x' }]);
+
+    const result = await executeTest(notesPage(), makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain));
+
+    expect(result.status).toBe('failed');
+    expect(judged).toEqual([]);
+  });
+
+  it('does not judge a page that left the application', async () => {
+    const { brain, judged } = recordingBrain([click('Add note')], [{ pass: true, reason: 'x' }]);
+    const page = notesPage();
+    page.onClick = () => {
+      page.currentUrl = 'https://elsewhere.test/';
+    };
+
+    const result = await executeTest(page, makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain));
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]?.reason).toContain('The page left the application');
+    expect(judged).toEqual([]);
+  });
+
+  it('refuses to type a value only the check names', async () => {
+    const { brain, inputs } = recordingBrain(
+      [
+        click('Add note'),
+        { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Check the invoice', reasoning: 'r' },
+        { action: 'fail', reasoning: 'stop' },
+      ],
+      [{ pass: false, reason: 'no note' }],
+    );
+
+    await executeTest(notesPage(), makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain));
+
+    expect(inputs[2]?.lastResult).toMatch(/^refused: the value "Check the invoice" was NOT typed/);
+  });
+
+  it('refuses a placeholder only the check names', async () => {
+    const { brain, inputs } = recordingBrain(
+      [
+        click('Add note'),
+        { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: '{{env.NOTE}}', reasoning: 'r' },
+        { action: 'fail', reasoning: 'stop' },
+      ],
+      [{ pass: false, reason: 'no note' }],
+    );
+
+    await executeTest(
+      notesPage(),
+      makeTest({ steps: [SUBMIT, 'verify the note {{env.NOTE}} appears in the notes list'] }),
+      baseOptions(brain),
+    );
+
+    expect(inputs[2]?.lastResult).toContain('does not reference that {{env.*}} variable');
+  });
+
+  it('lets a stop of the run from the judgment before failing end the run', async () => {
+    const brain: AgentBrain = {
+      nextAction: (() => {
+        const script: AgentAction[] = [click('Add note'), { action: 'fail', reasoning: 'no note' }];
+        return async () => script.shift()!;
+      })(),
+      judge: async () => {
+        throw new BudgetExhaustedError('calls', 3, 3);
+      },
+    };
+
+    await expect(
+      executeTest(notesPage(), makeTest({ steps: [SUBMIT, CHECK] }), baseOptions(brain)),
+    ).rejects.toThrow(BudgetExhaustedError);
+  });
+
+  it('masks what the judgment before failing reads and reports', async () => {
+    const seen: string[] = [];
+    const script: AgentAction[] = [click('Add note'), { action: 'fail', reasoning: 'no note' }];
+    const brain: AgentBrain = {
+      nextAction: async () => script.shift()!,
+      judge: async (...args) => {
+        seen.push(JSON.stringify(args));
+        return { pass: false, reason: 'no note' };
+      },
+    };
+    const events: ExecutorEvent[] = [];
+
+    await executeTest(
+      notesPage(),
+      makeTest({ steps: [SUBMIT, 'verify the note s3cret appears in the notes list'] }),
+      baseOptions(brain, {
+        snapshot: async () => '- listitem: s3cret',
+        mask: (s) => s.replaceAll('s3cret', '***'),
+        onEvent: (e) => events.push(e),
+      }),
+    );
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toContain('s3cret');
+    expect(JSON.stringify(events)).not.toContain('s3cret');
+  });
+
+  it('joins a setup step with the check after it in setup', async () => {
+    const { brain, judged } = recordingBrain(
+      [click('Add note'), { action: 'done', reasoning: 'listed' }, listed, listed],
+      [{ pass: true, reason: 'listed' }, { pass: true, reason: 'listed' }, { pass: true, reason: 'ok' }],
+    );
+
+    const result = await executeTest(
+      notesPage(),
+      makeTest({ setup: [SUBMIT, CHECK], steps: ['verify the heading shows one note'] }),
+      baseOptions(brain),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(judged).toEqual([JOINED, CHECK, 'verify the heading shows one note']);
+  });
+
+  it('does not judge a step that is not joined before it fails', async () => {
+    const { brain, judged } = recordingBrain(
+      [click('Add note'), { action: 'fail', reasoning: 'nothing changed' }],
+      [{ pass: true, reason: 'x' }],
+    );
+
+    const result = await executeTest(
+      notesPage(),
+      makeTest({ steps: [SUBMIT, 'close the dialog'] }),
+      baseOptions(brain),
+    );
+
+    expect(result.failedStep).toBe(SUBMIT);
+    expect(judged).toEqual([]);
+  });
+
+  it('joins a check that starts with "then"', async () => {
+    const { brain, judged } = recordingBrain(
+      [click('Add note'), { action: 'done', reasoning: 'listed' }, listed],
+      [{ pass: true, reason: 'listed' }, { pass: true, reason: 'listed' }],
+    );
+
+    await executeTest(
+      notesPage(),
+      makeTest({ steps: [SUBMIT, 'then verify the note appears'] }),
+      baseOptions(brain),
+    );
+
+    expect(judged[0]).toBe('submit the add-note form and verify the note appears');
+  });
+
+  it('does not join a step followed by another action', async () => {
+    const { brain, acted, judged } = recordingBrain(
+      [click('Add note'), { action: 'done', reasoning: 'clicked' }, ...finishes()],
+      [],
+    );
+
+    const result = await executeTest(
+      notesPage(),
+      makeTest({ steps: [SUBMIT, 'close the dialog'] }),
+      baseOptions(brain),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(acted[0]).toBe(SUBMIT);
+    expect(judged).toEqual([]);
+  });
+
+  it('does not join the last setup step into the first test step', async () => {
+    const { brain, acted, judged } = recordingBrain(
+      [click('Add note'), { action: 'done', reasoning: 'clicked' }, listed],
+      [{ pass: true, reason: 'listed' }],
+    );
+
+    const result = await executeTest(
+      notesPage(),
+      makeTest({ setup: [SUBMIT], steps: [CHECK] }),
+      baseOptions(brain),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(acted[0]).toBe(SUBMIT);
+    expect(judged).toEqual([CHECK]);
+  });
+});

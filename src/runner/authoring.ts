@@ -118,6 +118,30 @@ export function hasVerificationClause(step: string): boolean {
 }
 
 /**
+ * The sentence the judge reads for `step` (design
+ * an-action-step-takes-the-next-check, D1): `<step> and <next>` when `step`
+ * neither checks nor carries a check clause and `next`, the step after it in
+ * the same list, is a verification step; otherwise `step` unchanged. The
+ * acting model never reads it (D2): told the check, both reference models
+ * clicked "Add to cart" to make a false one true, 10 runs in 10.
+ *
+ * An action step that names no outcome closes on the model's `done` alone, and
+ * on a page that comes back reset after a submit the model cannot tell success
+ * from nothing: on the demo app's notes page, Haiku failed it 10 runs in 10
+ * (#44). Joined, `hasVerificationClause` accepts the sentence and its `done`
+ * is judged on the check. English only, as everything here is.
+ */
+export function withNextCheck(step: string, next: string | undefined): string {
+  if (next === undefined || isVerificationStep(step) || hasVerificationClause(step) || !isVerificationStep(next)) {
+    return step;
+  }
+  const check = next.trim().replace(/^(?:and|then)\s+/i, '');
+  // `Verify` → `verify`, but `HSBC …` and `URL …` keep their case.
+  const lower = /^.[A-Z]/.test(check) ? check : `${check.charAt(0).toLowerCase()}${check.slice(1)}`;
+  return `${step.replace(/[\s.,;:!]+$/, '')} and ${lower}`;
+}
+
+/**
  * True when the step enters a value and names it — the positive half of the
  * same predicate. Exported so the planner's secret check asks "does this step
  * type something" by this definition rather than by a second one of its own

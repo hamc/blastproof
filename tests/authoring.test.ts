@@ -7,7 +7,9 @@ import {
   hasVerificationClause,
   isVerificationStep,
   suggestValueClause,
+  withNextCheck,
 } from '../src/runner/authoring.js';
+import { StepRecovery } from '../src/runner/recovery.js';
 import { discoverTestFiles, parseTestFile, type TestFile } from '../src/runner/testfile.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -300,5 +302,49 @@ describe('hasVerificationClause (judge-a-done-that-closes-a-check, D2)', () => {
     'open the menu and click Verification code',
   ])('finds none in "%s"', (step) => {
     expect(hasVerificationClause(step)).toBe(false);
+  });
+});
+
+describe('withNextCheck (an-action-step-takes-the-next-check, D1)', () => {
+  const CHECK = 'Verify the note "Check the invoice" appears in the notes list';
+
+  it('joins an action step with the check after it, lowercasing the check', () => {
+    expect(withNextCheck('submit the add-note form', CHECK)).toBe(
+      'submit the add-note form and verify the note "Check the invoice" appears in the notes list',
+    );
+  });
+
+  it('drops the action step\'s trailing period and whitespace', () => {
+    expect(withNextCheck('Submit the add-note form. ', 'verify the list')).toBe(
+      'Submit the add-note form and verify the list',
+    );
+  });
+
+  it('drops a leading "and" or "then" from the check, and other trailing punctuation', () => {
+    expect(withNextCheck('submit the form;', 'then verify the list')).toBe('submit the form and verify the list');
+    expect(withNextCheck('submit the form!', 'and verify the list')).toBe('submit the form and verify the list');
+  });
+
+  it('keeps the case of a check whose first word is upper case throughout', () => {
+    expect(withNextCheck('submit the form', 'VERIFY the list')).toBe('submit the form and VERIFY the list');
+  });
+
+  it('closes a joined step on a judgment even when a quote in the step is unbalanced', () => {
+    const step = 'click the 12" monitor';
+    const recovery = new StepRecovery(step, withNextCheck(step, 'verify "Monitor" is in the cart'));
+    expect(recovery.checksAfterActing).toBe(true);
+  });
+
+  it('gives a sentence the act-and-check rule recognises', () => {
+    expect(hasVerificationClause(withNextCheck('submit the add-note form', CHECK))).toBe(true);
+  });
+
+  it.each([
+    ['the step is a check', 'verify the form is empty', CHECK],
+    ['the step already checks', 'submit the form and verify the toast', CHECK],
+    ['the next step acts', 'submit the add-note form', 'close the dialog'],
+    ['there is no next step', 'submit the add-note form', undefined],
+  ])('leaves the step as written when %s', (_why, step, next) => {
+    expect(withNextCheck(step, next)).toBe(step);
   });
 });

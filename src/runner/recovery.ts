@@ -183,11 +183,21 @@ export class StepRecovery {
    */
   readonly checksAfterActing: boolean;
 
-  constructor(step: string) {
+  /**
+   * `step` is the step as written: the first source a typed value may come
+   * from, and the one that names which `{{env.*}}` variables may be typed.
+   * `judged` is the sentence the judge reads, which decides how
+   * the step closes. They differ only for an action step joined with the check
+   * after it (design an-action-step-takes-the-next-check, D4): a value only
+   * that check names is one the page should show, not one to type.
+   */
+  constructor(step: string, judged: string = step) {
     this.step = step;
     this.readable = [normalise(step)];
-    this.verifies = isVerificationStep(step);
-    this.checksAfterActing = hasVerificationClause(step);
+    this.verifies = isVerificationStep(judged);
+    // Joined, it checks by construction, whatever an unbalanced quote in the
+    // written step does to the clause test.
+    this.checksAfterActing = judged !== step || hasVerificationClause(judged);
   }
 
   /**

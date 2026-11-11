@@ -31,6 +31,7 @@ import {
   authFailure,
   formatRate,
   parseJUnit,
+  judgedBefore,
   scoreMutant,
   scoreSuite,
   tally,
@@ -187,7 +188,8 @@ async function runModel(model: string, suite: TestFile[]): Promise<void> {
       const target = suite.find((t) => path.relative(REPO_ROOT, t.path) === m.test);
       const run = await runOnce(model, `${m.id}-${sample}`, m, target?.summary);
       const testcase = run.cases.find((c) => c.file === m.test);
-      const outcome = scoreMutant(testcase, m.step, run.authFailedAt);
+      const judgedAt = target === undefined ? undefined : judgedBefore(target, m.step);
+      const outcome = scoreMutant(testcase, m.step, run.authFailedAt, judgedAt);
       const failedStep = testcase?.failedStep ?? (run.authFailedAt && `sign-in: ${run.authFailedAt}`);
       mutantSamples.push({ model, mutant: m.id, sample, outcome, failedStep });
       console.log(`${model} ${m.id} s${sample}: ${outcome}`);

@@ -5,6 +5,19 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Changed
+
+- **An action step followed by a check is judged on that check** ([#44](https://github.com/hamc/blastproof/issues/44)).
+  A step that names an action and no outcome, like `submit the add-note form`, closed on the agent's
+  word, and on a page that comes back reset after a submit the agent could not tell success from
+  nothing: on the demo app's notes page it failed a correct application 10 runs in 10 on Haiku. When
+  such a step is followed directly by a check, the judge now reads the two as one sentence
+  (`submit the add-note form and verify the note … appears`). The step's `done` is judged on the
+  check, which can fail a step that used to pass on the agent's word, and a step about to fail after
+  one of its actions succeeded passes if the check already holds. The agent itself is never shown the
+  check, so it is not steered to produce it. Reports still show both steps as written, the check still
+  runs as its own step, and a value only the check names cannot be typed. English check verbs only.
+
 ## [0.32.0] — 2026-11-07
 
 Minor, with a behaviour change: the agent sees inside a frame only when the frame's origin is the

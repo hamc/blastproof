@@ -6,6 +6,8 @@
  * people and is reworded whenever that helps one.
  */
 
+import { withNextCheck } from '../../src/runner/authoring.js';
+
 export interface JUnitCase {
   /** The test file, relative to the repository root. */
   file: string;
@@ -52,20 +54,38 @@ export function authFailure(log: string): string | undefined {
 }
 
 /**
+ * The step before `step` in the same list when the runner judges it on `step`
+ * (design an-action-step-takes-the-next-check, D1), or undefined. A seeded bug
+ * that check catches can fail the test there, one step early, and that is the
+ * check catching it.
+ */
+export function judgedBefore(test: { setup?: string[]; steps: string[] }, step: string): string | undefined {
+  for (const list of [test.setup ?? [], test.steps]) {
+    const index = list.indexOf(step);
+    if (index > 0 && withNextCheck(list[index - 1]!, step) !== list[index - 1]) return list[index - 1];
+  }
+  return undefined;
+}
+
+/**
  * One mutant sample. `testcase` is the target's case from the run's report, or
  * undefined when the run left none. A run whose sign-in failed blocked the merge
  * for a reason that is not the seeded bug: caught elsewhere. Any other run
  * without a verdict (a stop of the budget or the provider) is incomplete.
+ * `judgedAt` is the step judged on the declared one, from `judgedBefore`: a
+ * failure there is caught too.
  */
 export function scoreMutant(
   testcase: JUnitCase | undefined,
   expectedStep: string,
   authFailedAt?: string,
+  judgedAt?: string,
 ): MutantOutcome {
   if (!testcase && authFailedAt !== undefined) return 'caught-elsewhere';
   if (!testcase || testcase.status === 'skipped') return 'incomplete';
   if (testcase.status === 'passed') return 'false-pass';
-  return testcase.failedStep === expectedStep ? 'caught' : 'caught-elsewhere';
+  if (testcase.failedStep === expectedStep) return 'caught';
+  return judgedAt !== undefined && testcase.failedStep === judgedAt ? 'caught' : 'caught-elsewhere';
 }
 
 /**
