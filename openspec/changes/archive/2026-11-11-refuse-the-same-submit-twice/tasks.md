@@ -22,19 +22,21 @@
 
 ## Results (3.1, 3.2)
 
-Three sets of runs, one per state of the code. The provider's credit ran out during the third, on Haiku: those runs stopped as incomplete (HTTP 402), which is not a verdict.
+Four sets of runs. The provider's credit ran out during the third, on Haiku: those runs stopped as incomplete (HTTP 402), which is not a verdict. The fourth is Haiku again, on the final code.
 
 | | Haiku 4.5 | `gpt-6-luna` |
 | --- | --- | --- |
 | Notes test, split form, 0.33.0 | 10/10 | 8/10, two double submits |
 | Notes test, before the reviews | 10/10 | 10/10 |
 | Notes test, after the first review | 10/10 | 10/10 |
-| Notes test, final code | 3/3, 7 incomplete | 10/10 |
+| Notes test, final code | 9/10 (and 3/3 before the credit ran out) | 10/10 |
 | Dogfood suite, after the first review | 10/10, score 100 | 10/10, score 100 |
-| Dogfood suite, final code | 2/2, 8 not run | 10/10, score 100 |
+| Dogfood suite, final code | 10/10, score 100 | 10/10, score 100 |
 
-Every completed run left one note on file. So Haiku's full set is on the code before the second review, whose changes are to paths these runs do not take: an empty key, the next-page exception, the `submit` listener, two buttons behind one key.
+Every completed run left one note on file: no double submit in 63 runs.
+
+**The one failed run, Haiku on the final code, is a false FAIL this change did not cause.** After its click the model filled the emptied field with "Order note", a value the source check admits because the page's heading is "Order notes". It then proposed the click three times and was refused each time: click, fill, click, the #124 shape that 0.33.0 refuses with the same words. The judgment before failing (#44) then failed a page that listed the note, reasoning that the text sitting in the field meant the form had not been submitted. Neither rule of this change took part. The judge reading a later, unsubmitted value as proof that an earlier submit did not happen is a verdict incident of its own.
 
 - **The reset rule was exercised by the models.** The repeated click on the emptied form was refused in the model runs of every set (9 times in the second set of 20). None of the refusals failed a step.
-- **The Enter rule was not exercised by a model.** In the 53 completed runs a model pressed Enter after its click once (Haiku, a press with no target while nothing had the focus). The page named no button, the press was performed, and it submitted nothing. So the rule's live evidence is a scripted model driving the real page through the executor, each on a fresh count: click, refill, Enter with no key, then Enter on the field (both refused, one note); Enter, refill, click (refused, one note); click twice in a row (refused, one note); Enter twice in a row (refused, one note).
+- **The Enter rule was not exercised by a model.** In the 63 completed runs a model pressed Enter after its click once (Haiku, a press with no target while nothing had the focus). The page named no button, the press was performed, and it submitted nothing. So the rule's live evidence is a scripted model driving the real page through the executor, each on a fresh count: click, refill, Enter with no key, then Enter on the field (both refused, one note); Enter, refill, click (refused, one note); click twice in a row (refused, one note); Enter twice in a row (refused, one note).
 - **Dogfood suite:** one refusal per model, both click, refill, click on the notes test, the #124 shape that 0.33.0 refuses too.
