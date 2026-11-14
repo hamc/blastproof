@@ -1716,6 +1716,59 @@ describe('executeTest recovery containment', () => {
     expect(events.filter((e) => e.type === 'action' && e.result.startsWith('refused:'))).toHaveLength(1);
   });
 
+  it('refuses Enter in the form whose button the step already clicked (#205)', async () => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    page.visible.add('role:textbox|Note');
+    const refill: AgentAction = { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Test note', reasoning: 'refill' };
+    const enter: AgentAction = { action: 'press', value: 'Enter', reasoning: 'submit another way' };
+    const brain = recordingBrain([click('Add note'), refill, enter, { action: 'fail', reasoning: 'gave up' }], []);
+    const events: ExecutorEvent[] = [];
+    const asked: string[] = [];
+
+    await executeTest(
+      page,
+      makeTest({ steps: ['add the note "Test note"'] }),
+      baseOptions(brain, {
+        onEvent: (e) => events.push(e),
+        // The page's answer: Enter in this form activates "Add note".
+        submitControl: async (_page, action) => {
+          asked.push(action.action);
+          return action.action === 'press' ? { role: 'button', name: 'Add note', activated: async () => true } : undefined;
+        },
+      }),
+    );
+
+    expect(asked).toEqual(['click', 'fill', 'press']);
+    expect(page.calls.filter((c) => c.startsWith('keyboard'))).toHaveLength(0);
+    const refusals = events.filter((e) => e.type === 'action' && e.result.startsWith('refused:'));
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toMatchObject({ result: expect.stringContaining('activates button "Add note"') });
+  });
+
+  it.each([
+    ['clicked the button, so the button is refused after it', true, 0],
+    ['clicked nothing, as in an autocomplete, so the button is clicked after it', false, 1],
+  ])('records a press under the button only when it %s (#205)', async (_what, clicked, clicks) => {
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    page.visible.add('role:textbox|Note');
+    const refill: AgentAction = { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'Test note', reasoning: 'refill' };
+    const enter: AgentAction = { action: 'press', value: 'Enter', reasoning: 'submit' };
+    const brain = recordingBrain([enter, refill, click('Add note'), { action: 'fail', reasoning: 'gave up' }], []);
+
+    await executeTest(
+      page,
+      makeTest({ steps: ['add the note "Test note"'] }),
+      baseOptions(brain, {
+        submitControl: async (_page, action) => (action.action === 'press' ? { role: 'button', name: 'Add note', activated: async () => clicked } : undefined),
+      }),
+    );
+
+    expect(page.calls.filter((c) => c === 'keyboard Enter')).toHaveLength(1);
+    expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(clicks);
+  });
+
   it('does not carry the record across step boundaries', async () => {
     const page = new FakePage();
     page.visible.add('role:button|Add note');

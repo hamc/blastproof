@@ -1,6 +1,7 @@
 import type { AgentAction } from '../llm/schemas.js';
 import { hasVerificationClause, isVerificationStep } from './authoring.js';
 import { REDACTION_PREFIX, referencedEnvVars } from './env.js';
+import { FIELD_ROLES, snapshotFields } from './snapshot.js';
 
 /**
  * The actions that commit — the point at which a side effect lands in the
@@ -27,10 +28,18 @@ const COMMIT_ACTIONS: ReadonlySet<string> = new Set(['click', 'press']);
  */
 const COMMIT_KEYS: ReadonlySet<string> = new Set(['Enter', 'NumpadEnter', ' ', 'Space', 'Spacebar']);
 
+/** Enter, the key that submits a form from a field. */
+const ENTER_KEYS: ReadonlySet<string> = new Set(['Enter', 'NumpadEnter']);
+
+/** The key a press sends: `performAction` presses Enter when the model names none. */
+function pressedKey(action: AgentAction): string {
+  return action.value || 'Enter';
+}
+
 /** A click, or a press of a key that activates a control. */
 function isCommit(action: AgentAction): boolean {
   if (!COMMIT_ACTIONS.has(action.action)) return false;
-  return action.action !== 'press' || COMMIT_KEYS.has(action.value ?? '');
+  return action.action !== 'press' || COMMIT_KEYS.has(pressedKey(action));
 }
 
 /**
@@ -111,7 +120,54 @@ export function describeAction(action: AgentAction): string {
 function identity(action: AgentAction): string {
   const role = action.target?.role ?? '';
   const name = action.target?.name ?? '';
-  return JSON.stringify([action.action, role, normalise(name), action.value ?? '']);
+  // A press with no key is the Enter it sends, not a third thing (#205).
+  const value = action.action === 'press' ? pressedKey(action) : (action.value ?? '');
+  return JSON.stringify([action.action, role, normalise(name), value]);
+}
+
+/** A control as the snapshot shows it: what a click on it is recorded under. */
+export interface ActivatedControl {
+  role?: string;
+  name?: string;
+}
+
+/** The control a press activates: the button it is on, or the one the page named. */
+function activatedControl(action: AgentAction, activates?: ActivatedControl): ActivatedControl | undefined {
+  if (action.action !== 'press' || !isCommit(action)) return undefined;
+  return normalise(action.target?.role ?? '') === 'button' ? action.target : activates;
+}
+
+/**
+ * Identity of a commit: the control it activates, not the gesture (design
+ * refuse-the-same-submit-twice, D1). Enter or Space on a button is that
+ * button's click, and Enter in a field of a form is the click of the form's
+ * default submit button, which the executor asked the page for and passes as
+ * `activates`. `click "Add note"`, then Enter in the same form, wrote a second
+ * note on `gpt-6-luna` (#205): two identities for one submit. A press with no
+ * such control keeps its own identity.
+ */
+function commitIdentity(action: AgentAction, activates?: ActivatedControl): string {
+  const control = activatedControl(action, activates);
+  if (control === undefined) return identity(action);
+  return identity({ action: 'click', target: { role: control.role, name: control.name }, reasoning: '' });
+}
+
+function fieldKey(field: { role?: string; name?: string }): string {
+  return JSON.stringify([field.role ?? '', normalise(field.name ?? '')]);
+}
+
+/**
+ * Whether `after` is `before` come back reset (design
+ * refuse-the-same-submit-twice, D3): a field that held a value is on the page
+ * again, same role and name, with no value in any occurrence. A wizard's next
+ * page does not have the field, a "load more" list keeps its search box
+ * filled, and a form answered by a redirect to itself has the field, emptied.
+ */
+function cameBackReset(before: string, after: string): boolean {
+  // A field with no name cannot be told from another one, so it decides nothing.
+  const now = new Map<string, boolean>();
+  for (const field of snapshotFields(after)) now.set(fieldKey(field), (now.get(fieldKey(field)) ?? false) || field.filled);
+  return snapshotFields(before).some((field) => field.name !== '' && field.filled && now.get(fieldKey(field)) === false);
 }
 
 /**
@@ -147,7 +203,15 @@ export class StepRecovery {
    * repeat-a-click-that-moves-the-page, D1/D2). A commit that follows itself
    * on a page that moved is a tour's "Next", not a duplicate.
    */
-  private lastSuccess: { identity: string; page: string | undefined } | undefined;
+  private lastSuccess:
+    | { commit: string; own: string; named: boolean; page: string | undefined; action: AgentAction }
+    | undefined;
+  /**
+   * The page each commit was last decided on, by commit identity (design
+   * refuse-the-same-submit-twice, D6): what tells Enter in the next page of a
+   * form from Enter in the same form again.
+   */
+  private readonly commitPages = new Map<string, string | undefined>();
   /**
    * Everything the model has been allowed to read this step, normalised: the
    * step's own text, plus every snapshot it has been shown, plus every value it
@@ -233,9 +297,17 @@ export class StepRecovery {
   }
 
   /** Records an action that was actually performed and succeeded. */
-  record(action: AgentAction, description: string, result: string): void {
+  record(action: AgentAction, description: string, result: string, activates?: ActivatedControl): void {
+    // Under both: the control it activated, so the button is refused after
+    // Enter, and its own, for a later press whose control cannot be found.
+    // `lastSuccess` under both as well: a lookup that finds the button once
+    // and not the next time must not turn an allowed repeat into a refusal.
+    const commit = commitIdentity(action, activates);
     this.performed.add(identity(action));
-    this.lastSuccess = { identity: identity(action), page: this.lastObserved };
+    this.performed.add(commit);
+    if (isCommit(action)) this.commitPages.set(commit, this.lastObserved);
+    const named = activatedControl(action, activates) !== undefined;
+    this.lastSuccess = { commit, own: identity(action), named, page: this.lastObserved, action };
     this.history.push({ action: description, result });
     // A value that passed the source check when it was typed stays quotable for
     // the rest of the step: a transitive closure over already-validated values,
@@ -261,10 +333,10 @@ export class StepRecovery {
    * allowed duplicate commit costs a silent extra row in someone's database,
    * and #28 has now produced one on three applications.
    */
-  refusalFor(action: AgentAction): string | undefined {
+  refusalFor(action: AgentAction, activates?: ActivatedControl): string | undefined {
     return (
       this.verificationRefusal(action) ??
-      this.repeatedCommitRefusal(action) ??
+      this.repeatedCommitRefusal(action, activates) ??
       this.redactionLabelRefusal(action) ??
       this.unsourcedValueRefusal(action)
     );
@@ -313,10 +385,28 @@ export class StepRecovery {
     );
   }
 
-  private repeatedCommitRefusal(action: AgentAction): string | undefined {
+  private repeatedCommitRefusal(action: AgentAction, activates?: ActivatedControl): string | undefined {
     if (!isCommit(action)) return undefined;
-    if (!this.performed.has(identity(action))) return undefined;
-    if (this.followsItselfOnAMovedPage(action)) return undefined;
+    const commit = commitIdentity(action, activates);
+    const own = this.performed.has(identity(action));
+    if (!own && !this.performed.has(commit)) return undefined;
+    const control = activatedControl(action, activates);
+    if (this.followsItselfOnAMovedPage(commit, identity(action), control !== undefined)) return undefined;
+    if (this.pressedInANewField(action, commit)) return undefined;
+    const rest =
+      `It is the same control even under a new ref: refs are renumbered when the page changes. Repeating something that commits repeats whatever it changed in the application. If the page no longer ` +
+      `shows that it worked, that is normal for a submit answered by a redirect — check the record of what you ` +
+      `have already done. Verify the step's outcome another way, or fail the step.`;
+    // A press refused as a click says which click (design
+    // refuse-the-same-submit-twice, D4): told only that "this press" already
+    // succeeded, a model that never pressed reads the refusal as false.
+    if (!own && control !== undefined) {
+      const key = pressedKey(action).trim() === '' ? 'Space' : pressedKey(action);
+      return (
+        `refused: pressing ${key} here activates ${control.role ?? ''} "${control.name ?? ''}", ` +
+        `and the click on it already succeeded earlier in this step, so the key was NOT pressed. ${rest}`
+      );
+    }
     // The element named, and the ref disowned (design act-on-the-element-the-model-read,
     // D5): after a reload the same control has a new ref, and a model told only that
     // "this exact action" succeeded read the new ref as a different action and
@@ -324,9 +414,7 @@ export class StepRecovery {
     const target = action.target ? ` on ${action.target.role ?? ''} "${action.target.name ?? ''}"` : '';
     return (
       `refused: this ${action.action}${target} already succeeded earlier in this step, so it was NOT performed ` +
-      `again. It is the same control even under a new ref: refs are renumbered when the page changes. Repeating something that commits repeats whatever it changed in the application. If the page no longer ` +
-      `shows that it worked, that is normal for a submit answered by a redirect — check the record of what you ` +
-      `have already done. Verify the step's outcome another way, or fail the step.`
+      `again. ${rest}`
     );
   }
 
@@ -338,12 +426,49 @@ export class StepRecovery {
    * something else in between to restore the form, a `fill` (#124) or a click
    * on "New Issue" (#28), and a press that moved nothing is still refused.
    * Compared exactly on the ref-less text `observe` receives, so a re-render
-   * alone is no change.
+   * alone is no change. `commit` is the control activated, so "Next" clicked
+   * and "Next" entered are one control here.
    */
-  private followsItselfOnAMovedPage(action: AgentAction): boolean {
+  private followsItselfOnAMovedPage(commit: string, own: string, named: boolean): boolean {
     const last = this.lastSuccess;
-    if (last === undefined || last.identity !== identity(action)) return false;
-    return last.page !== undefined && this.lastObserved !== undefined && last.page !== this.lastObserved;
+    if (last === undefined) return false;
+    // The same control. Or the same press: a lookup that fails once must not
+    // refuse a repeat that was allowed, and a wizard paged with Enter ends on
+    // a button of another name. What a shared key must not do is join this
+    // press to a different button that was already activated in the step.
+    const joinsAnother = last.named && named && this.performed.has(commit);
+    const same = last.commit === commit || (last.own === own && !joinsAnother);
+    if (!same) return false;
+    if (last.page === undefined || this.lastObserved === undefined || last.page === this.lastObserved) return false;
+    // A form that came back empty moved too, and is no next page (#205): the
+    // second click sent an empty form and failed a correct application.
+    return !cameBackReset(last.page, this.lastObserved);
+  }
+
+  /**
+   * Enter in a field that was not on the page when the button it activates was
+   * last pressed (design refuse-the-same-submit-twice, D6): the next page of a
+   * form, not the same form again. A two-page sign-in is email, Enter,
+   * password, Enter, and both presses activate "Next". The duplicate has the
+   * opposite shape: the form came back, so its field was there. The field is
+   * the press's target, or for a press with no target the field the last
+   * action filled, which is where the focus is. Without a named field, on a
+   * page with an unnamed one, or while a field of that earlier page is still
+   * shown, nothing can be told and the press is refused.
+   */
+  private pressedInANewField(action: AgentAction, commit: string): boolean {
+    if (action.action !== 'press' || !ENTER_KEYS.has(pressedKey(action))) return false;
+    const last = this.lastSuccess?.action;
+    const field = action.target ?? (last !== undefined && SOURCED_VALUE_ACTIONS.has(last.action) ? last.target : undefined);
+    if (field === undefined || !field.name || !FIELD_ROLES.has(field.role ?? '')) return false;
+    const page = this.commitPages.get(commit);
+    if (page === undefined || this.lastObserved === undefined) return false;
+    const then = snapshotFields(page);
+    if (then.some((one) => one.name === '' || fieldKey(one) === fieldKey(field))) return false;
+    // And that earlier page is gone: a form that came back with one more
+    // field still has the fields it had.
+    const now = new Set(snapshotFields(this.lastObserved).map(fieldKey));
+    return !then.some((one) => now.has(fieldKey(one)));
   }
 
   /**

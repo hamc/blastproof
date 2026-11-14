@@ -316,3 +316,40 @@ export function indexRefs(snapshot: string): Map<string, SnapshotElement> {
   }
   return index;
 }
+
+/** The roles whose line holds a value someone typed or chose. */
+export const FIELD_ROLES: ReadonlySet<string> = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton']);
+
+/** A field line of a snapshot, and whether it shows a value. */
+export interface SnapshotField {
+  role: string;
+  name: string;
+  filled: boolean;
+}
+
+/**
+ * The fields a snapshot shows, each with whether it holds a value (design
+ * refuse-the-same-submit-twice, D3). A value is printed inline
+ * (`- textbox "Note": Check the invoice`) or, when the field has a placeholder
+ * too, as a `- text:` line under it. A `/placeholder` line is not a value.
+ */
+export function snapshotFields(snapshot: string): SnapshotField[] {
+  const lines = snapshot.split('\n');
+  const indentOf = (line: string): number => line.length - line.trimStart().length;
+  const fields: SnapshotField[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const match = parseElementLine(lines[i]!);
+    if (!match || !FIELD_ROLES.has(match[1]!)) continue;
+    let filled = match[4] !== undefined && match[4].trim() !== '';
+    const indent = indentOf(lines[i]!);
+    // Its own lines only: text deeper down belongs to a popup or an option.
+    const childIndent = i + 1 < lines.length ? indentOf(lines[i + 1]!) : 0;
+    for (let j = i + 1; !filled && j < lines.length && indentOf(lines[j]!) > indent; j++) {
+      if (indentOf(lines[j]!) !== childIndent) continue;
+      const child = parseElementLine(lines[j]!);
+      filled = child?.[1] === 'text' && child[4] !== undefined && child[4].trim() !== '';
+    }
+    fields.push({ role: match[1]!, name: match[2] === undefined ? '' : unquote(match[2]), filled });
+  }
+  return fields;
+}
