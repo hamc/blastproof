@@ -5,6 +5,12 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-11-14
+
+Minor, with a behaviour change: within a step, a form already submitted is not submitted again by
+Enter, or by its button on the form that came back empty. Two step shapes that ran before are now
+refused, and `docs/writing-tests.md` names them.
+
 ### Fixed
 
 - **A form is not submitted twice in one step by Enter, or by its button again on the emptied form**
