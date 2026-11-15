@@ -804,13 +804,16 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           agentRecord.push({ action: mask(describeAction(action)), result: mask(result) });
           pageActedOn = pageSnap;
           emitAction(index, action, result);
-          // Saved as the snapshot named it and as the model wrote it (design
-          // D2). The name is the masked snapshot's own, put there by
-          // `bindTarget`; the value is the model's, so it is masked here.
+          // Saved as the snapshot named it and as the model wrote it, masked
+          // like everything else that leaves the process (design D2). The
+          // name too, although it was read from a masked snapshot: the
+          // snapshot prints a name escaped, the mask looks for the secret as
+          // it is, and unquoting the line gives back a secret that holds a
+          // quote or a backslash (second review).
           performed.push({
             action: action.action,
             ...(action.target?.role === undefined ? {} : { role: action.target.role }),
-            ...(action.target?.name === undefined ? {} : { name: action.target.name }),
+            ...(action.target?.name === undefined ? {} : { name: mask(action.target.name) }),
             ...(action.value === undefined ? {} : { value: mask(action.value) }),
             changed: false,
           });

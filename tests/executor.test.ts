@@ -4030,6 +4030,87 @@ describe('a passing step is replayed (replay-the-actions-of-a-passing-step, #144
     expect(recorded.replay!.steps[0]!.actions).toEqual([{ action: 'click', role: 'button', name: 'Add note', changed: true }]);
   });
 
+  it('masks a saved name whose secret the snapshot printed escaped', async () => {
+    // The snapshot quotes a name, so a secret with a quote in it is printed
+    // escaped and the mask of the page does not see it; the line unquoted is
+    // the secret again.
+    const mask = new SecretsMask();
+    mask.add('pa"ss-w0rd', 'TOKEN');
+    const page = new FakePage();
+    page.visible.add('role:button|Copy pa"ss-w0rd');
+    let clicks = 0;
+    page.onClick = () => {
+      clicks++;
+    };
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['copy the token'] }),
+      baseOptions(scriptedBrain([click('Copy pa"ss-w0rd'), done]), {
+        mask: (t) => mask.mask(t),
+        snapshot: async () => `copied: ${clicks}`,
+        replay: { saved: [] },
+      }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(JSON.stringify(result.replay)).not.toContain('ss-w0rd');
+    expect(result.replay!.steps[0]!.actions[0]!.name).toBe('Copy [redacted TOKEN]');
+  });
+
+  it('masks the reason a replay ended', async () => {
+    const STEP = 'open {{env.PAGE}}';
+    const mask = new SecretsMask();
+    mask.add('hunter2-secret', 'PAGE');
+    const leaves: SavedStep = {
+      key: stepKey(0, false, STEP, STEP),
+      actions: [{ action: 'navigate', value: '{{env.PAGE}}', changed: true }],
+      close: { by: 'done' },
+    };
+    const events: ExecutorEvent[] = [];
+
+    await executeTest(
+      new FakePage(),
+      makeTest({ steps: [STEP] }),
+      baseOptions(scriptedBrain([{ action: 'fail', reasoning: 'cannot' }]), {
+        mask: (t) => mask.mask(t),
+        resolveValue: (v) => v.replace('{{env.PAGE}}', 'http://hunter2-secret.test/'),
+        replay: { saved: [leaves] },
+        onEvent: (e) => events.push(e),
+      }),
+    );
+
+    const ended = events.find((e) => e.type === 'replay-ended');
+    expect(ended?.type === 'replay-ended' && ended.reason).toContain('[redacted PAGE]');
+    expect(JSON.stringify(events)).not.toContain('hunter2-secret');
+  });
+
+  it('watches a page once per action, so one that flickers cannot hold the step', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    let reads = 0;
+    let clicked = false;
+    page.onClick = () => {
+      clicked = true;
+    };
+    // After the click, every second read shows a change that is gone by the next.
+    const snapshot = async (): Promise<string> => (clicked && ++reads % 2 === 0 ? 'notes: 1' : 'notes: 0');
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(scriptedBrain([{ action: 'fail', reasoning: 'nothing was added' }]), {
+        snapshot,
+        replay: { saved },
+        renderWatchMs: 2_000,
+      }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.replay!.ended).toEqual([saved[0]!.key]);
+  });
+
   it('saves nothing for a step that failed', async () => {
     const { page, snapshot } = notes();
     const result = await executeTest(

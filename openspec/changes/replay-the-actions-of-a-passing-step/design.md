@@ -55,7 +55,7 @@ Per test, when the whole test passed and the run was not stopped:
 ```
 
 - **`actions`** are the step's successful actions in order, from the same record the commit-repeat check reads. Failed attempts, refusals and failed assertions are not saved: the replay is the path that worked, not the search for it.
-- **`changed`** is whether the next snapshot differed from the one the action was decided on, refs aside.
+- **`changed`** is whether the next snapshot differed from the one the action was decided on, by lines, with refs and the focus mark aside. A snapshot marks the focused element `[active]`, and a click moves the focus to what it clicked. With the mark counted, every click changed the page: in a real browser, a replayed click on a button with no handler closed a `done` step (first review). The fake pages of the unit tests print no focus mark, so only a run in Chromium showed it.
 - **`close`** is `done`, or `judgment` with the claim the judge passed. A step that passed by the judgment before failing (#44) saves `judgment` with the check as its claim.
 - **`key`** covers the step's position, its text as written and its text as judged, so editing the step or the check that follows it drops the entry. `device` is compared too: a phone layout is another interface.
 
@@ -78,7 +78,7 @@ The replay of a step ends, and the model is asked from that point on with the st
 1. a saved target has no match or several (D3);
 2. `bindTarget` or `refusalFor` refuses the action, or the value's source is no longer on the page or in the step;
 3. `performAction` throws;
-4. a saved action had `changed: true` and the page does not differ after it, watched for the time `pageChangedWithin` already watches;
+4. a saved action had `changed: true` and the page does not differ after it, watched once for the time the executor already watches a page still rendering;
 5. the step closed by judgment and the judgment fails, after the existing re-observation.
 
 None of these spends the retry budget. The budget counts the model's attempts, and the model has made none. A replay is used once per step and never resumed.
@@ -87,11 +87,17 @@ What was performed before the end stays performed and recorded, so the model tha
 
 **Rule 4 is what keeps a silent no-op from passing a step.** A replay is faster than a model, so a page that renders late could look unchanged. The watch covers that, and when it does not, the cost is a model call.
 
+The watch polls the page, so it checks the page's origin before each poll and stops when the page has left the allowed origins. A page that moved goes back to the top of the loop, where it is settled and its origin checked before anything reads it. The first version took the watch's own snapshot as the next page: a form that redirected to another origin a second after the submit was shown to the judge, and the step passed on it (first review).
+
+Rule 4 is weaker than a check. Any change counts: a clock, a toast, an error banner. A step that must not pass on such a change names its outcome, and then it closes by judgment.
+
 ### D5. How a replayed step closes
 
 - **`judgment`:** after the saved actions, `brain.judge` is asked exactly as for an `assert`, with the saved claim and the live page. A pass closes the step. This is the same question the first run asked, about today's page.
 - **`done`:** the step closes when every saved action was performed and rule 4 held for each. On the first run this step closed on `recovery.acted` and the model's word. The replay keeps the first and replaces the second with the page having changed where it changed before, which is more than the word was.
 - **A verification step** has no actions: its entry is a claim, and the replay is one judgment. It saves the `nextAction` call that wrote the claim.
+
+A saved file is read as nothing saved when a field is of another type, so a file edited by hand cannot fail a step from inside the loop.
 
 A claim written for yesterday's page can be false today. The judge decides the step and reads the claim as support (`judge-the-step`), so a false claim fails the judgment, the replay ends, and the model looks at the page and writes a new one.
 
@@ -99,8 +105,8 @@ A claim written for yesterday's page can be false today. The judge decides the s
 
 - A test's file is written once, when the test passed, by a temporary file and a rename. With `concurrency` above 1 each test writes only its own file.
 - A step whose replay ended is dropped from the file at the end of the test, pass or fail. If the test passed, the path the model found replaces it. An entry that failed once is never replayed again.
-- A failed test saves nothing new and keeps the entries of the steps that replayed to the end.
-- A stopped run (budget, deadline, provider) writes nothing.
+- A failed test saves nothing new and keeps the entries of the steps that replayed to the end. When no replay ended, its file is not rewritten at all, so a run as another device, which read the file as nothing saved, does not empty it.
+- The test a stopped run (budget, deadline, provider) was in writes nothing. Tests that finished before the stop have already written theirs.
 
 ### D7. Where it lives
 
