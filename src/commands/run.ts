@@ -14,6 +14,7 @@ import {
 } from '../llm/decision.js';
 import { printPreflightFailures, runPreflight } from '../preflight.js';
 import { renderHtml, writeHtml } from '../report/html.js';
+import { loadReplay, replayFile, replaySummary, saveReplay, stepsToSave } from '../runner/replay.js';
 import { renderJUnit, writeJUnit, type SkippedCase } from '../report/junit.js';
 import { printUncommitted } from '../report/uncommitted.js';
 import { emitWarning, hiddenFrameWarning, type RunWarning } from '../report/warnings.js';
@@ -75,6 +76,8 @@ export interface BudgetFlags {
   maxTokens?: number;
   /** Overrides config `budget.max_duration_s`, in seconds, for this invocation (`--max-duration`). */
   maxDuration?: number;
+  /** Overrides config `replay` for this invocation (`--replay`, `--no-replay`). */
+  replay?: boolean;
 }
 
 export interface RunOptions extends TestFilters, BudgetFlags {
@@ -231,6 +234,9 @@ function printEvent(event: ExecutorEvent, write: LineSink = console.log): void {
         write(`    X step failed: ${event.reason ?? 'unknown reason'}`);
       }
       break;
+    case 'replay-ended':
+      write(`    ~ replay ended: ${event.reason}; the model takes over`);
+      break;
   }
 }
 
@@ -301,6 +307,8 @@ async function runOne(
   write: LineSink,
   onHiddenFrame: (origin: string) => void,
   firstJudge?: FirstJudge,
+  /** The project directory when replay is on (design replay-the-actions-of-a-passing-step). */
+  replayCwd?: string,
 ): Promise<TestResult> {
   const brain = createBrain(createModel(config.llm).model, undefined, budget, firstJudge);
 
@@ -330,6 +338,9 @@ async function runOne(
   // of empty, so isolation is preserved (auth design D3); `auth: false` opts out.
   // A test's own device wins over the run's (design a-test-names-its-device, D3).
   const device = test.device ?? config.browser.device;
+  // Read before the test and written after it, one file per test, so tests
+  // running at once never share a file (design D6).
+  const saved = replayCwd === undefined ? undefined : await loadReplay(replayFile(replayCwd, test.path), device);
   const context = await browser.newContext(contextOptions(test.auth ? session : undefined, device));
   try {
     await seedContext(context, test.auth ? session : undefined);
@@ -347,7 +358,14 @@ async function runOne(
       mask: (text) => mask.mask(text),
       onEvent: (event) => printEvent(event, write),
       onHiddenFrame,
+      ...(saved ? { replay: { saved } } : {}),
     });
+    // A stopped run never gets here, so it writes nothing. A file that cannot
+    // be written costs the next run its replay and nothing else.
+    if (replayCwd !== undefined && saved && result.replay) {
+      const steps = stepsToSave(result.status === 'passed', saved, result.replay);
+      await saveReplay(replayFile(replayCwd, test.path), device, steps).catch(() => {});
+    }
     return device ? { ...result, device } : result;
   } finally {
     await context.close();
@@ -472,6 +490,8 @@ async function finalize(
   // whether the limit was too tight needs both.
   if (spend) console.log(formatSpendLine(spend));
   if (firstJudgeLog) console.log(firstJudgeLog.summaryLine());
+  const decided = results.flatMap((result) => result.steps.map((step) => step.decidedBy));
+  if (decided.some((by) => by !== undefined)) console.log(replaySummary(decided));
 
   const score = scoreOf(results, incomplete !== undefined);
   console.log(
@@ -990,6 +1010,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
             write,
             onHiddenFrame,
             firstJudgeFor(path.relative(options.cwd, test.path)),
+            (options.replay ?? config.replay) ? options.cwd : undefined,
           );
           if (!streaming) for (const line of lines) console.log(line);
           return { index, result };

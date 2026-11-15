@@ -66,7 +66,7 @@ function printAuthEvent(event: ExecutorEvent): void {
     console.log(`  step ${event.index + 1}/${event.total}: ${event.step}`);
   } else if (event.type === 'action') {
     console.log(`    -> ${event.action.action} :: ${event.result}`);
-  } else if (event.status === 'failed') {
+  } else if (event.type === 'step-end' && event.status === 'failed') {
     console.log(`    X step failed: ${event.reason ?? 'unknown reason'}`);
   }
 }

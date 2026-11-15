@@ -17,6 +17,15 @@ import { referencedEnvVars } from './env.js';
 import { indexRefs, snapshotCutAt, withoutRefs, type FrameBoundary } from './snapshot.js';
 import { StepRecovery, describeAction, type StepHistoryEntry } from './recovery.js';
 import { withNextCheck } from './authoring.js';
+import {
+  replayedDecision,
+  stepKey,
+  type DecidedBy,
+  type ReplayOutcome,
+  type SavedAction,
+  type SavedClose,
+  type SavedStep,
+} from './replay.js';
 
 /** Hard cap on LLM actions per step, when not overridden. Also the number the
  * dry-run ceiling (design D5, `estimateMaxModelCalls`) is derived from, so the
@@ -99,6 +108,8 @@ export interface StepResult {
   failedAttempts: number;
   reason?: string;
   durationMs: number;
+  /** With replay on: how the step was decided (design replay-the-actions-of-a-passing-step, D9). */
+  decidedBy?: DecidedBy;
 }
 
 export interface TestResult {
@@ -120,12 +131,16 @@ export interface TestResult {
   reason?: string;
   screenshot?: string;
   durationMs: number;
+  /** With replay on: what to save for this test (design replay-the-actions-of-a-passing-step, D6). */
+  replay?: ReplayOutcome;
 }
 
 export type ExecutorEvent =
   | { type: 'step-start'; index: number; total: number; step: string; setup: boolean }
   | { type: 'action'; index: number; action: AgentAction; result: string }
-  | { type: 'step-end'; index: number; status: 'passed' | 'failed'; reason?: string };
+  | { type: 'step-end'; index: number; status: 'passed' | 'failed'; reason?: string }
+  /** A step's saved actions stopped working, and the model takes over (design replay-the-actions-of-a-passing-step, D4). */
+  | { type: 'replay-ended'; index: number; reason: string };
 
 export interface ExecutorOptions {
   brain: AgentBrain;
@@ -179,6 +194,12 @@ export interface ExecutorOptions {
   onEvent?: (event: ExecutorEvent) => void;
   /** Told the origin of each frame whose content a snapshot left out (design show-frames-from-declared-origins, D3). */
   onHiddenFrame?: (origin: string) => void;
+  /**
+   * Turns replay on, with the steps saved for this test (design
+   * replay-the-actions-of-a-passing-step). A saved step's actions are the
+   * step's decisions in place of the model's until one stops working.
+   */
+  replay?: { saved: SavedStep[] };
 }
 
 /**
@@ -286,6 +307,15 @@ export function pageChangeNote(before: string, after: string): string | undefine
   return ` (after it, the only change on the page: ${lines.join('; ')})`;
 }
 
+/** Whether two pages differ as {@link pageChangeNote} counts it: by lines, order aside. */
+export function pageDiffers(before: string, after: string): boolean {
+  const a = new Set(before.split('\n'));
+  const b = new Set(after.split('\n'));
+  if (a.size !== b.size) return true;
+  for (const line of a) if (!b.has(line)) return true;
+  return false;
+}
+
 /**
  * Executes one test against a page from a fresh browser context.
  * The loop per step: snapshot → LLM action → perform → repeat, until
@@ -308,7 +338,12 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     onEvent = () => {},
     onHiddenFrame,
     submitControl = submitControlOf,
+    replay,
   } = options;
+  const savedByKey = new Map((replay?.saved ?? []).map((entry) => [entry.key, entry]));
+  // What this run hands back for saving: the passing steps as performed now,
+  // and the saved steps whose replay ended (design D6).
+  const replayOutcome: ReplayOutcome = { steps: [], ended: [] };
   // Built once for the test: the same allowed set `performAction` compares a
   // navigate target against, and frames are shown by, so the checks cannot
   // drift (design D3; show-frames-from-declared-origins, D1).
@@ -381,6 +416,27 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     // The page the last successful action was chosen on, until the next
     // snapshot is compared with it (design D2).
     let pageActedOn: string | undefined;
+    // The step's saved entry while it still works (design
+    // replay-the-actions-of-a-passing-step, D1): the source of the next
+    // decision in place of the model. Dropped at the first thing that goes
+    // otherwise than it went, and never taken up again (D4).
+    const key = stepKey(index, setup, written, step);
+    let live = replay ? savedByKey.get(key) : undefined;
+    const hadSaved = live !== undefined;
+    let replayAt = 0;
+    // What this step performed and how it closed, for saving (D2).
+    const performed: SavedAction[] = [];
+    let closed: SavedClose | undefined;
+    // Whether the last performed action came from the replay, and whether the
+    // page had differed after it when it was saved.
+    let lastReplayed: SavedAction | undefined;
+    const endReplay = (why: string): void => {
+      if (live === undefined) return;
+      live = undefined;
+      lastReplayed = undefined;
+      replayOutcome.ended.push(key);
+      onEvent({ type: 'replay-ended', index, reason: why });
+    };
 
     try {
       while (true) {
@@ -412,7 +468,16 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
               'Add it to allowed_origins in .blastproof/config.yaml if the app legitimately spans hosts.',
           );
         }
-        const snap = await takeSnapshot(page);
+        let snap = await takeSnapshot(page);
+        // A replayed action is quicker than a model's, so a page that had
+        // changed after it and has not yet is watched before the replay is
+        // given up (design D4, rule 4). A replayed action that does nothing
+        // must not close a step.
+        if (pageActedOn !== undefined && lastReplayed?.changed && !pageDiffers(pageActedOn, withoutRefs(mask(snap)))) {
+          const moved = await pageChangedWithin(page, takeSnapshot, (s) => withoutRefs(mask(s)), pageActedOn, renderWatchMs);
+          if (moved !== undefined) snap = moved.raw;
+          else endReplay('the page did not change after an action that had changed it');
+        }
         lastSnapshot = snap;
         // Recorded at the one point a snapshot crosses into a prompt, masked
         // exactly as the model receives it (design refuse-an-invented-value,
@@ -427,6 +492,11 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         const pageSnap = withoutRefs(maskedSnap);
         recovery.observe(pageSnap);
         if (pageActedOn !== undefined) {
+          const acted = performed[performed.length - 1];
+          if (acted !== undefined) acted.changed = pageDiffers(pageActedOn, pageSnap);
+          lastReplayed = undefined;
+        }
+        if (pageActedOn !== undefined) {
           // In the record, not only in `lastResult`: placed after the snapshot,
           // the same note changed nothing on Haiku (design D2, measured).
           const note = pageChangeNote(pageActedOn, pageSnap);
@@ -439,7 +509,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         }
 
         let action: AgentAction;
-        try {
+        // Whether this decision came from the replay: one that stops working
+        // ends the replay and spends none of the step's attempts (design D4).
+        const saved = live === undefined ? undefined : replayedDecision(live, replayAt, refs);
+        if (live !== undefined && saved === undefined) endReplay('a saved element is not on the page exactly once');
+        const replayed = saved !== undefined;
+        if (saved !== undefined) action = saved;
+        else try {
           // One choke point for everything crossing into the prompt. Masking each
           // assignment site was tried and got it wrong: `select` and `navigate`
           // embed the resolved value in their result string, so a secret reached
@@ -493,8 +569,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           // else (design a-verification-step-only-looks, D3): after a click, a
           // model closed one on its own sentence, never judged (#139).
           if (!recovery.acted || recovery.verifies) {
-            failedAttempts++;
             lastResult = recovery.verifies ? VERIFICATION_DONE_REFUSAL : NOTHING_DONE_REFUSAL;
+            if (replayed) {
+              endReplay('its saved close is not allowed for this step');
+              lastResult = undefined;
+              continue;
+            }
+            failedAttempts++;
             emitAction(index, action, lastResult);
             if (failedAttempts >= maxRetries) {
               throw new StepFailure(lastResult);
@@ -503,6 +584,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           }
           if (!recovery.checksAfterActing) {
             emitAction(index, action, action.reasoning);
+            closed = { by: 'done' };
             break;
           }
           // A step that acts and then asks for a check closes on a judgment
@@ -587,9 +669,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             }
           } catch (error) {
             if (error instanceof RunStoppedError) throw error;
-            failedAttempts++;
             lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
             emitAction(index, shown(), lastResult);
+            if (replayed) {
+              endReplay('its judgment gave no answer');
+              continue;
+            }
+            failedAttempts++;
             if (failedAttempts >= maxRetries) {
               throw new StepFailure(lastResult);
             }
@@ -610,7 +696,15 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             // its own passing assertion by emitting `fail` next (see design D1) —
             // don't reintroduce it by turning this back into a `continue`.
             lastResult = result;
+            closed = { by: 'judgment', claim: mask(expectation) };
             break;
+          }
+          if (replayed) {
+            // The saved claim does not hold on this page. Not an attempt of the
+            // model's, which now looks for itself (design D4, rule 5).
+            lastResult = result;
+            endReplay('the judgment of its saved claim failed');
+            continue;
           }
           // Failed against a freshly settled page, not merely a stale one: this
           // is a real retry, one unit of the existing budget — re-observation
@@ -631,8 +725,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         try {
           action = bindTarget(action, refs);
         } catch (error) {
-          failedAttempts++;
           lastResult = error instanceof Error ? error.message : String(error);
+          if (replayed) {
+            endReplay('a saved action was refused');
+            lastResult = undefined;
+            continue;
+          }
+          failedAttempts++;
           emitAction(index, action, lastResult);
           if (failedAttempts >= maxRetries) {
             throw new StepFailure(lastResult);
@@ -645,6 +744,11 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         // commit as that button's click, before and after.
         const activates = await submitControl(page, action, refs);
         const refusal = recovery.refusalFor(action, activates);
+        if (refusal && replayed) {
+          void activates?.activated();
+          endReplay('a saved action was refused');
+          continue;
+        }
         if (refusal) {
           void activates?.activated();
           // Not a malformed response and not a browser failure — the executor
@@ -678,12 +782,29 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           agentRecord.push({ action: mask(describeAction(action)), result: mask(result) });
           pageActedOn = pageSnap;
           emitAction(index, action, result);
+          // Saved as the snapshot named it and as the model wrote it, masked
+          // like everything else that leaves the process (design D2).
+          performed.push({
+            action: action.action,
+            ...(action.target?.role === undefined ? {} : { role: action.target.role }),
+            ...(action.target?.name === undefined ? {} : { name: mask(action.target.name) }),
+            ...(action.value === undefined ? {} : { value: mask(action.value) }),
+            changed: false,
+          });
+          if (replayed && live !== undefined) {
+            lastReplayed = live.actions[replayAt];
+            replayAt++;
+          }
         } catch (error) {
           // Self-healing: fresh snapshot next iteration, up to the retry budget.
           void activates?.activated();
-          failedAttempts++;
           lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
           emitAction(index, action, lastResult);
+          if (replayed) {
+            endReplay('a saved action failed');
+            continue;
+          }
+          failedAttempts++;
           if (failedAttempts >= maxRetries) {
             throw new StepFailure(lastResult);
           }
@@ -723,6 +844,9 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
             if (judgment.pass) {
               emitAction(index, asked, `ok: the check after this step holds: ${judgment.reason}`);
               stepFailedReason = undefined;
+              const acted = performed[performed.length - 1];
+              if (acted !== undefined && pageActedOn !== undefined) acted.changed = pageDiffers(pageActedOn, pageSnap);
+              closed = { by: 'judgment', claim: mask(check) };
             } else {
               emitAction(index, asked, `the check after this step does not hold either: ${judgment.reason}`);
             }
@@ -749,6 +873,21 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     }
 
     const status = stepFailedReason ? ('failed' as const) : ('passed' as const);
+    // A replay that ran to the end closed the step; one that ended left it to
+    // the model, which healed it if the step passed (design D9).
+    // A step that failed with its replay still live (the page left the
+    // application) is not replayed again either.
+    if (status === 'failed' && live !== undefined) replayOutcome.ended.push(key);
+    const decidedBy: DecidedBy | undefined = !replay
+      ? undefined
+      : hadSaved && live !== undefined && status === 'passed'
+        ? 'replayed'
+        : hadSaved && status === 'passed'
+          ? 'healed'
+          : 'model';
+    if (replay && status === 'passed' && closed !== undefined) {
+      replayOutcome.steps.push({ key, actions: performed, close: closed });
+    }
     stepResults.push({
       step: mask(written), // results are a report channel — never store substituted secrets
       setup,
@@ -757,6 +896,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
       failedAttempts,
       reason: stepFailedReason,
       durationMs: Date.now() - stepStartedAt,
+      ...(decidedBy ? { decidedBy } : {}),
     });
     onEvent({ type: 'step-end', index, status, reason: stepFailedReason });
 
@@ -791,6 +931,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     failedStep: failure?.step,
     reason: failure?.reason,
     screenshot,
+    ...(replay ? { replay: replayOutcome } : {}),
     durationMs: Date.now() - startedAt,
   };
 }

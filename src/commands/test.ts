@@ -76,6 +76,7 @@ export async function testCommand(options: TestOptions): Promise<number> {
     html: options.html,
     failOnUnmapped: options.failOnUnmapped,
     failOnAuthoring: options.failOnAuthoring,
+    replay: options.replay,
     budget,
   });
   if (runCode === EXIT_USAGE) return EXIT_USAGE;

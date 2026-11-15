@@ -237,6 +237,15 @@ const configSchema = z.object({
    * those tests, not of the runner. Opted into by the person who knows.
    */
   concurrency: z.number().int().min(1, 'concurrency must be at least 1').default(1),
+  /**
+   * Replays the actions of a step that passed instead of asking the model again
+   * (design replay-the-actions-of-a-passing-step, D8). Off by default: a gate
+   * must not start deciding differently on an upgrade. `BLASTPROOF_REPLAY` is
+   * text, so the two words a boolean is written with are read as one.
+   */
+  replay: z
+    .preprocess((value) => (value === 'true' ? true : value === 'false' ? false : value), z.boolean())
+    .default(false),
   budget: budgetSchema.optional(),
   first_judge: firstJudgeSchema.optional(),
 });
@@ -267,6 +276,7 @@ export const ENV_OVERRIDES: Record<string, readonly [string] | readonly [string,
   BLASTPROOF_FIRST_JUDGE_MODEL: ['first_judge', 'model'],
   BLASTPROOF_FIRST_JUDGE_THRESHOLD: ['first_judge', 'threshold'],
   BLASTPROOF_BROWSER_DEVICE: ['browser', 'device'],
+  BLASTPROOF_REPLAY: ['replay'],
 };
 
 export interface OverrideResult {

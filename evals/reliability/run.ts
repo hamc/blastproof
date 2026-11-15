@@ -13,12 +13,19 @@
  * `EVAL_RESCORE=<dir>` scores the logs and reports of an earlier run in that
  * directory again, with the same settings, without calling a model.
  *
+ * `EVAL_REPLAY=1` measures replay (design replay-the-actions-of-a-passing-step):
+ * per model, one run of the suite on the unmodified app saves its actions, and
+ * every sample after it starts from a copy of what that run saved, with
+ * `--replay`. A mutant then meets the actions of a passing run, which is the
+ * case a replay could hide a bug in. Models run one after another, since the
+ * saved actions live in one directory of the project.
+ *
  * Needs a model and a key, so it is not part of CI. Exit 1 only when the
  * benchmark could not run as declared (a mutant that does not apply, no build).
  */
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -48,6 +55,9 @@ const samples = Number(process.env.EVAL_SAMPLES ?? 5);
 const onlyMutants = (process.env.EVAL_MUTANTS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const runSuite = process.env.EVAL_SUITE !== '0';
 const rescore = process.env.EVAL_RESCORE ? path.resolve(process.env.EVAL_RESCORE) : undefined;
+const replay = process.env.EVAL_REPLAY === '1';
+/** Where the CLI keeps saved actions, for the project it runs in. */
+const REPLAY_DIR = path.join(REPO_ROOT, '.blastproof', 'cache', 'replay');
 
 if (!rescore && !existsSync(CLI)) {
   console.error(`No build at ${path.relative(REPO_ROOT, CLI)}. Run \`npm run build\` first: the benchmark measures the CLI a user runs.`);
@@ -144,6 +154,15 @@ async function runOnce(model: string, label: string, mutant: Mutant | undefined,
     const server = await serve(appDir);
     try {
       const args = [CLI, 'run', '--url', server.url, '--junit', `${base}.xml`, ...(query ? ['--query', query] : [])];
+      if (replay) {
+        args.push('--replay');
+        // Every run but the recording one starts from what the recording saved,
+        // not from what the run before it left.
+        if (label !== 'record') {
+          await rm(REPLAY_DIR, { recursive: true, force: true });
+          await cp(recorded(model), REPLAY_DIR, { recursive: true });
+        }
+      }
       const log = createWriteStream(`${base}.log`);
       const code = await new Promise<number | null>((resolve) => {
         const child = spawn(process.execPath, args, {
@@ -171,7 +190,23 @@ interface SuiteSample { model: string; test: string; sample: number; outcome: Su
 const mutantSamples: MutantSample[] = [];
 const suiteSamples: SuiteSample[] = [];
 
+/** The copy of what a model's recording run saved. */
+function recorded(model: string): string {
+  return path.join(outDir, `replay--${model.replace(/[^A-Za-z0-9.-]+/g, '_')}`);
+}
+
+/** One run of the suite on the unmodified app, whose saved actions every sample starts from. */
+async function record(model: string, suite: TestFile[]): Promise<void> {
+  await rm(REPLAY_DIR, { recursive: true, force: true });
+  const run = await runOnce(model, 'record', undefined, undefined);
+  const failed = suite.filter((t) => run.cases.find((c) => c.file === path.relative(REPO_ROOT, t.path))?.failedStep !== undefined);
+  for (const test of failed) console.log(`${model} record: ${test.summary} failed, so its mutants run with nothing saved`);
+  await mkdir(REPLAY_DIR, { recursive: true });
+  await cp(REPLAY_DIR, recorded(model), { recursive: true });
+}
+
 async function runModel(model: string, suite: TestFile[]): Promise<void> {
+  if (replay && !rescore) await record(model, suite);
   for (let sample = 1; sample <= samples; sample++) {
     if (runSuite) {
       const run = await runOnce(model, `suite-${sample}`, undefined, undefined);
@@ -197,7 +232,8 @@ async function runModel(model: string, suite: TestFile[]): Promise<void> {
   }
 }
 
-await Promise.all(models.map((model) => runModel(model, tests)));
+if (replay) for (const model of models) await runModel(model, tests);
+else await Promise.all(models.map((model) => runModel(model, tests)));
 
 console.log('\n--- Result ---------------------------------------------------');
 for (const model of models) {
