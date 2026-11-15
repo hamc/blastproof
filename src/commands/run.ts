@@ -364,7 +364,7 @@ async function runOne(
     // be written costs the next run its replay and nothing else.
     if (replayCwd !== undefined && saved && result.replay) {
       const steps = stepsToSave(result.status === 'passed', saved, result.replay);
-      await saveReplay(replayFile(replayCwd, test.path), device, steps).catch(() => {});
+      if (steps) await saveReplay(replayFile(replayCwd, test.path), device, steps).catch(() => {});
     }
     return device ? { ...result, device } : result;
   } finally {

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -94,6 +94,10 @@ describe('what a test saves after a run (design D6)', () => {
     const before = [step('a'), step('b'), step('c')];
     expect(stepsToSave(false, before, { steps: [step('a')], ended: ['b'] })).toEqual([step('a'), step('c')]);
   });
+
+  it('leaves the file as it is when a test failed and no replay ended', () => {
+    expect(stepsToSave(false, [step('a')], { steps: [], ended: [] })).toBeUndefined();
+  });
 });
 
 describe('the saved file (design D7)', () => {
@@ -136,6 +140,16 @@ describe('the saved file (design D7)', () => {
     body.steps.push({ key: 'bad', actions: 'none' });
     await writeFile(file, JSON.stringify(body), 'utf8');
     expect(await loadReplay(file, undefined)).toEqual([step('k')]);
+  });
+
+  it('drops a step whose field is of another type, so it never reaches the loop', async () => {
+    const file = replayFile(cwd, path.join(cwd, 'notes.yaml'));
+    for (const bad of [{ role: 5 }, { name: ['x'] }, { value: 1 }]) {
+      const body = { version: 1, steps: [{ ...step('k'), actions: [{ action: 'click', changed: true, ...bad }] }] };
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, JSON.stringify(body), 'utf8');
+      expect(await loadReplay(file, undefined)).toEqual([]);
+    }
   });
 
   it('does not replay what was saved as another device', async () => {

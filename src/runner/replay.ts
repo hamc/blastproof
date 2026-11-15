@@ -135,6 +135,21 @@ export function replayFile(cwd: string, testPath: string): string {
   return path.join(replayDir(cwd), `${stem}-${hash}.json`);
 }
 
+/** A field left out, or a string: a file edited by hand must not reach the loop as another type. */
+const optionalString = (value: unknown): boolean => value === undefined || typeof value === 'string';
+
+function isSavedAction(value: unknown): value is SavedAction {
+  if (typeof value !== 'object' || value === null) return false;
+  const action = value as Record<string, unknown>;
+  return (
+    typeof action.action === 'string' &&
+    typeof action.changed === 'boolean' &&
+    optionalString(action.role) &&
+    optionalString(action.name) &&
+    optionalString(action.value)
+  );
+}
+
 function isSavedStep(value: unknown): value is SavedStep {
   if (typeof value !== 'object' || value === null) return false;
   const step = value as Record<string, unknown>;
@@ -142,9 +157,7 @@ function isSavedStep(value: unknown): value is SavedStep {
   return (
     typeof step.key === 'string' &&
     Array.isArray(step.actions) &&
-    step.actions.every(
-      (a) => typeof a === 'object' && a !== null && typeof (a as SavedAction).action === 'string' && typeof (a as SavedAction).changed === 'boolean',
-    ) &&
+    step.actions.every(isSavedAction) &&
     typeof close === 'object' &&
     close !== null &&
     (close.by === 'done' || (close.by === 'judgment' && typeof close.claim === 'string'))
@@ -170,10 +183,13 @@ export async function loadReplay(file: string, device: string | undefined): Prom
 /**
  * What a test's file holds after a run (design D6). A passing test saves the
  * steps of that run. A failed one saves nothing new and keeps what it had,
- * minus every step whose replay ended.
+ * minus every step whose replay ended; `undefined` is a file left as it is.
  */
-export function stepsToSave(passed: boolean, before: SavedStep[], outcome: ReplayOutcome): SavedStep[] {
+export function stepsToSave(passed: boolean, before: SavedStep[], outcome: ReplayOutcome): SavedStep[] | undefined {
   if (passed) return outcome.steps;
+  // Nothing ended, so the file already says this. Not rewriting it also keeps
+  // what another device saved, which was read as nothing, from being emptied.
+  if (outcome.ended.length === 0) return undefined;
   const ended = new Set(outcome.ended);
   return before.filter((step) => !ended.has(step.key));
 }

@@ -307,10 +307,17 @@ export function pageChangeNote(before: string, after: string): string | undefine
   return ` (after it, the only change on the page: ${lines.join('; ')})`;
 }
 
-/** Whether two pages differ as {@link pageChangeNote} counts it: by lines, order aside. */
+/**
+ * Whether an action changed the page, for a replay (design
+ * replay-the-actions-of-a-passing-step, D4): by lines, order aside, and focus
+ * aside. A snapshot marks the focused element `[active]`, and a click moves the
+ * focus to what it clicked, so with the mark left in every click "changes" the
+ * page, and one that does nothing closed a replayed step in a real browser.
+ */
 export function pageDiffers(before: string, after: string): boolean {
-  const a = new Set(before.split('\n'));
-  const b = new Set(after.split('\n'));
+  const lines = (page: string): Set<string> => new Set(page.replace(/ \[active\]/g, '').split('\n'));
+  const a = lines(before);
+  const b = lines(after);
   if (a.size !== b.size) return true;
   for (const line of a) if (!b.has(line)) return true;
   return false;
@@ -430,12 +437,15 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
     // Whether the last performed action came from the replay, and whether the
     // page had differed after it when it was saved.
     let lastReplayed: SavedAction | undefined;
+    // How many actions had been performed when the page was last watched for
+    // a late change, so each action is watched once.
+    let watchedAfter = -1;
     const endReplay = (why: string): void => {
       if (live === undefined) return;
       live = undefined;
       lastReplayed = undefined;
       replayOutcome.ended.push(key);
-      onEvent({ type: 'replay-ended', index, reason: why });
+      onEvent({ type: 'replay-ended', index, reason: mask(why) });
     };
 
     try {
@@ -468,15 +478,27 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
               'Add it to allowed_origins in .blastproof/config.yaml if the app legitimately spans hosts.',
           );
         }
-        let snap = await takeSnapshot(page);
+        const snap = await takeSnapshot(page);
         // A replayed action is quicker than a model's, so a page that had
         // changed after it and has not yet is watched before the replay is
         // given up (design D4, rule 4). A replayed action that does nothing
-        // must not close a step.
+        // must not close a step. Once per action. A page that moved goes back
+        // to the top of the loop, so it is settled and its origin checked
+        // before anything reads it: the watch itself reads no page that left
+        // the application.
         if (pageActedOn !== undefined && lastReplayed?.changed && !pageDiffers(pageActedOn, withoutRefs(mask(snap)))) {
-          const moved = await pageChangedWithin(page, takeSnapshot, (s) => withoutRefs(mask(s)), pageActedOn, renderWatchMs);
-          if (moved !== undefined) snap = moved.raw;
-          else endReplay('the page did not change after an action that had changed it');
+          if (watchedAfter !== performed.length) {
+            watchedAfter = performed.length;
+            const deadline = Date.now() + renderWatchMs;
+            let moved = false;
+            while (!moved && Date.now() < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, Math.min(RENDER_POLL_MS, Math.max(0, deadline - Date.now()))));
+              if (!isOriginAllowed(page.url(), boundary)) break;
+              moved = pageDiffers(pageActedOn, withoutRefs(mask(await takeSnapshot(page))));
+            }
+            if (moved || !isOriginAllowed(page.url(), boundary)) continue;
+          }
+          endReplay('the page did not change after an action that had changed it');
         }
         lastSnapshot = snap;
         // Recorded at the one point a snapshot crosses into a prompt, masked
@@ -727,7 +749,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         } catch (error) {
           lastResult = error instanceof Error ? error.message : String(error);
           if (replayed) {
-            endReplay('a saved action was refused');
+            endReplay(`a saved action was refused (${lastResult})`);
             lastResult = undefined;
             continue;
           }
@@ -746,7 +768,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
         const refusal = recovery.refusalFor(action, activates);
         if (refusal && replayed) {
           void activates?.activated();
-          endReplay('a saved action was refused');
+          endReplay(`a saved action was refused (${refusal})`);
           continue;
         }
         if (refusal) {
@@ -782,12 +804,13 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           agentRecord.push({ action: mask(describeAction(action)), result: mask(result) });
           pageActedOn = pageSnap;
           emitAction(index, action, result);
-          // Saved as the snapshot named it and as the model wrote it, masked
-          // like everything else that leaves the process (design D2).
+          // Saved as the snapshot named it and as the model wrote it (design
+          // D2). The name is the masked snapshot's own, put there by
+          // `bindTarget`; the value is the model's, so it is masked here.
           performed.push({
             action: action.action,
             ...(action.target?.role === undefined ? {} : { role: action.target.role }),
-            ...(action.target?.name === undefined ? {} : { name: mask(action.target.name) }),
+            ...(action.target?.name === undefined ? {} : { name: action.target.name }),
             ...(action.value === undefined ? {} : { value: mask(action.value) }),
             changed: false,
           });
@@ -801,7 +824,7 @@ export async function executeTest(page: PageLike, test: TestFile, options: Execu
           lastResult = `error: ${error instanceof Error ? error.message : String(error)}`;
           emitAction(index, action, lastResult);
           if (replayed) {
-            endReplay('a saved action failed');
+            endReplay(`a saved action failed (${lastResult})`);
             continue;
           }
           failedAttempts++;

@@ -17,8 +17,11 @@
  * per model, one run of the suite on the unmodified app saves its actions, and
  * every sample after it starts from a copy of what that run saved, with
  * `--replay`. A mutant then meets the actions of a passing run, which is the
- * case a replay could hide a bug in. Models run one after another, since the
- * saved actions live in one directory of the project.
+ * case a replay could hide a bug in. Each such run has a copy of the project's
+ * `.blastproof/` to itself, so the project's own saved actions are not touched
+ * and `EVAL_CONCURRENCY` runs (default 1) can go at once per model. The result
+ * says how many steps were replayed and how many healed, since a replay that
+ * never engaged would hide nothing either.
  *
  * Needs a model and a key, so it is not part of CI. Exit 1 only when the
  * benchmark could not run as declared (a mutant that does not apply, no build).
@@ -56,8 +59,9 @@ const onlyMutants = (process.env.EVAL_MUTANTS ?? '').split(',').map((s) => s.tri
 const runSuite = process.env.EVAL_SUITE !== '0';
 const rescore = process.env.EVAL_RESCORE ? path.resolve(process.env.EVAL_RESCORE) : undefined;
 const replay = process.env.EVAL_REPLAY === '1';
-/** Where the CLI keeps saved actions, for the project it runs in. */
-const REPLAY_DIR = path.join(REPO_ROOT, '.blastproof', 'cache', 'replay');
+const concurrency = Math.max(1, Number(process.env.EVAL_CONCURRENCY ?? 1));
+/** Where the CLI keeps saved actions, inside a project. */
+const REPLAY_RELATIVE = path.join('.blastproof', 'cache', 'replay');
 
 if (!rescore && !existsSync(CLI)) {
   console.error(`No build at ${path.relative(REPO_ROOT, CLI)}. Run \`npm run build\` first: the benchmark measures the CLI a user runs.`);
@@ -135,13 +139,23 @@ interface RunEvidence {
   cases: JUnitCase[];
   /** The step the run's sign-in failed at, when it did. */
   authFailedAt?: string;
+  /** With replay on: the steps the run replayed and the ones whose replay ended. */
+  replayed: number;
+  healed: number;
 }
+
+const property = (xml: string, name: string): number => Number(new RegExp(`<property name="${name}" value="(\\d+)"`).exec(xml)?.[1] ?? 0);
 
 /** What a finished run left behind: its JUnit report and its console log. */
 async function evidence(base: string): Promise<RunEvidence> {
   const xml = await readFile(`${base}.xml`, 'utf8').catch(() => '');
   const log = await readFile(`${base}.log`, 'utf8').catch(() => '');
-  return { cases: parseJUnit(xml), authFailedAt: authFailure(log) };
+  return {
+    cases: parseJUnit(xml),
+    authFailedAt: authFailure(log),
+    replayed: property(xml, 'replayed_steps'),
+    healed: property(xml, 'healed_steps'),
+  };
 }
 
 /** One CLI run against a fresh copy of the app; under EVAL_RESCORE, the evidence an earlier run left. */
@@ -149,24 +163,26 @@ async function runOnce(model: string, label: string, mutant: Mutant | undefined,
   const base = path.join(outDir, `${model.replace(/[^A-Za-z0-9.-]+/g, '_')}--${label}`);
   if (rescore) return evidence(base);
   const appDir = await mkdtemp(path.join(tmpdir(), 'blastproof-reliability-'));
+  // With replay, the run's own copy of the project: its config, its tests and
+  // what the recording saved. Every run starts from the recording, not from
+  // what the run before it left.
+  const project = replay ? await mkdtemp(path.join(tmpdir(), 'blastproof-reliability-project-')) : REPO_ROOT;
   try {
+    if (replay) {
+      await mkdir(path.join(project, '.blastproof'), { recursive: true });
+      await cp(path.join(REPO_ROOT, '.blastproof', 'config.yaml'), path.join(project, '.blastproof', 'config.yaml'));
+      await cp(path.join(REPO_ROOT, TESTS_RELATIVE_DIR), path.join(project, TESTS_RELATIVE_DIR), { recursive: true });
+      if (label !== 'record') await cp(recorded(model), path.join(project, REPLAY_RELATIVE), { recursive: true });
+    }
     await materialize(appDir, mutant);
     const server = await serve(appDir);
     try {
       const args = [CLI, 'run', '--url', server.url, '--junit', `${base}.xml`, ...(query ? ['--query', query] : [])];
-      if (replay) {
-        args.push('--replay');
-        // Every run but the recording one starts from what the recording saved,
-        // not from what the run before it left.
-        if (label !== 'record') {
-          await rm(REPLAY_DIR, { recursive: true, force: true });
-          await cp(recorded(model), REPLAY_DIR, { recursive: true });
-        }
-      }
+      if (replay) args.push('--replay');
       const log = createWriteStream(`${base}.log`);
       const code = await new Promise<number | null>((resolve) => {
         const child = spawn(process.execPath, args, {
-          cwd: REPO_ROOT,
+          cwd: project,
           env: { ...process.env, BLASTPROOF_LLM_MODEL: model },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -175,12 +191,17 @@ async function runOnce(model: string, label: string, mutant: Mutant | undefined,
         child.once('close', resolve);
       });
       await new Promise<void>((resolve) => log.end(`\n[exit ${code}]\n`, resolve));
+      if (replay && label === 'record') {
+        await mkdir(path.join(project, REPLAY_RELATIVE), { recursive: true });
+        await cp(path.join(project, REPLAY_RELATIVE), recorded(model), { recursive: true });
+      }
       return evidence(base);
     } finally {
       server.stop();
     }
   } finally {
     await rm(appDir, { recursive: true, force: true });
+    if (replay) await rm(project, { recursive: true, force: true });
   }
 }
 
@@ -197,19 +218,36 @@ function recorded(model: string): string {
 
 /** One run of the suite on the unmodified app, whose saved actions every sample starts from. */
 async function record(model: string, suite: TestFile[]): Promise<void> {
-  await rm(REPLAY_DIR, { recursive: true, force: true });
   const run = await runOnce(model, 'record', undefined, undefined);
   const failed = suite.filter((t) => run.cases.find((c) => c.file === path.relative(REPO_ROOT, t.path))?.failedStep !== undefined);
   for (const test of failed) console.log(`${model} record: ${test.summary} failed, so its mutants run with nothing saved`);
-  await mkdir(REPLAY_DIR, { recursive: true });
-  await cp(REPLAY_DIR, recorded(model), { recursive: true });
+}
+
+/** Steps replayed and healed over a model's samples, by kind of run. */
+const engaged = new Map<string, { replayed: number; healed: number }>();
+function countReplay(model: string, kind: 'suite' | 'mutants', run: RunEvidence): void {
+  const key = `${model} ${kind}`;
+  const total = engaged.get(key) ?? { replayed: 0, healed: 0 };
+  engaged.set(key, { replayed: total.replayed + run.replayed, healed: total.healed + run.healed });
+}
+
+/** Runs the jobs `concurrency` at a time, in order of start. */
+async function pool(jobs: Array<() => Promise<void>>): Promise<void> {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
+      while (next < jobs.length) await jobs[next++]!();
+    }),
+  );
 }
 
 async function runModel(model: string, suite: TestFile[]): Promise<void> {
   if (replay && !rescore) await record(model, suite);
+  const jobs: Array<() => Promise<void>> = [];
   for (let sample = 1; sample <= samples; sample++) {
-    if (runSuite) {
+    if (runSuite) jobs.push(async () => {
       const run = await runOnce(model, `suite-${sample}`, undefined, undefined);
+      countReplay(model, 'suite', run);
       for (const test of suite) {
         const file = path.relative(REPO_ROOT, test.path);
         const testcase = run.cases.find((c) => c.file === file);
@@ -218,22 +256,23 @@ async function runModel(model: string, suite: TestFile[]): Promise<void> {
         suiteSamples.push({ model, test: file, sample, outcome, failedStep });
         if (outcome !== 'pass') console.log(`${model} suite s${sample}: ${outcome} ${test.summary}`);
       }
-    }
-    for (const m of mutants) {
+    });
+    for (const m of mutants) jobs.push(async () => {
       const target = suite.find((t) => path.relative(REPO_ROOT, t.path) === m.test);
       const run = await runOnce(model, `${m.id}-${sample}`, m, target?.summary);
+      countReplay(model, 'mutants', run);
       const testcase = run.cases.find((c) => c.file === m.test);
       const judgedAt = target === undefined ? undefined : judgedBefore(target, m.step);
       const outcome = scoreMutant(testcase, m.step, run.authFailedAt, judgedAt);
       const failedStep = testcase?.failedStep ?? (run.authFailedAt && `sign-in: ${run.authFailedAt}`);
       mutantSamples.push({ model, mutant: m.id, sample, outcome, failedStep });
       console.log(`${model} ${m.id} s${sample}: ${outcome}`);
-    }
+    });
   }
+  await pool(jobs);
 }
 
-if (replay) for (const model of models) await runModel(model, tests);
-else await Promise.all(models.map((model) => runModel(model, tests)));
+await Promise.all(models.map((model) => runModel(model, tests)));
 
 console.log('\n--- Result ---------------------------------------------------');
 for (const model of models) {
@@ -243,6 +282,12 @@ for (const model of models) {
     console.log(`  unmodified suite   false FAIL ${formatRate(t.counts['false-fail'], t.decided)}   incomplete ${t.counts.incomplete}`);
     for (const s of suiteSamples.filter((s) => s.model === model && s.outcome !== 'pass')) {
       console.log(`    ${s.test} s${s.sample}: ${s.outcome}${s.failedStep ? ` at "${s.failedStep}"` : ''}`);
+    }
+  }
+  if (replay) {
+    for (const kind of ['suite', 'mutants'] as const) {
+      const total = engaged.get(`${model} ${kind}`);
+      if (total) console.log(`  replay, ${kind.padEnd(7)}    ${total.replayed} step(s) replayed, ${total.healed} healed`);
     }
   }
   for (const cls of ['literal', 'subtle'] as const) {
