@@ -18,7 +18,12 @@ if [ -f "$pidfile" ]; then
     sleep 0.2
   done
   # Still answering would let the old server, notes and all, pass the wait below.
-  kill -9 "$pid" 2>/dev/null || true
+  if kill -9 "$pid" 2>/dev/null; then
+    for _ in $(seq 1 10); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.2
+    done
+  fi
   rm -f "$pidfile"
 fi
 

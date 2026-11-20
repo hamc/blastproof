@@ -1,7 +1,7 @@
 # dogfood Specification
 
 ## Purpose
-TBD - created by archiving change dogfood-replays-what-passed. Update Purpose after archive.
+What the scheduled self-test against the demo app runs, and what fails it: the suite once with nothing saved and once replaying what that run saved.
 
 ## Requirements
 

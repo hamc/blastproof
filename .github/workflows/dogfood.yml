@@ -91,7 +91,7 @@ jobs:
 
       - name: Cold run replayed nothing
         # Also after a failed run, so the job summary still has its counts.
-        if: always() && hashFiles('junit-cold.xml') != ''
+        if: ${{ !cancelled() && hashFiles('junit-cold.xml') != '' }}
         run: node .github/scripts/replay-check.mjs cold junit-cold.xml
 
       - name: Restart the demo app
@@ -107,7 +107,7 @@ jobs:
       - name: Warm run replayed at least half its steps
         # The score cannot show a broken replay: the model resolves every step
         # it gives up on, and the run still scores 100.
-        if: always() && hashFiles('junit-warm.xml') != ''
+        if: ${{ !cancelled() && hashFiles('junit-warm.xml') != '' }}
         run: node .github/scripts/replay-check.mjs warm junit-warm.xml
 
       - name: Upload the JUnit report
