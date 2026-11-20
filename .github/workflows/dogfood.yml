@@ -72,23 +72,37 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Start the demo app
-        run: |
-          node examples/demo-app/serve.mjs 4173 &
-          for _ in $(seq 1 30); do
-            if curl -sf -o /dev/null "$BASE_URL/"; then
-              echo "demo app is up"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "demo app did not come up in 30s" >&2
-          exit 1
+        run: .github/scripts/start-demo-app.sh 4173
 
-      - name: Run the suite and gate on the score
+      # Two runs with replay on, from a checkout with nothing saved and no cache
+      # restored (openspec change dogfood-replays-what-passed). The cold run asks
+      # the model for every step, as a run with replay off does, and saves what
+      # passed; it is the one that shows the model and the provider still work,
+      # which is why the replay files are never kept from one week to the next.
+      # The warm run replays what the cold one saved.
+      - name: Cold run, gated on the score
         run: |
-          node dist/cli.js run \
+          node dist/cli.js run --replay \
             --min-score "$MIN_SCORE" \
-            --junit junit.xml
+            --junit junit-cold.xml
+
+      - name: Cold run replayed nothing
+        run: node .github/scripts/replay-check.mjs cold junit-cold.xml
+
+      - name: Restart the demo app
+        # It keeps notes in memory, and the notes test checks the count.
+        run: .github/scripts/start-demo-app.sh 4173
+
+      - name: Warm run, gated on the score
+        run: |
+          node dist/cli.js run --replay \
+            --min-score "$MIN_SCORE" \
+            --junit junit-warm.xml
+
+      - name: Warm run replayed at least half its steps
+        # The score cannot show a broken replay: the model resolves every step
+        # it gives up on, and the run still scores 100.
+        run: node .github/scripts/replay-check.mjs warm junit-warm.xml
 
       - name: Upload the JUnit report
         # `always()` so a blocked run still leaves its evidence behind.
@@ -96,7 +110,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: junit-report
-          path: junit.xml
+          path: |
+            junit-cold.xml
+            junit-warm.xml
           if-no-files-found: warn
           retention-days: 30
 

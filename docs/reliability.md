@@ -8,6 +8,8 @@ The **Dogfood** badge is blastproof running against the demo app in this repo â€
 
 No selector was updated to catch that. The agent read the value, did the arithmetic, and disagreed with the page.
 
+The job runs the suite twice with [`replay`](./configuration.md#replay--repeating-what-passed-last-time) on, and both runs must reach the minimum score. The first starts with nothing saved, so the model decides every step, as it does with replay off. The second replays what the first saved, and it fails if fewer than half of its steps were replayed: when a replay stops working, the model resolves those steps instead and the score does not change. Nothing saved is kept from one week to the next, so every week's first run asks the model again.
+
 Try it yourself:
 
 ```bash
