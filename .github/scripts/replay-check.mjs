@@ -10,7 +10,7 @@
 // warm: at least half the steps the counters cover were replayed. Below that,
 //       replay stopped working while the score, which the model keeps at 100,
 //       says nothing. Missing counters count as nothing replayed.
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
 const FLOOR = 0.5;
 const [mode, file] = process.argv.slice(2);
@@ -19,6 +19,10 @@ if ((mode !== 'cold' && mode !== 'warm') || !file) {
   process.exit(2);
 }
 
+if (!existsSync(file)) {
+  console.log(`::error::no JUnit report at ${file}`);
+  process.exit(1);
+}
 const xml = readFileSync(file, 'utf8');
 const counter = (name) => {
   const match = xml.match(new RegExp(`<property name="${name}" value="(\\d+)"/>`));

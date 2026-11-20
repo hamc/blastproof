@@ -18,10 +18,13 @@ on:
   workflow_dispatch:
     inputs:
       max_llm_calls:
-        # Left empty the run is unbounded, which is also the scheduled behaviour.
+        # The job runs the suite twice and each run gets this ceiling on its own,
+        # so the job can spend up to twice it; a ceiling below one full run stops
+        # the cold run as incomplete and the warm run never starts.
+        # Left empty the runs are unbounded, which is also the scheduled behaviour.
         # `applyEnvOverrides` skips an empty variable, so passing it through
         # unconditionally cannot make an unbounded run accidentally bounded.
-        description: 'Optional model-call ceiling for this run (empty = unbounded)'
+        description: 'Optional model-call ceiling for each of the two runs (empty = unbounded)'
         required: false
         default: ''
 
@@ -87,6 +90,8 @@ jobs:
             --junit junit-cold.xml
 
       - name: Cold run replayed nothing
+        # Also after a failed run, so the job summary still has its counts.
+        if: always() && hashFiles('junit-cold.xml') != ''
         run: node .github/scripts/replay-check.mjs cold junit-cold.xml
 
       - name: Restart the demo app
@@ -102,6 +107,7 @@ jobs:
       - name: Warm run replayed at least half its steps
         # The score cannot show a broken replay: the model resolves every step
         # it gives up on, and the run still scores 100.
+        if: always() && hashFiles('junit-warm.xml') != ''
         run: node .github/scripts/replay-check.mjs warm junit-warm.xml
 
       - name: Upload the JUnit report
@@ -122,5 +128,15 @@ jobs:
         with:
           name: failure-screenshots
           path: .blastproof/reports/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload what replay saved
+        # What the warm run replayed from, the first thing to read when it fails.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: replay-cache
+          path: .blastproof/cache/replay/
           if-no-files-found: ignore
           retention-days: 30
