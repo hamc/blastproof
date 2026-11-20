@@ -40,3 +40,21 @@ Measured 2026-10-13 on 0.27.0, 5 samples, through OpenRouter. To reproduce:
 npm run build
 EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna npm run eval:reliability
 ```
+
+### With replay
+
+[`replay`](./configuration.md#replay--repeating-what-passed-last-time) performs a step from what it did the last time it passed, so the question here is whether a saved path can carry a test past a bug. `EVAL_REPLAY=1` answers it: per model, one run of the suite on the correct app saves its actions, and every sample after it, on the correct app and on each mutant, starts from those.
+
+| with replay | `claude-haiku-4.5` | `gpt-6-luna` |
+| --- | --- | --- |
+| false FAIL, correct app (30 test runs) | 0 (≤ 11.4%) | 0 (≤ 11.4%) |
+| false PASS, literal bugs (30) | 0 (≤ 11.4%) | 0 (≤ 11.4%) |
+| false PASS, subtle bugs (21) | 0 (≤ 15.5%) | 0 (≤ 15.5%) |
+| steps replayed / handed to the model | 229 / 14 | 231 / 12 |
+
+Every bug was caught at the step that checks it. The replay was engaged: the last row counts steps across all samples, so a "0" above is not a replay that never ran. Measured 2026-11-15, 3 samples, through OpenRouter:
+
+```bash
+npm run build
+EVAL_REPLAY=1 EVAL_CONCURRENCY=4 EVAL_SAMPLES=3 EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna npm run eval:reliability
+```

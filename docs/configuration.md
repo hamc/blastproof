@@ -39,6 +39,7 @@ file edit, and a single invocation can override the CI job.
 | `BLASTPROOF_FIRST_JUDGE_MODEL` | `first_judge.model`, and turns the first judge on |
 | `BLASTPROOF_FIRST_JUDGE_THRESHOLD` | `first_judge.threshold` |
 | `BLASTPROOF_BROWSER_DEVICE` | `browser.device`; a test's own `device:` still wins |
+| `BLASTPROOF_REPLAY` | `replay` — `true` or `false` |
 
 ## `base_url`
 
@@ -330,6 +331,75 @@ aim it at something shared.
 With several model calls in flight, a `budget:` limit can **overshoot by up to
 the concurrency** rather than by a single call, because calls already sent are
 allowed to finish rather than being torn down mid-flight.
+
+## `replay` — repeating what passed last time
+
+Off by default. Turned on, a step that passed is performed the next time from
+what it did, without asking the model what to do.
+
+```yaml
+replay: true
+```
+
+or `blastproof run --replay` for one invocation, and `--no-replay` to ask the
+model for everything when the config has it on.
+
+**What is saved.** When a test passes, each of its steps saves the actions that
+succeeded in it, in order: the action, the role and name the page showed for the
+element, the value as the step wrote it, and whether the page changed after it.
+And how the step closed: on `done`, or on a judgment and the claim it passed. A
+`{{env.*}}` value is saved as its placeholder, never as its value. Nothing like a
+selector is saved. The files are in `.blastproof/cache/replay/`, one per test,
+safe to delete at any time.
+
+**What is not saved: a verdict.** A step that closed on a judgment is judged
+again on every run, on the live page, with the claim it passed last time. A
+saved PASS would be a verdict about a page nobody looked at.
+
+**When the model takes over.** The replay of a step ends, and the model is asked
+from that point with the step's record as it stands, when:
+
+- a saved element is not on the page, or is there more than once;
+- a saved action is refused, or fails;
+- a saved action had changed the page and now does not, after the same short
+  wait a page still rendering gets;
+- the judgment of the saved claim fails.
+
+None of these spends one of the step's attempts. What the replay did stays done,
+so the model cannot submit a form the replay already submitted. When the test
+passes, the path the model found replaces the saved one: a renamed button is
+resolved once and replayed after that. The summary says how each step was
+decided:
+
+```
+Replay: 39 steps replayed, 1 resolved by the model (1 healed)
+```
+
+On this repository's suite, a run with nothing saved made 105 model calls on
+`gpt-6-luna` and took 272 s. The ten runs after it made 44 calls each, 39% of the
+tokens, in about 135 s, all with Score 100. On the benchmark of seeded bugs,
+replay hid none of the 51 on either model ([Reliability](./reliability.md)).
+
+### Limits
+
+- **Two elements of the same name.** A replay never chooses between them by
+  position, so a step that clicks one of two "Add to cart" buttons is resolved
+  by the model on every run.
+- **A step that closes on `done` closes on any change.** With no check, the
+  replay closes it when each saved action changed the page as it did before.
+  Any change counts: a toast, a clock, a validation message. A step that must
+  not pass on such a change names its outcome, and is then judged.
+- **A button whose name stayed and whose meaning changed** is clicked. The model
+  would most likely have clicked it too.
+- **A value copied from a page that changes every run** is yesterday's value. It
+  is refused when today's page does not show it, and the model takes over.
+- **A step that needs a different number of presses each run** ("Next until the
+  last page") replays the count it saved. Name the outcome, and a wrong count is
+  caught by the judgment.
+
+In CI, carry `.blastproof/cache/` between runs with a cache step
+([CI](./ci.md#carrying-saved-actions-between-runs)), or every run starts with
+nothing saved.
 
 ## `budget` — bounding what a run spends
 

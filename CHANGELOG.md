@@ -5,6 +5,21 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+### Added
+
+- **A step that passed is replayed, and the model is asked only when the replay stops working**
+  ([#144](https://github.com/hamc/blastproof/issues/144)). Off by default: `replay: true`, or
+  `--replay`. When a test passes, the actions that succeeded in each step are saved under
+  `.blastproof/cache/replay/` as the role and name the page showed and the value as written, never a
+  secret or a selector, and the next run performs them without a model call. A check is still judged
+  on the live page on every run. A saved element missing or there twice, a refused or failed action,
+  a page that no longer changes where it did and a failed judgment each hand the step to the model,
+  without spending an attempt, and the path it finds replaces the saved one when the test passes. On
+  this repository's suite on `gpt-6-luna`, a run went from 105 model calls to 44 and from 272 s to
+  about 135 s, and on the benchmark of seeded bugs no bug was hidden on Haiku 4.5 or `gpt-6-luna`.
+  The summary, the HTML report and JUnit (`replayed_steps`, `model_steps`, `healed_steps`) say how
+  each step was decided. `init` now ignores `.blastproof/cache/`.
+
 ## [0.34.0] — 2026-11-14
 
 Minor, with a behaviour change: within a step, a form already submitted is not submitted again by

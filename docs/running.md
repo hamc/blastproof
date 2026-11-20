@@ -25,6 +25,7 @@ Common flags — `blastproof <command> --help` has the full list:
 | `--fail-on-authoring` | Fail when a step enters a value but names none (warns by default) |
 | `--junit [path]` · `--html [path]` | Write reports |
 | `--concurrency <n>` | Run tests at once — [when that is safe](./configuration.md#concurrency--running-tests-at-once) |
+| `--replay` · `--no-replay` | Replay the actions of steps that passed last time instead of asking the model, or ask it for everything — [what that changes](./configuration.md#replay--repeating-what-passed-last-time) |
 | `--write` | `plan` only — persist drafts instead of previewing |
 | `--max-llm-calls` · `--max-tokens` · `--max-duration` | [Bound what a run may spend](./configuration.md#budget--bounding-what-a-run-spends) |
 
