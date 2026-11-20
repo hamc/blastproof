@@ -186,6 +186,16 @@ everything:
 A saved action is checked against the live page every time, so an entry from
 another branch costs a model call when it no longer fits, and nothing else.
 
+Three things to adjust for your workflow:
+
+- the path is relative to the job's root: with the action's
+  `working-directory`, prefix it;
+- `actions/cache` saves only when the job succeeds, so a run the gate failed
+  carries nothing forward;
+- a saved file belongs to one device, so a matrix over `browser.device` should
+  put the device in the cache key, or each job reads the other's file as
+  nothing saved.
+
 ## Gating patterns
 
 **Strict.** Any failure blocks. The default, and the right starting point.

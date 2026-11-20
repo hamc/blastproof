@@ -50,9 +50,11 @@ EVAL_MODELS=anthropic/claude-haiku-4.5,openai/gpt-6-luna npm run eval:reliabilit
 | false FAIL, correct app (30 test runs) | 0 (≤ 11.4%) | 0 (≤ 11.4%) |
 | false PASS, literal bugs (30) | 0 (≤ 11.4%) | 0 (≤ 11.4%) |
 | false PASS, subtle bugs (21) | 0 (≤ 15.5%) | 0 (≤ 15.5%) |
-| steps replayed / handed to the model | 229 / 14 | 231 / 12 |
+| steps replayed / healed | 229 / 14 | 231 / 12 |
 
-Every bug was caught at the step that checks it. The replay was engaged: the last row counts steps across all samples, so a "0" above is not a replay that never ran. Measured 2026-11-15, 3 samples, through OpenRouter:
+Every bug was caught at the step that checks it. The replay was engaged: the last row counts steps across all samples, so a "0" above is not a replay that never ran. A healed step is one whose replay ended and that then passed; a caught bug's step, whose replay ended on a failed judgment, is counted in neither column.
+
+What this does not measure: every mutant seeds its bug at a step that checks, and such a step is judged on every run, with replay or without. The one new way replay gives a step to pass, a step with no check closing when its saved actions changed the page as before (any change), meets no seeded bug here, so its rate is unmeasured. Write a check where a bug would show. Measured 2026-11-15, 3 samples, through OpenRouter:
 
 ```bash
 npm run build

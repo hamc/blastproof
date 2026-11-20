@@ -18,7 +18,9 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   this repository's suite, a run went from 105 model calls to 44 on `gpt-6-luna` and from 113 to 49
   on Haiku 4.5, in about half the time, and on the benchmark of seeded bugs no bug was hidden on Haiku 4.5 or `gpt-6-luna`.
   The summary, the HTML report and JUnit (`replayed_steps`, `model_steps`, `healed_steps`) say how
-  each step was decided. `init` now ignores `.blastproof/cache/`.
+  each step was decided. `init` now ignores `.blastproof/cache/`; a project set up before this
+  release adds `cache/` to `.blastproof/.gitignore` itself, since `init` never rewrites an existing
+  one.
 
 ## [0.34.0] — 2026-11-14
 

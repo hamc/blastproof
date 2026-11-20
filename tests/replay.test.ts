@@ -152,6 +152,19 @@ describe('the saved file (design D7)', () => {
     }
   });
 
+  it('drops a step whose actions hold a close, which only a file edited by hand can', async () => {
+    const file = replayFile(cwd, path.join(cwd, 'notes.yaml'));
+    for (const close of ['done', 'assert', 'fail', 'dance']) {
+      const body = {
+        version: 1,
+        steps: [{ ...step('k'), actions: [step('k').actions[0], { action: close, changed: false }] }],
+      };
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, JSON.stringify(body), 'utf8');
+      expect(await loadReplay(file, undefined)).toEqual([]);
+    }
+  });
+
   it('does not replay what was saved as another device', async () => {
     const file = replayFile(cwd, path.join(cwd, 'notes.yaml'));
     await saveReplay(file, 'Pixel 7', [step('k')]);

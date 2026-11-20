@@ -346,11 +346,12 @@ model for everything when the config has it on.
 
 **What is saved.** When a test passes, each of its steps saves the actions that
 succeeded in it, in order: the action, the role and name the page showed for the
-element, the value as the step wrote it, and whether the page changed after it.
+element, the value as the model typed it, and whether the page changed after it.
 And how the step closed: on `done`, or on a judgment and the claim it passed. A
 `{{env.*}}` value is saved as its placeholder, never as its value. Nothing like a
 selector is saved. The files are in `.blastproof/cache/replay/`, one per test,
-safe to delete at any time.
+safe to delete at any time. A project set up by `init` before 0.35.0 does not
+ignore them: add `cache/` to `.blastproof/.gitignore`.
 
 **What is not saved: a verdict.** A step that closed on a judgment is judged
 again on every run, on the live page, with the claim it passed last time. A
@@ -399,6 +400,11 @@ replay hid none of the 51 on either model ([Reliability](./reliability.md)).
   would most likely have clicked it too.
 - **A value copied from a page that changes every run** is yesterday's value. It
   is refused when today's page does not show it, and the model takes over.
+- **A replayed stretch makes no model call**, so `--max-duration` is checked
+  when the next model call or the next test starts, not while saved actions
+  run. A replayed action still counts toward a step's action limit.
+- **A step that failed is counted as resolved by the model** in the summary and
+  in JUnit, even when it failed before the replay handed it over.
 - **A step that needs a different number of presses each run** ("Next until the
   last page") replays the count it saved. Name the outcome, and a wrong count is
   caught by the judgment.

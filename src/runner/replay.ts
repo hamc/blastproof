@@ -135,6 +135,14 @@ export function replayFile(cwd: string, testPath: string): string {
   return path.join(replayDir(cwd), `${stem}-${hash}.json`);
 }
 
+/**
+ * The actions a saved step may hold: the ones `performAction` performs. A step's
+ * close is saved apart, so a `done`, `assert` or `fail` among the actions comes
+ * from a file edited by hand or another version, and would close or fail a step
+ * with no model asked (third review).
+ */
+const PERFORMED_ACTIONS: ReadonlySet<string> = new Set(['navigate', 'click', 'fill', 'press', 'select', 'hover']);
+
 /** A field left out, or a string: a file edited by hand must not reach the loop as another type. */
 const optionalString = (value: unknown): boolean => value === undefined || typeof value === 'string';
 
@@ -143,6 +151,7 @@ function isSavedAction(value: unknown): value is SavedAction {
   const action = value as Record<string, unknown>;
   return (
     typeof action.action === 'string' &&
+    PERFORMED_ACTIONS.has(action.action) &&
     typeof action.changed === 'boolean' &&
     optionalString(action.role) &&
     optionalString(action.name) &&
