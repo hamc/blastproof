@@ -3809,11 +3809,14 @@ describe('a passing step is replayed (replay-the-actions-of-a-passing-step, #144
     const saved = await record(ADD, [click('Add note'), done]);
     const page = new FakePage();
     page.visible.add('role:button|Add note');
-    let clickedAt: number | undefined;
+    // The page shows the note from the second read after the click on: the
+    // first, at the top of the loop, still shows none.
+    let readsAfterClick = -1;
     page.onClick = () => {
-      clickedAt = Date.now();
+      readsAfterClick = 0;
     };
-    const snapshot = async (): Promise<string> => `notes: ${clickedAt !== undefined && Date.now() - clickedAt > 300 ? 1 : 0}`;
+    const snapshot = async (): Promise<string> =>
+      `notes: ${readsAfterClick >= 0 && ++readsAfterClick > 1 ? 1 : 0}`;
     const brain = scriptedBrain([]);
 
     const result = await executeTest(
