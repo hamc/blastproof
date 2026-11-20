@@ -5,6 +5,12 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
 
 ## [Unreleased]
 
+## [0.35.0] — 2026-11-20
+
+Minor, with nothing changed for a run that does not opt in: replaying the steps that passed is off
+by default. The one change without opting in is that `init` now ignores `.blastproof/cache/` in a
+new project.
+
 ### Added
 
 - **A step that passed is replayed, and the model is asked only when the replay stops working**
