@@ -576,3 +576,38 @@ describe('first_judge section (design a-decision-model-judges-first, D1)', () =>
     ).toEqual(['first_judge.base_url']);
   });
 });
+
+describe('replay (replay-the-actions-of-a-passing-step)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'blastproof-replay-config-'));
+    await mkdir(path.join(dir, '.blastproof'), { recursive: true });
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), 'base_url: http://localhost:3000\n');
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('is off by default', async () => {
+    expect((await loadConfig(dir)).replay).toBe(false);
+  });
+
+  it('is read from the file', async () => {
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), 'base_url: http://localhost:3000\nreplay: true\n');
+    expect((await loadConfig(dir)).replay).toBe(true);
+  });
+
+  it('is turned on and off from BLASTPROOF_REPLAY', async () => {
+    vi.stubEnv('BLASTPROOF_REPLAY', 'true');
+    expect((await loadConfig(dir)).replay).toBe(true);
+    await writeFile(path.join(dir, '.blastproof', 'config.yaml'), 'base_url: http://localhost:3000\nreplay: true\n');
+    vi.stubEnv('BLASTPROOF_REPLAY', 'false');
+    expect((await loadConfig(dir)).replay).toBe(false);
+  });
+
+  it('refuses a value that is neither, naming the variable', async () => {
+    vi.stubEnv('BLASTPROOF_REPLAY', 'sometimes');
+    await expect(loadConfig(dir)).rejects.toThrow(/BLASTPROOF_REPLAY/);
+  });
+});

@@ -25,6 +25,7 @@ describe('initProject', () => {
     expect(result.created).toHaveLength(4);
     await expect(readFile(at('config.yaml'), 'utf8')).resolves.toContain('base_url:');
     await expect(readFile(at('.gitignore'), 'utf8')).resolves.toContain('.auth-state.json');
+    await expect(readFile(at('.gitignore'), 'utf8')).resolves.toMatch(/^cache\/$/m);
   });
 
   it('produces a config that actually loads', async () => {

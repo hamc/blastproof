@@ -132,7 +132,9 @@ function renderSteps(steps: StepResult[]): string {
     .map(
       (step) =>
         `<li class="${step.status === 'failed' ? 'failed' : ''}">${escapeHtml(step.step)}` +
-        `${step.setup ? ' <span class="note">(setup)</span>' : ''}</li>`,
+        `${step.setup ? ' <span class="note">(setup)</span>' : ''}` +
+        // Only a step that had saved actions is labelled (spec html-report).
+        `${step.decidedBy === 'replayed' || step.decidedBy === 'healed' ? ` <span class="note">(${step.decidedBy})</span>` : ''}</li>`,
     )
     .join('\n        ');
   return `<ol class="steps">\n        ${items}\n      </ol>`;

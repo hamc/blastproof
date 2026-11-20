@@ -62,6 +62,19 @@ function seconds(ms: number): string {
  * one testcase. The run's warnings are carried too, so the caveat on the
  * verdict reaches CI with it (#103). Pure — returns the XML, writes nothing.
  */
+/** With replay on, how the run's steps were decided; nothing otherwise (spec junit-report). */
+function replayProperties(results: TestResult[]): string[] {
+  const decided = results.flatMap((result) => result.steps.map((step) => step.decidedBy));
+  if (!decided.some((by) => by !== undefined)) return [];
+  const count = (by: string): number => decided.filter((d) => d === by).length;
+  const healed = count('healed');
+  return [
+    `    <property name="replayed_steps" value="${count('replayed')}"/>`,
+    `    <property name="model_steps" value="${count('model') + healed}"/>`,
+    `    <property name="healed_steps" value="${healed}"/>`,
+  ];
+}
+
 export function renderJUnit(
   results: TestResult[],
   skipped: SkippedCase[],
@@ -96,6 +109,7 @@ export function renderJUnit(
       : []),
     // Emitted as 0 too (design D2): unlike a token count nobody reported, 0 is
     // a true claim here, that the run printed no warning.
+    ...replayProperties(results),
     `    <property name="warnings" value="${warnings.length}"/>`,
     '  </properties>',
   ];

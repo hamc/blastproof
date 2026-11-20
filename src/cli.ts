@@ -89,6 +89,8 @@ program
   .option('--html [path]', 'write a self-contained HTML report (default: .blastproof/reports/<session>/report.html)')
   .option('--fail-on-unmapped', 'fail when a changed file matches no routes: or ignore: glob')
   .option('--fail-on-authoring', 'fail when a step enters a value but names none (warns by default)')
+  .option('--replay', 'replay the actions of steps that passed last time instead of asking the model (overrides config)')
+  .option('--no-replay', 'ask the model for every action, and read or write no saved actions (overrides config)')
   .option(
     '--concurrency <n>',
     'run this many tests at once (overrides config; default 1 — see the README on when this is safe)',
@@ -124,6 +126,7 @@ program
       failOnUnmapped?: boolean;
       failOnAuthoring?: boolean;
       concurrency?: number;
+      replay?: boolean;
       maxLlmCalls?: number;
       maxTokens?: number;
       maxDuration?: number;
@@ -144,6 +147,7 @@ program
           failOnUnmapped: options.failOnUnmapped,
           failOnAuthoring: options.failOnAuthoring,
           concurrency: options.concurrency,
+          replay: options.replay,
           maxLlmCalls: options.maxLlmCalls,
           maxTokens: options.maxTokens,
           maxDuration: options.maxDuration,
@@ -236,6 +240,8 @@ program
     'stop the pipeline after this many tokens, shared by both phases (overrides config)',
     parsePositiveInt('--max-tokens'),
   )
+  .option('--replay', 'replay the actions of steps that passed last time instead of asking the model (overrides config)')
+  .option('--no-replay', 'ask the model for every action, and read or write no saved actions (overrides config)')
   .option(
     '--max-duration <seconds>',
     'stop the pipeline after this many seconds of wall-clock time (overrides config)',
@@ -251,6 +257,7 @@ program
       write?: boolean;
       failOnUnmapped?: boolean;
       failOnAuthoring?: boolean;
+      replay?: boolean;
       maxLlmCalls?: number;
       maxTokens?: number;
       maxDuration?: number;
@@ -266,6 +273,7 @@ program
           write: options.write,
           failOnUnmapped: options.failOnUnmapped,
           failOnAuthoring: options.failOnAuthoring,
+          replay: options.replay,
           maxLlmCalls: options.maxLlmCalls,
           maxTokens: options.maxTokens,
           maxDuration: options.maxDuration,

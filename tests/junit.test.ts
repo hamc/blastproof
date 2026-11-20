@@ -266,3 +266,30 @@ describe('JUnit spend properties', () => {
     expect(xml).not.toContain('llm_calls');
   });
 });
+
+describe('replay counts (replay-the-actions-of-a-passing-step)', () => {
+  const decided = (...by: Array<'replayed' | 'model' | 'healed'>): TestResult => ({
+    ...passed('one'),
+    steps: by.map((decidedBy) => ({
+      step: 's',
+      setup: false,
+      status: 'passed' as const,
+      iterations: 1,
+      failedAttempts: 0,
+      durationMs: 1,
+      decidedBy,
+    })),
+  });
+
+  it('carries how the steps were decided, a healed step among the model ones', () => {
+    const xml = renderJUnit([decided('replayed', 'replayed', 'model', 'healed')], [], { score: 100, durationMs: 1 });
+    expect(xml).toContain('<property name="replayed_steps" value="2"/>');
+    expect(xml).toContain('<property name="model_steps" value="2"/>');
+    expect(xml).toContain('<property name="healed_steps" value="1"/>');
+  });
+
+  it('has no such property with replay off', () => {
+    const xml = renderJUnit([passed('one')], [], { score: 100, durationMs: 1 });
+    expect(xml).not.toContain('_steps"');
+  });
+});

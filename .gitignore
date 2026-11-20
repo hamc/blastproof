@@ -10,6 +10,7 @@ coverage/
 # blastproof runtime artifacts
 .blastproof/reports/
 .blastproof/sessions/
+.blastproof/cache/
 
 # Captured sessions are live credentials — never commit them.
 .blastproof/.auth-state.json

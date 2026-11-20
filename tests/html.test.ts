@@ -382,3 +382,31 @@ describe('writeHtml', () => {
     }
   });
 });
+
+describe('a replayed step is labelled (replay-the-actions-of-a-passing-step)', () => {
+  const withSteps = (...by: Array<'replayed' | 'model' | 'healed' | undefined>): TestResult => ({
+    ...passed('one'),
+    steps: by.map((decidedBy, i) => ({
+      step: `step ${i}`,
+      setup: false,
+      status: 'passed' as const,
+      iterations: 1,
+      failedAttempts: 0,
+      durationMs: 1,
+      ...(decidedBy ? { decidedBy } : {}),
+    })),
+  });
+
+  it('labels a replayed and a healed step, and no other', async () => {
+    const html = await renderHtml([withSteps('replayed', 'healed', 'model')], [], { score: 100, durationMs: 1, screenshots: 'embed' });
+    expect(html).toContain('step 0 <span class="note">(replayed)</span>');
+    expect(html).toContain('step 1 <span class="note">(healed)</span>');
+    expect(html).toMatch(/step 2<\/li>/);
+  });
+
+  it('is unchanged with replay off', async () => {
+    const html = await renderHtml([withSteps(undefined)], [], { score: 100, durationMs: 1, screenshots: 'embed' });
+    expect(html).not.toContain('(replayed)');
+    expect(html).toMatch(/step 0<\/li>/);
+  });
+});

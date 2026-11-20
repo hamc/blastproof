@@ -30,3 +30,10 @@ The generated configuration SHALL reference the project's canonical repository U
 #### Scenario: Link resolves
 - **WHEN** `blastproof init` scaffolds `.blastproof/config.yaml`
 - **THEN** the documentation URL in its header points at the project's real repository
+
+### Requirement: The scaffolded .gitignore ignores saved actions
+The `.gitignore` that `init` writes SHALL ignore `.blastproof/cache/`. An existing `.gitignore` SHALL NOT be modified.
+
+#### Scenario: New project
+- **WHEN** `init` runs in a directory with no `.gitignore`
+- **THEN** the one it writes contains `.blastproof/cache/`

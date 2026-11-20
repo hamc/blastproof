@@ -42,6 +42,8 @@ Write steps that end in an observable result — text on the page, a count, a st
 
 **Inline error messages should be plain visible text.** `role="alert"` is read correctly from the accessibility tree and needs no special handling, but note that an alert your page has cleared shows up as an empty element: if a verdict says an alert exists whose content is missing, the message was emptied, not hidden.
 
+With [`replay`](./configuration.md#replay--repeating-what-passed-last-time) on, this matters once more: a step with no outcome to check closes, on a replay, when its saved actions changed the page as they did before, and any change counts. A step that names its outcome is judged on every run.
+
 ## A step that enters a value writes the value
 
 ```yaml

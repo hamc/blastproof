@@ -134,6 +134,7 @@ it carries:
 | `<property name="llm_calls">` · `llm_tokens` | what the run spent |
 | `<skipped/>` on tests with no `routes:` | tests `--impacted` could not select |
 | `<property name="warnings">` · `<system-err>` | how many warnings the run printed, and their text |
+| `<property name="replayed_steps">` · `model_steps` · `healed_steps` | with [`replay`](./configuration.md#replay--repeating-what-passed-last-time) on: how the run's steps were decided |
 
 Tests with no `routes:` appear as skipped rather than being omitted entirely, so
 the coverage gap shows up in the CI summary instead of vanishing silently. The
@@ -164,6 +165,36 @@ secrets your tests use.
 
 `if: always()` matters — the run you most want the report from is the one that
 just failed the job.
+
+## Carrying saved actions between runs
+
+With [`replay`](./configuration.md#replay--repeating-what-passed-last-time) on,
+a run saves the actions of the steps that passed under `.blastproof/cache/`. A
+CI runner starts empty, so without a cache step every run asks the model for
+everything:
+
+```yaml
+      - uses: actions/cache@v4
+        with:
+          path: .blastproof/cache
+          key: blastproof-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            blastproof-${{ github.ref_name }}-
+            blastproof-main-
+```
+
+A saved action is checked against the live page every time, so an entry from
+another branch costs a model call when it no longer fits, and nothing else.
+
+Three things to adjust for your workflow:
+
+- the path is relative to the job's root: with the action's
+  `working-directory`, prefix it;
+- `actions/cache` saves only when the job succeeds, so a run the gate failed
+  carries nothing forward;
+- a saved file belongs to one device, so a matrix over `browser.device` should
+  put the device in the cache key, or each job reads the other's file as
+  nothing saved.
 
 ## Gating patterns
 

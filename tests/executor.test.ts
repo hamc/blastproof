@@ -25,6 +25,7 @@ import {
   type ExecutorOptions,
 } from '../src/runner/executor.js';
 import { describeAction, StepRecovery } from '../src/runner/recovery.js';
+import { stepKey, type SavedStep } from '../src/runner/replay.js';
 import { captureSnapshot, snapshotCutAt, trimSnapshot } from '../src/runner/snapshot.js';
 import type { TestFile } from '../src/runner/testfile.js';
 
@@ -3470,5 +3471,661 @@ describe('an action step takes the check after it (an-action-step-takes-the-next
     expect(result.status).toBe('passed');
     expect(acted[0]).toBe(SUBMIT);
     expect(judged).toEqual([CHECK]);
+  });
+});
+
+describe('a passing step is replayed (replay-the-actions-of-a-passing-step, #144)', () => {
+  const ADD = 'add the note';
+  const ADD_AND_CHECK = 'add the note and verify it is listed';
+
+  /** A notes page whose snapshot changes with every click on "Add note". */
+  function notes(button = 'Add note'): { page: FakePage; snapshot: () => Promise<string>; clicks: () => number } {
+    const page = new FakePage();
+    let clicks = 0;
+    page.visible.add(`role:button|${button}`);
+    page.visible.add('role:textbox|Note');
+    page.onClick = () => {
+      clicks++;
+    };
+    return { page, snapshot: async () => `notes: ${clicks}`, clicks: () => clicks };
+  }
+
+  const fill = (value: string): AgentAction => ({
+    action: 'fill',
+    target: { role: 'textbox', name: 'Note' },
+    value,
+    reasoning: 'r',
+  });
+  const done: AgentAction = { action: 'done', reasoning: 'the note is listed' };
+
+  /** A first run with replay on and nothing saved: what it hands back for saving. */
+  async function record(step: string, script: AgentAction[], judgments: AssertJudgment[] = []) {
+    const { page, snapshot } = notes();
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [step] }),
+      baseOptions(scriptedBrain(script, judgments), { snapshot, replay: { saved: [] } }),
+    );
+    expect(result.status).toBe('passed');
+    return result.replay!.steps;
+  }
+
+  it('saves what worked: role, name, value as written, whether the page changed, and the close', async () => {
+    const saved = await record(`${ADD} "Milk"`, [fill('Milk'), click('Nope'), click('Add note'), done]);
+
+    // The click on a button the page does not have is refused, and is not saved.
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.actions).toEqual([
+      { action: 'fill', role: 'textbox', name: 'Note', value: 'Milk', changed: false },
+      { action: 'click', role: 'button', name: 'Add note', changed: true },
+    ]);
+    expect(saved[0]!.close).toEqual({ by: 'done' });
+    expect(JSON.stringify(saved)).not.toMatch(/ref|selector/);
+  });
+
+  it('reports nothing about replay when it is off', async () => {
+    const { page, snapshot } = notes();
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(scriptedBrain([click('Add note'), done]), { snapshot }),
+    );
+
+    expect(result.replay).toBeUndefined();
+    expect(result.steps[0]!.decidedBy).toBeUndefined();
+  });
+
+  it('replays a step that closed on done without asking the model', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const { page, snapshot, clicks } = notes();
+    const brain = scriptedBrain([]);
+
+    const result = await executeTest(page, makeTest({ steps: [ADD] }), baseOptions(brain, { snapshot, replay: { saved } }));
+
+    expect(result.status).toBe('passed');
+    expect(brain.calls).toBe(0);
+    expect(brain.judgeCalls).toBe(0);
+    expect(clicks()).toBe(1);
+    expect(result.steps[0]).toMatchObject({ decidedBy: 'replayed', failedAttempts: 0 });
+    expect(result.replay).toEqual({ steps: saved, ended: [] });
+  });
+
+  it('judges a step that closed by judgment again, on the live page, with the saved claim', async () => {
+    const saved = await record(ADD_AND_CHECK, [click('Add note'), done], [{ pass: true, reason: 'listed' }]);
+    expect(saved[0]!.close).toEqual({ by: 'judgment', claim: 'the note is listed' });
+    const { page, snapshot } = notes();
+    const claims: string[] = [];
+    const pages: string[] = [];
+    const brain: AgentBrain = {
+      nextAction: async () => {
+        throw new Error('the model must not be asked');
+      },
+      judge: async (_step, claim, page) => {
+        claims.push(claim);
+        pages.push(page);
+        return { pass: true, reason: 'listed' };
+      },
+    };
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD_AND_CHECK] }),
+      baseOptions(brain, { snapshot, replay: { saved } }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(claims).toEqual(['the note is listed']);
+    expect(pages[0]).toContain('notes: 1');
+    expect(result.steps[0]!.decidedBy).toBe('replayed');
+  });
+
+  it('replays a verification step as one judgment', async () => {
+    const VERIFY = 'verify the note is listed';
+    const saved = await record(
+      VERIFY,
+      [{ action: 'assert', expectation: 'the list has the note', reasoning: 'r' }],
+      [{ pass: true, reason: 'yes' }],
+    );
+    const { page, snapshot } = notes();
+    const brain = scriptedBrain([], [{ pass: true, reason: 'yes' }]);
+
+    const result = await executeTest(page, makeTest({ steps: [VERIFY] }), baseOptions(brain, { snapshot, replay: { saved } }));
+
+    expect(result.status).toBe('passed');
+    expect(brain.calls).toBe(0);
+    expect(brain.judgeCalls).toBe(1);
+  });
+
+  it('hands a renamed button to the model, spends no attempt, and saves the new path', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const { page, snapshot } = notes('Save note');
+    const brain = scriptedBrain([click('Save note'), done]);
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(brain, { snapshot, replay: { saved }, onEvent: (e) => events.push(e) }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(result.steps[0]).toMatchObject({ decidedBy: 'healed', failedAttempts: 0 });
+    expect(events.filter((e) => e.type === 'replay-ended')).toHaveLength(1);
+    expect(result.replay!.ended).toEqual([saved[0]!.key]);
+    expect(result.replay!.steps[0]!.actions[0]).toMatchObject({ role: 'button', name: 'Save note' });
+  });
+
+  it('does not close a step on a replayed click that no longer changes the page', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    const brain = scriptedBrain([{ action: 'fail', reasoning: 'nothing was added' }]);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(brain, { snapshot: async () => 'notes: 0', replay: { saved } }),
+    );
+
+    expect(page.calls.filter((c) => c.startsWith('click'))).toHaveLength(1);
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.decidedBy).toBe('model');
+    expect(result.replay!.ended).toEqual([saved[0]!.key]);
+  });
+
+  it('ends on a failed judgment without an attempt, and the model cannot repeat the commit', async () => {
+    const saved = await record(ADD_AND_CHECK, [click('Add note'), done], [{ pass: true, reason: 'listed' }]);
+    const { page, snapshot, clicks } = notes();
+    const brain = scriptedBrain(
+      [
+        { action: 'press', value: 'Escape', reasoning: 'r' },
+        click('Add note'),
+        { action: 'assert', expectation: 'the note is listed now', reasoning: 'r' },
+      ],
+      [
+        { pass: false, reason: 'not listed' },
+        { pass: false, reason: 'still not listed' },
+        { pass: true, reason: 'listed' },
+      ],
+    );
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD_AND_CHECK] }),
+      baseOptions(brain, { snapshot, replay: { saved }, onEvent: (e) => events.push(e) }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(clicks()).toBe(1);
+    // One attempt: the model's refused repeat. The replay's failed judgment spent none.
+    expect(result.steps[0]).toMatchObject({ decidedBy: 'healed', failedAttempts: 1 });
+    const refused = events.find((e) => e.type === 'action' && e.result.startsWith('refused'));
+    expect(refused).toBeDefined();
+  });
+
+  it('does not replay a step whose text changed', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const { page, snapshot } = notes();
+    const brain = scriptedBrain([click('Add note'), done]);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['add the note now'] }),
+      baseOptions(brain, { snapshot, replay: { saved } }),
+    );
+
+    expect(brain.calls).toBe(2);
+    expect(result.steps[0]!.decidedBy).toBe('model');
+    expect(result.replay!.ended).toEqual([]);
+  });
+
+  it('does not replay a step when the check judged with it changed', async () => {
+    const CHECK = 'verify the note is listed';
+    const first = notes();
+    const recorded = await executeTest(
+      first.page,
+      makeTest({ steps: [ADD, CHECK] }),
+      baseOptions(
+        scriptedBrain(
+          [click('Add note'), done, { action: 'assert', expectation: 'listed', reasoning: 'r' }],
+          [{ pass: true, reason: 'y' }, { pass: true, reason: 'y' }],
+        ),
+        { snapshot: first.snapshot, replay: { saved: [] } },
+      ),
+    );
+    const { page, snapshot } = notes();
+    const brain = scriptedBrain(
+      [click('Add note'), done, { action: 'assert', expectation: 'listed twice', reasoning: 'r' }],
+      [{ pass: true, reason: 'y' }, { pass: true, reason: 'y' }],
+    );
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD, 'verify the note is listed twice'] }),
+      baseOptions(brain, { snapshot, replay: { saved: recorded.replay!.steps } }),
+    );
+
+    expect(result.steps.map((s) => s.decidedBy)).toEqual(['model', 'model']);
+  });
+
+  it('saves a secret as its placeholder and types the resolved value on replay', async () => {
+    const STEP = 'add the note {{env.NOTE}}';
+    const mask = new SecretsMask();
+    mask.add('hunter2-secret', 'NOTE');
+    const options = { mask: (t: string) => mask.mask(t), resolveValue: (v: string) => v.replace('{{env.NOTE}}', 'hunter2-secret') };
+    const first = notes();
+    const recorded = await executeTest(
+      first.page,
+      makeTest({ steps: [STEP] }),
+      baseOptions(scriptedBrain([fill('{{env.NOTE}}'), click('Add note'), done]), {
+        ...options,
+        snapshot: first.snapshot,
+        replay: { saved: [] },
+      }),
+    );
+    const saved = recorded.replay!.steps;
+    expect(JSON.stringify(saved)).not.toContain('hunter2-secret');
+    expect(saved[0]!.actions[0]!.value).toBe('{{env.NOTE}}');
+
+    const { page, snapshot } = notes();
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [STEP] }),
+      baseOptions(scriptedBrain([]), { ...options, snapshot, replay: { saved } }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(page.calls).toContain('fill role:textbox|Note=hunter2-secret');
+  });
+
+  it('saves the check as the claim when a step passed by the judgment before failing', async () => {
+    const CHECK = 'verify the note is listed';
+    const first = notes();
+    const recorded = await executeTest(
+      first.page,
+      makeTest({ steps: [ADD, CHECK] }),
+      baseOptions(
+        scriptedBrain(
+          [click('Add note'), { action: 'fail', reasoning: 'the form came back empty' }, { action: 'assert', expectation: 'listed', reasoning: 'r' }],
+          [{ pass: true, reason: 'y' }, { pass: true, reason: 'y' }],
+        ),
+        { snapshot: first.snapshot, replay: { saved: [] } },
+      ),
+    );
+
+    expect(recorded.status).toBe('passed');
+    expect(recorded.replay!.steps[0]).toMatchObject({
+      actions: [{ action: 'click', role: 'button', name: 'Add note', changed: true }],
+      close: { by: 'judgment', claim: CHECK },
+    });
+  });
+
+  /** A snapshot as AI mode prints it: the focused element carries `[active]`. */
+  function focusPage(): { page: FakePage; snapshot: () => Promise<string> } {
+    const page = new FakePage();
+    let focused = false;
+    page.visible.add('role:button|Add to cart');
+    page.onClick = () => {
+      focused = true;
+    };
+    return { page, snapshot: async () => `- main${focused ? '' : ' [active]'}\n- status${focused ? ' [active]' : ''}` };
+  }
+
+  it('does not take a move of the focus for a change of the page', async () => {
+    // A click moves the focus to what it clicked, and the snapshot marks it:
+    // with the mark counted, a button that does nothing "changed" the page.
+    const CART = 'add to cart';
+    const first = notes();
+    first.page.visible.add('role:button|Add to cart');
+    const recorded = await executeTest(
+      first.page,
+      makeTest({ steps: [CART] }),
+      baseOptions(scriptedBrain([click('Add to cart'), done]), { snapshot: first.snapshot, replay: { saved: [] } }),
+    );
+    const saved = recorded.replay!.steps;
+    expect(saved[0]!.actions[0]!.changed).toBe(true);
+    const { page, snapshot } = focusPage();
+    const brain = scriptedBrain([{ action: 'fail', reasoning: 'nothing was added' }]);
+
+    const result = await executeTest(page, makeTest({ steps: [CART] }), baseOptions(brain, { snapshot, replay: { saved } }));
+
+    expect(result.status).toBe('failed');
+    expect(result.replay!.ended).toEqual([saved[0]!.key]);
+  });
+
+  it('saves a click that only moved the focus as one that changed nothing', async () => {
+    const { page, snapshot } = focusPage();
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['add to cart'] }),
+      baseOptions(scriptedBrain([click('Add to cart'), done]), { snapshot, replay: { saved: [] } }),
+    );
+
+    expect(result.replay!.steps[0]!.actions[0]!.changed).toBe(false);
+  });
+
+  it('waits for a page that changes late before giving the replay up', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    // The page shows the note from the second read after the click on: the
+    // first, at the top of the loop, still shows none.
+    let readsAfterClick = -1;
+    page.onClick = () => {
+      readsAfterClick = 0;
+    };
+    const snapshot = async (): Promise<string> =>
+      `notes: ${readsAfterClick >= 0 && ++readsAfterClick > 1 ? 1 : 0}`;
+    const brain = scriptedBrain([]);
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(brain, { snapshot, replay: { saved }, renderWatchMs: 2_000 }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(result.steps[0]!.decidedBy).toBe('replayed');
+    expect(brain.calls).toBe(0);
+  });
+
+  it('reads no page that left the application while it waits for a change', async () => {
+    const saved = await record(ADD_AND_CHECK, [click('Add note'), done], [{ pass: true, reason: 'listed' }]);
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    // The click redirects elsewhere a moment after the page settled.
+    page.onClick = () => {
+      setTimeout(() => {
+        page.currentUrl = 'http://evil.test/sso';
+      }, 300);
+    };
+    const read: string[] = [];
+    const snapshot = async (p: PageLike): Promise<string> => {
+      read.push(p.url());
+      return p.url().includes('evil') ? 'FOREIGN PAGE' : 'notes: 0';
+    };
+    const judged: string[] = [];
+    const brain: AgentBrain = {
+      nextAction: async () => {
+        throw new Error('the model must not be asked');
+      },
+      judge: async (_step, _claim, shown) => {
+        judged.push(shown);
+        return { pass: true, reason: 'y' };
+      },
+    };
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD_AND_CHECK] }),
+      baseOptions(brain, { snapshot, replay: { saved }, renderWatchMs: 2_000 }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.reason).toContain('The page left the application');
+    expect(read.filter((url) => url.includes('evil'))).toEqual([]);
+    expect(judged).toEqual([]);
+    expect(result.replay!.ended).toEqual([saved[0]!.key]);
+  });
+
+  it('ends on a saved commit the step may not repeat, without an attempt', async () => {
+    const twice: SavedStep = {
+      key: stepKey(0, false, ADD, ADD),
+      actions: [
+        { action: 'click', role: 'button', name: 'Add note', changed: true },
+        { action: 'press', value: 'Escape', changed: false },
+        { action: 'click', role: 'button', name: 'Add note', changed: true },
+      ],
+      close: { by: 'done' },
+    };
+    const { page, snapshot, clicks } = notes();
+    const events: ExecutorEvent[] = [];
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(scriptedBrain([done]), { snapshot, replay: { saved: [twice] }, onEvent: (e) => events.push(e) }),
+    );
+
+    expect(clicks()).toBe(1);
+    expect(result.steps[0]).toMatchObject({ status: 'passed', decidedBy: 'healed', failedAttempts: 0 });
+    const ended = events.find((e) => e.type === 'replay-ended');
+    expect(ended?.type === 'replay-ended' && ended.reason).toContain('refused');
+  });
+
+  it('ends on a saved action that fails, without an attempt', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const page = new FakePage();
+    page.present.add('role:button|Add note'); // on the page, and not visible
+    const brain = scriptedBrain(finishes());
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(brain, { snapshot: async () => 'notes: 0', replay: { saved } }),
+    );
+
+    expect(result.steps[0]).toMatchObject({ status: 'passed', decidedBy: 'healed', failedAttempts: 0 });
+    expect(brain.calls).toBe(2);
+  });
+
+  it('ends on a saved close the step does not allow, without an attempt', async () => {
+    const VERIFY = 'verify the note is listed';
+    const wrong: SavedStep = { key: stepKey(0, false, VERIFY, VERIFY), actions: [], close: { by: 'done' } };
+    const { page, snapshot } = notes();
+    const brain = scriptedBrain(
+      [{ action: 'assert', expectation: 'listed', reasoning: 'r' }],
+      [{ pass: true, reason: 'y' }],
+    );
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [VERIFY] }),
+      baseOptions(brain, { snapshot, replay: { saved: [wrong] } }),
+    );
+
+    expect(result.steps[0]).toMatchObject({ status: 'passed', decidedBy: 'healed', failedAttempts: 0 });
+  });
+
+  it('ends on a judgment that gives no answer, without an attempt', async () => {
+    const saved = await record(ADD_AND_CHECK, [click('Add note'), done], [{ pass: true, reason: 'listed' }]);
+    const { page, snapshot } = notes();
+    let judgments = 0;
+    const brain: AgentBrain = {
+      nextAction: async () => ({ action: 'assert', expectation: 'the note is listed', reasoning: 'r' }),
+      judge: async () => {
+        if (judgments++ === 0) throw new MalformedModelOutputError('not a judgment');
+        return { pass: true, reason: 'listed' };
+      },
+    };
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD_AND_CHECK] }),
+      baseOptions(brain, { snapshot, replay: { saved } }),
+    );
+
+    expect(result.steps[0]).toMatchObject({ status: 'passed', decidedBy: 'healed', failedAttempts: 0 });
+  });
+
+  it('does not replay again a step that failed with its replay still live', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const { page, snapshot } = notes();
+    page.onClick = () => {
+      page.currentUrl = 'http://evil.test/';
+    };
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(scriptedBrain([]), { snapshot, replay: { saved } }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.decidedBy).toBe('model');
+    expect(result.replay!.ended).toEqual([saved[0]!.key]);
+  });
+
+  it('masks the name, the value, the claim and the check it saves', async () => {
+    const mask = new SecretsMask();
+    mask.add('hunter2-secret', 'NOTE');
+    const page = new FakePage();
+    page.visible.add('role:button|Add hunter2-secret');
+    page.visible.add('role:textbox|Note');
+    let clicks = 0;
+    page.onClick = () => {
+      clicks++;
+    };
+    const options = { mask: (t: string) => mask.mask(t), snapshot: async () => `notes: ${clicks}`, replay: { saved: [] } };
+    const typed: AgentAction = { action: 'fill', target: { role: 'textbox', name: 'Note' }, value: 'x hunter2-secret', reasoning: 'r' };
+    const pressed: AgentAction = { action: 'click', target: { role: 'button', name: 'Add [redacted NOTE]' }, reasoning: 'r' };
+
+    const judged = await executeTest(
+      page,
+      makeTest({ steps: ['fill "x hunter2-secret" and add it and verify it is listed'] }),
+      baseOptions(
+        scriptedBrain(
+          [typed, { ...pressed, target: { ...pressed.target, ref: refFor('button', 'Add hunter2-secret') } }, { action: 'done', reasoning: 'hunter2-secret is listed' }],
+          [{ pass: true, reason: 'y' }],
+        ),
+        options,
+      ),
+    );
+    const rescued = await executeTest(
+      page,
+      makeTest({ steps: ['press the button', 'verify hunter2-secret is listed'] }),
+      baseOptions(
+        scriptedBrain(
+          [{ ...pressed, target: { ...pressed.target, ref: refFor('button', 'Add hunter2-secret') } }, { action: 'fail', reasoning: 'empty' }],
+          [{ pass: true, reason: 'y' }],
+        ),
+        options,
+      ),
+    );
+
+    const saved = JSON.stringify([judged.replay, rescued.replay]);
+    expect(judged.status).toBe('passed');
+    expect(saved).not.toContain('hunter2-secret');
+    expect(judged.replay!.steps[0]).toMatchObject({
+      actions: [{ value: 'x [redacted NOTE]' }, { name: 'Add [redacted NOTE]' }],
+      close: { by: 'judgment', claim: '[redacted NOTE] is listed' },
+    });
+    expect(rescued.replay!.steps[0]!.close).toEqual({ by: 'judgment', claim: 'verify [redacted NOTE] is listed' });
+  });
+
+  it('records whether the last action changed the page when the step passes by the judgment before failing', async () => {
+    const CHECK = 'verify the note is listed';
+    const { page, snapshot } = notes();
+    // The step runs out of actions right after the click, before another
+    // snapshot is read, and the judgment before failing passes it.
+    const recorded = await executeTest(
+      page,
+      makeTest({ steps: [ADD, CHECK] }),
+      baseOptions(scriptedBrain([click('Add note')], [{ pass: true, reason: 'y' }]), {
+        snapshot,
+        replay: { saved: [] },
+        maxIterationsPerStep: 1,
+      }),
+    );
+
+    expect(recorded.steps[0]!.status).toBe('passed');
+    expect(recorded.replay!.steps[0]!.actions).toEqual([{ action: 'click', role: 'button', name: 'Add note', changed: true }]);
+  });
+
+  it('masks a saved name whose secret the snapshot printed escaped', async () => {
+    // The snapshot quotes a name, so a secret with a quote in it is printed
+    // escaped and the mask of the page does not see it; the line unquoted is
+    // the secret again.
+    const mask = new SecretsMask();
+    mask.add('pa"ss-w0rd', 'TOKEN');
+    const page = new FakePage();
+    page.visible.add('role:button|Copy pa"ss-w0rd');
+    let clicks = 0;
+    page.onClick = () => {
+      clicks++;
+    };
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: ['copy the token'] }),
+      baseOptions(scriptedBrain([click('Copy pa"ss-w0rd'), done]), {
+        mask: (t) => mask.mask(t),
+        snapshot: async () => `copied: ${clicks}`,
+        replay: { saved: [] },
+      }),
+    );
+
+    expect(result.status).toBe('passed');
+    expect(JSON.stringify(result.replay)).not.toContain('ss-w0rd');
+    expect(result.replay!.steps[0]!.actions[0]!.name).toBe('Copy [redacted TOKEN]');
+  });
+
+  it('masks the reason a replay ended', async () => {
+    const STEP = 'open {{env.PAGE}}';
+    const mask = new SecretsMask();
+    mask.add('hunter2-secret', 'PAGE');
+    const leaves: SavedStep = {
+      key: stepKey(0, false, STEP, STEP),
+      actions: [{ action: 'navigate', value: '{{env.PAGE}}', changed: true }],
+      close: { by: 'done' },
+    };
+    const events: ExecutorEvent[] = [];
+
+    await executeTest(
+      new FakePage(),
+      makeTest({ steps: [STEP] }),
+      baseOptions(scriptedBrain([{ action: 'fail', reasoning: 'cannot' }]), {
+        mask: (t) => mask.mask(t),
+        resolveValue: (v) => v.replace('{{env.PAGE}}', 'http://hunter2-secret.test/'),
+        replay: { saved: [leaves] },
+        onEvent: (e) => events.push(e),
+      }),
+    );
+
+    const ended = events.find((e) => e.type === 'replay-ended');
+    expect(ended?.type === 'replay-ended' && ended.reason).toContain('[redacted PAGE]');
+    expect(JSON.stringify(events)).not.toContain('hunter2-secret');
+  });
+
+  it('watches a page once per action, so one that flickers cannot hold the step', async () => {
+    const saved = await record(ADD, [click('Add note'), done]);
+    const page = new FakePage();
+    page.visible.add('role:button|Add note');
+    let reads = 0;
+    let clicked = false;
+    page.onClick = () => {
+      clicked = true;
+    };
+    // After the click, every second read shows a change that is gone by the next.
+    const snapshot = async (): Promise<string> => (clicked && ++reads % 2 === 0 ? 'notes: 1' : 'notes: 0');
+
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(scriptedBrain([{ action: 'fail', reasoning: 'nothing was added' }]), {
+        snapshot,
+        replay: { saved },
+        renderWatchMs: 2_000,
+      }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.replay!.ended).toEqual([saved[0]!.key]);
+  });
+
+  it('saves nothing for a step that failed', async () => {
+    const { page, snapshot } = notes();
+    const result = await executeTest(
+      page,
+      makeTest({ steps: [ADD] }),
+      baseOptions(scriptedBrain([click('Add note'), { action: 'fail', reasoning: 'no' }]), {
+        snapshot,
+        replay: { saved: [] },
+      }),
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.replay).toEqual({ steps: [], ended: [] });
   });
 });

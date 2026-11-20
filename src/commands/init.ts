@@ -96,6 +96,7 @@ steps:
 const GITIGNORE = `# blastproof runtime artifacts
 reports/
 sessions/
+cache/
 
 # Captured sessions are live credentials — never commit them.
 .auth-state.json
