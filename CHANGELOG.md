@@ -15,8 +15,8 @@ while it is pre-1.0, a minor bump may change existing behaviour and a patch neve
   on the live page on every run. A saved element missing or there twice, a refused or failed action,
   a page that no longer changes where it did and a failed judgment each hand the step to the model,
   without spending an attempt, and the path it finds replaces the saved one when the test passes. On
-  this repository's suite on `gpt-6-luna`, a run went from 105 model calls to 44 and from 272 s to
-  about 135 s, and on the benchmark of seeded bugs no bug was hidden on Haiku 4.5 or `gpt-6-luna`.
+  this repository's suite, a run went from 105 model calls to 44 on `gpt-6-luna` and from 113 to 49
+  on Haiku 4.5, in about half the time, and on the benchmark of seeded bugs no bug was hidden on Haiku 4.5 or `gpt-6-luna`.
   The summary, the HTML report and JUnit (`replayed_steps`, `model_steps`, `healed_steps`) say how
   each step was decided. `init` now ignores `.blastproof/cache/`.
 

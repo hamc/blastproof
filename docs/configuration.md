@@ -375,9 +375,15 @@ decided:
 Replay: 39 steps replayed, 1 resolved by the model (1 healed)
 ```
 
-On this repository's suite, a run with nothing saved made 105 model calls on
-`gpt-6-luna` and took 272 s. The ten runs after it made 44 calls each, 39% of the
-tokens, in about 135 s, all with Score 100. On the benchmark of seeded bugs,
+On this repository's suite:
+
+| | nothing saved | each run after it |
+| --- | --- | --- |
+| `gpt-6-luna` (10 runs) | 105 calls, 182k tokens, 272 s | 44 calls, 71k tokens, about 135 s |
+| `claude-haiku-4.5` (5 runs) | 113 calls, 244k tokens, 213 s | 49 calls, 93k tokens, about 95 s |
+
+All with Score 100, and 39 of 40 steps replayed. The calls left are the
+judgments, which run every time, and the sign-in. On the benchmark of seeded bugs,
 replay hid none of the 51 on either model ([Reliability](./reliability.md)).
 
 ### Limits

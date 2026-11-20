@@ -33,10 +33,10 @@
 - [x] 5.1 `evals/reliability`: a mode that records on the correct app and runs the mutants from those saved actions
 - [x] 5.2 False PASS with replay: 0 of 50, and "right step" not lower than without
   - *Done,* 3 samples instead of 5, for the credit there was. Both models: false PASS 0 of 30 literal and 0 of 21 subtle, no bug caught at another step, false FAIL 0 of 30. Steps replayed / handed to the model: Haiku 229 / 14, Luna 231 / 12
-- [ ] 5.3 Dogfood suite, second run: model calls are judgments only; calls, tokens and time against a run with nothing saved
-  - *Luna:* nothing saved, 105 calls, 182k tokens, 272 s; warm, 44 calls, 71k tokens, about 135 s, on each of 10 runs. 39 of 40 steps replayed; the one left is a step whose button has a same-named twin on the page (design D3), and the calls left are judgments and the sign-in
-- [ ] 5.4 Dogfood suite and the notes test in split form, 30 warm runs each: no failure on the correct app
-  - *Reduced for the credit there was:* Luna, 10 warm suite runs, all Score 100
+- [x] 5.3 Dogfood suite, second run: model calls are judgments only; calls, tokens and time against a run with nothing saved
+  - *Luna:* nothing saved, 105 calls, 182k tokens, 272 s; warm, 44 calls, 71k tokens, about 135 s, on each of 10 runs. 39 of 40 steps replayed; the one left is a step whose button has a same-named twin on the page (design D3), and the calls left are judgments and the sign-in. *Haiku 4.5:* nothing saved, 113 calls, 244k tokens, 213 s; warm, 49 calls, 93k tokens, about 95 s, on each of 5 runs, with the same 39 of 40 replayed
+- [x] 5.4 Dogfood suite and the notes test in split form, 30 warm runs each: no failure on the correct app
+  - *Reduced for the credit there was:* Luna, 10 warm suite runs, and Haiku 4.5, 5 warm suite runs, all Score 100. The notes test was not run on its own: it is in the suite, and in the benchmark's 30 correct-app runs per model
 - [x] 5.5 One button of the demo app renamed: the test passes, the step is reported healed, the next run replays it
   - *Done* on `gpt-6-luna`, the notes test with "Add note" renamed "Save note": recorded 4 steps; renamed, 3 replayed and 1 healed, Score 100; the run after, 4 replayed, Score 100. The calls left are the sign-in and the judgments
 
