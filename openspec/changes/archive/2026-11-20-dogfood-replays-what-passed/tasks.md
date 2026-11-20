@@ -8,4 +8,4 @@
   - *Done,* on Haiku 4.5 through OpenRouter with the workflow's environment: cold run 0 replayed, 40 by the model, Score 100; demo app restarted by its PID; warm run 39 replayed, 1 by the model (1 healed), Score 100, the notes test passing on the restarted server. The check on crafted reports: warm 39/1, 20/20 pass; warm 19/21, 0/40 and no counters fail; cold 0/40 passes; cold 3/37 fails
 - [x] 2.2 `docs/reliability.md`: what the badge covers now
 - [x] 2.3 `npm run build`, `npm run typecheck`, `npm test` all pass
-- [ ] 2.4 Archive in the same pull request, as its own commit
+- [x] 2.4 Archive in the same pull request, as its own commit
