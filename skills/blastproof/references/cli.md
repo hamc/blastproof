@@ -37,6 +37,7 @@ Executes tests and reports a priority-weighted score.
 | `--fail-on-unmapped` | exit 1 when a changed file matches neither `routes:` nor `ignore:`. **Requires `--impacted`** — without it the run exits 2 |
 | `--fail-on-authoring` | turn authoring warnings into exit 1 |
 | `--concurrency <n>` | tests in parallel; **default 1, and raising it is a decision for whoever knows the suite** — these are journeys against one running app, so two tests that write to it can see each other's data |
+| `--replay` · `--no-replay` | repeat the saved actions of steps that passed last time instead of asking the model, or ask it for everything; off by default. Verdicts are never saved: a step that closed on a judgment is judged again. A step with no check closes on any page change, so a step that must not pass that way names its outcome |
 | `--max-llm-calls <n>` | stop after this many model calls, reported as incomplete |
 | `--max-tokens <n>` | stop after this many tokens |
 | `--max-duration <seconds>` | stop after this much wall-clock time |
