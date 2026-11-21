@@ -24,7 +24,7 @@
 
 - **Your tests live in your repository.** Plain-English YAML, reviewed in pull requests like code. No selectors to maintain: the agent reads the page the way a screen reader does.
 - **It runs where your code runs.** On your machine or in your CI. No account, no subscription, no dashboard to sign in to. The only thing that leaves your network is the model call, to the provider you choose — or none, with a local model through Ollama. MIT licensed.
-- **It costs cents, and you can cap it.** This repository's own 10-test suite takes about 110 model calls and 240k tokens per run on `claude-haiku-4.5`: about **$0.35 a run**, or 3–4 cents a test, at list prices. With `--impacted`, a pull request runs only the tests its diff can affect. A [budget](./docs/configuration.md#budget--bounding-what-a-run-spends) caps calls, tokens and time, and `--dry-run` costs nothing.
+- **It costs cents, and you can cap it.** This repository's own 10-test suite takes about 110 model calls and 240k tokens per run on `claude-haiku-4.5`: about **$0.35 a run**, or 3–4 cents a test, at list prices. With [`replay`](./docs/configuration.md#replay--repeating-what-passed-last-time) on, a step that passed is repeated from what it did, and each run after the first takes less than half: 49 calls and 93k tokens on the same suite. With `--impacted`, a pull request runs only the tests its diff can affect. A [budget](./docs/configuration.md#budget--bounding-what-a-run-spends) caps calls, tokens and time, and `--dry-run` costs nothing.
 - **How often it is wrong is measured, not promised.** On this repository's benchmark, a seeded bug that should fail a test and a correct app that should pass it, both reference models got every verdict right in the latest measurement: 0 wrong in 89 runs on `claude-haiku-4.5` and 0 in 90 on `gpt-6-luna`. The demo app flatters, and the [method and its limits](./docs/reliability.md) are public.
 
 **It fits best** when you cannot send your application to a hosted service, when you want tests as code rather than in someone else's UI, or when you already have an LLM key. **It does not fit yet** if your markup is not accessible, if your key journeys need drag and drop, file upload or several tabs, or if you are on Windows, which is untested. [Does this fit your application?](./docs/writing-tests.md#does-this-fit-your-application) has the details.
@@ -88,7 +88,7 @@ Exit codes: **0** pass, **1** the gate failed or the run stopped, **2** usage or
 
 - [Writing tests](./docs/writing-tests.md) — the rules that decide whether a suite works, and whether your app fits
 - [Running, selecting and gating](./docs/running.md) — commands, `--impacted`, the score, and the free deterministic half
-- [Configuration](./docs/configuration.md) — providers, models, budgets, browser, concurrency
+- [Configuration](./docs/configuration.md) — providers, models, budgets, browser, concurrency, replay
 - [Testing behind a login](./docs/auth.md) · [Running in CI](./docs/ci.md) — the GitHub Action is on the [Marketplace](https://github.com/marketplace/actions/blastproof-e2e-ai-testing)
 - [Trust boundaries](./docs/trust-boundaries.md) — what the agent may reach, and how secrets stay out of prompts
 - [How often a verdict is wrong](./docs/reliability.md) — the benchmark, and how to reproduce it
